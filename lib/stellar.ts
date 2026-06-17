@@ -1,20 +1,4 @@
-/**
- * Stellar / Soroban network configuration.
- *
- * ─────────────────────────────────────────────────────────────────────────
- * INTEGRATION POINT (you build this part)
- * ─────────────────────────────────────────────────────────────────────────
- * Once your contracts are deployed, install the SDK and create the RPC client:
- *
- *   pnpm add @stellar/stellar-sdk
- *
- *   import { rpc } from '@stellar/stellar-sdk'
- *   export const server = new rpc.Server(NETWORK.rpcUrl)
- *
- * The UI never imports the SDK directly — it only calls helpers from
- * `lib/contract.ts`, so you can swap the mock implementation for real
- * transactions without touching any component.
- */
+import { rpc } from '@stellar/stellar-sdk'
 
 export const NETWORK = {
   name: 'testnet',
@@ -23,11 +7,14 @@ export const NETWORK = {
   horizonUrl: 'https://horizon-testnet.stellar.org',
 } as const
 
-/** Address of the deployed streaming contract. Fill in after deployment. */
+/** Deployed streaming contract address. */
 export const STREAM_CONTRACT_ID =
   process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID ?? ''
 
-/** Common tokens shown in the create-stream token picker. */
+/** RPC server — used for simulation and submission. */
+export const server = new rpc.Server(NETWORK.rpcUrl, { allowHttp: false })
+
+/** Common tokens on testnet. */
 export const KNOWN_TOKENS = [
   {
     address: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC',

@@ -6,13 +6,10 @@ import {
   withdrawFromStream,
   cancelStream as cancelStreamCall,
 } from '@/lib/contract'
+import { invalidateStreams } from '@/hooks/use-streams'
 import { useWallet } from '@/hooks/use-wallet'
 import type { CreateStreamInput } from '@/types/stream'
 
-/**
- * Contract call helpers with shared pending/error state. Each action requires
- * a connected wallet (the wallet signs the transaction inside lib/contract).
- */
 export function useContract() {
   const { address, isConnected } = useWallet()
   const [pending, setPending] = useState(false)
@@ -20,13 +17,13 @@ export function useContract() {
 
   const run = useCallback(
     async <T,>(fn: () => Promise<T>): Promise<T> => {
-      if (!isConnected || !address) {
-        throw new Error('Connect a wallet first.')
-      }
+      if (!isConnected || !address) throw new Error('Connect a wallet first.')
       setPending(true)
       setError(null)
       try {
-        return await fn()
+        const result = await fn()
+        invalidateStreams() // re-fetch all stream hooks after any write
+        return result
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Transaction failed'
         setError(message)
