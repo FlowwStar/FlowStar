@@ -401,3 +401,131 @@ fn test_incrementing_ids() {
         assert_eq!(id, expected_id);
     }
 }
+
+// ─── top up ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_top_up_increases_deposited_amount() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let additional = 500_0000000i128;
+    t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
+    client.top_up(&stream_id, &additional);
+
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.deposited_amount, total + additional);
+    assert_eq!(stream.end_time, now + 1000);
+}
+
+#[test]
+fn test_top_up_at_start_doubles_rate() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let stream_before = client.get_stream(&stream_id);
+    let rate_before = stream_before.amount_per_second;
+
+    // Top up equal amount at start time so rate should double
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    client.top_up(&stream_id, &total);
+
+    let stream_after = client.get_stream(&stream_id);
+    assert_eq!(stream_after.amount_per_second, rate_before * 2);
+}
+
+
+#[test]
+fn test_top_up_mid_stream_recalculates_rate() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    t.set_time(now + 500);
+
+    let additional = 500_0000000i128;
+    t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
+    client.top_up(&stream_id, &additional);
+
+    // remaining_deposited = 500, additional = 500 → new_remaining = 1000
+    // new_rate = 1000 / 500s remaining = 2 tokens/sec
+    let stream = client.get_stream(&stream_id);
+    let expected_rate = (500_0000000i128 + additional) / 500i128;
+    assert_eq!(stream.amount_per_second, expected_rate);
+}
+
+#[test]
+#[should_panic(expected = "cannot top up a cancelled stream")]
+fn test_top_up_cancelled_stream_panics() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    client.cancel(&stream_id);
+
+    let additional = 100_0000000i128;
+    t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
+    client.top_up(&stream_id, &additional);
+}
+
+#[test]
+#[should_panic(expected = "cannot top up an ended stream")]
+fn test_top_up_ended_stream_panics() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    t.set_time(now + 2000);
+
+    let additional = 100_0000000i128;
+    t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
+    client.top_up(&stream_id, &additional);
+}
+
+#[test]
+#[should_panic(expected = "additional_amount must be > 0")]
+fn test_top_up_zero_amount_panics() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    client.top_up(&stream_id, &0i128);
+}

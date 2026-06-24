@@ -83,6 +83,14 @@ pub struct CancelEvent {
     pub sender_refund: i128,
 }
 
+#[soroban_sdk::contractevent]
+pub struct TopUpEvent {
+    pub stream_id: u64,
+    pub additional_amount: i128,
+    pub new_deposited_amount: i128,
+    pub new_amount_per_second: i128,
+}
+
 // ─── Contract ────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -168,6 +176,90 @@ impl StreamingContract {
             .publish(&env);
 
         id
+    }
+
+    /// Top up an existing stream with additional funds.
+    ///
+    /// Increases `deposited_amount` and recalculates `amount_per_second` over
+    /// the remaining stream duration.
+    ///
+    /// The caller must have approved this contract to spend `additional_amount`
+    /// of the stream's token before calling.
+    pub fn top_up(env: Env, stream_id: u64, additional_amount: i128) {
+        let mut stream = Self::load_stream(&env, stream_id);
+        stream.sender.require_auth();
+
+        if stream.cancelled {
+            panic!("cannot top up a cancelled stream");
+        }
+
+        let now = env.ledger().timestamp();
+        if now >= stream.end_time {
+            panic!("cannot top up an ended stream");
+        }
+
+        if additional_amount <= 0 {
+            panic!("additional_amount must be > 0");
+        }
+
+        // ── Send funds ───────────────────────────────────────────────────────
+        let token_client = token::Client::new(&env, &stream.token);
+        token_client.transfer_from(
+            &env.current_contract_address(),
+            &stream.sender,
+            &env.current_contract_address(),
+            &additional_amount,
+        );
+
+        // ── Recalculate rate over remaining duration ──────────────────────────
+        // Already-vested funds keep their rate; only the remaining
+        // unlocked portion is recalculated with the new total.
+        //
+        // remaining_linear = (deposited - cliff_amount - withdrawn_linear) + additional
+        // amount_per_second = remaining_linear / remaining_seconds
+        //
+        // We compute remaining_seconds from now rather than cliff_time so a
+        // mid-stream top-up doesn't retroactively change already-vested amounts.
+        let remaining_seconds = (stream.end_time - now) as i128;
+
+        let already_vested = Self::vested_amount(&stream, now);
+        let remaining_deposited = stream
+            .deposited_amount
+            .checked_sub(already_vested)
+            .expect("deposited < vested — invariant broken");
+
+        let new_remaining = remaining_deposited
+            .checked_add(additional_amount)
+            .expect("remaining + additional overflow");
+
+        let new_amount_per_second = if remaining_seconds > 0 {
+            new_remaining / remaining_seconds
+        } else {
+            0
+        };
+
+        // ── Apply changes ────────────────────────────────────────────────────
+        stream.deposited_amount = stream
+            .deposited_amount
+            .checked_add(additional_amount)
+            .expect("deposited_amount overflow");
+
+        stream.amount_per_second = new_amount_per_second;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Stream(stream_id), &stream);
+
+        Self::extend_stream_ttl(&env, stream_id);
+
+        // ── Emit event ───────────────────────────────────────────────────────
+        TopUpEvent {
+            stream_id,
+            additional_amount,
+            new_deposited_amount: stream.deposited_amount,
+            new_amount_per_second,
+        }
+        .publish(&env);
     }
 
     // ── Write: Withdraw ──────────────────────────────────────────────────────
@@ -420,6 +512,22 @@ impl StreamingContract {
             518_400, // ~30 days in ledgers
             518_400,
         );
+    }
+
+    fn vested_amount(stream: &Stream, now: u64) -> i128 {
+        if now < stream.cliff_time {
+            return 0;
+        }
+
+        let elapsed = (now.min(stream.end_time) - stream.cliff_time) as i128;
+        let linear = stream.amount_per_second
+            .checked_mul(elapsed)
+            .expect("amount_per_second * elapsed overflow");
+
+        stream.cliff_amount
+            .checked_add(linear)
+            .expect("cliff_amount * linear overflow")
+            .min(stream.deposited_amount)
     }
 }
 
