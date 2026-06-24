@@ -44,6 +44,8 @@ pub struct Stream {
     pub amount_per_second: i128,
     /// Whether the stream has been cancelled.
     pub cancelled: bool,
+    pub linear_amount: i128,
+    pub duration: i128
 }
 
 #[contracttype]
@@ -142,6 +144,8 @@ impl StreamingContract {
             cliff_amount: params.cliff_amount,
             amount_per_second,
             cancelled: false,
+            linear_amount,
+            duration
         };
 
         // ── Persist stream ───────────────────────────────────────────────────
@@ -316,7 +320,7 @@ impl StreamingContract {
             return stream.deposited_amount;
         }
         let elapsed = (now - stream.start_time) as i128;
-        let linear = elapsed * stream.amount_per_second;
+        let linear = (elapsed * stream.linear_amount) / stream.duration;
         let unlocked = stream.cliff_amount + linear;
         // Cap at deposited (rounding safety).
         if unlocked > stream.deposited_amount {
