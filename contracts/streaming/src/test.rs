@@ -4,9 +4,7 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    token::{Client as TokenClient, StellarAssetClient},
-    Address, Env,
+    Address, Env, log, testutils::{Address as _, Ledger}, token::{Client as TokenClient, StellarAssetClient}, vec
 };
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
@@ -402,6 +400,12 @@ fn test_incrementing_ids() {
     }
 }
 
+#[test]
+fn test_transfer_stream() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
 // ─── top up ───────────────────────────────────────────────────────────────────
 
 #[test]
@@ -412,6 +416,45 @@ fn test_top_up_increases_deposited_amount() {
     let client = t.client();
     let params = t.default_params(now);
     let total = params.total_amount;
+
+    // Approve contract to pull funds.
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    assert_eq!(stream_id, 1);
+
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.sender, t.sender);
+    assert_eq!(stream.recipient, t.recipient);
+    assert_eq!(stream.deposited_amount, total);
+    assert_eq!(stream.withdrawn_amount, 0);
+    assert!(!stream.cancelled);
+
+    let new_recipient = Address::generate(&t.env);
+    client.transfer_stream(&stream_id, &new_recipient);
+
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.sender, t.sender);
+    assert_eq!(stream.recipient, new_recipient);
+    assert_eq!(stream.deposited_amount, total);
+    assert_eq!(stream.withdrawn_amount, 0);
+    assert!(!stream.cancelled);
+
+    let old_id = client.get_received_streams(&t.recipient);
+    assert_eq!(old_id, Vec::new(&t.env));
+
+    let new_id = client.get_received_streams(&new_recipient);
+    assert_eq!(new_id, vec![&t.env, 1]);
+
+}
+
+#[should_panic(expected = "cannot transfer a cancelled stream")]
+#[test]
+fn test_transfer_stream_panic() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
     let stream_id = client.create_stream(&t.sender, &params);
@@ -458,6 +501,25 @@ fn test_top_up_mid_stream_recalculates_rate() {
     let params = t.default_params(now);
     let total = params.total_amount;
 
+    // Approve contract to pull funds.
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    assert_eq!(stream_id, 1);
+
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.sender, t.sender);
+    assert_eq!(stream.recipient, t.recipient);
+    assert_eq!(stream.deposited_amount, total);
+    assert_eq!(stream.withdrawn_amount, 0);
+    assert!(!stream.cancelled);
+
+    client.cancel(&stream_id);
+
+    let new_recipient = Address::generate(&t.env);
+    client.transfer_stream(&stream_id, &new_recipient);
+}
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
     let stream_id = client.create_stream(&t.sender, &params);
 
