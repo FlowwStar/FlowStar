@@ -64,13 +64,13 @@ async function buildAndSimulate(
   return { prepared, estimatedFee, minFee }
 }
 
-/** Build, simulate, sign, and submit a contract call. Returns result ScVal. */
+/** Build, simulate, sign, and submit a contract call. Returns the transaction hash. */
 async function invoke(
   method: string,
   args: xdr.ScVal[],
   signerAddress: string,
   contractAddress: string = STREAM_CONTRACT_ID,
-): Promise<xdr.ScVal> {
+): Promise<string> {
   const { prepared } = await buildAndSimulate(method, args, signerAddress, contractAddress)
   const signedXdr = await signTx(prepared.toXDR('base64'))
   // Submit the signed XDR directly via the RPC JSON-RPC endpoint.
@@ -103,7 +103,6 @@ async function invoke(
   // Poll until finalized
   const hash = sendResult.hash
   let pollStatus = 'PENDING'
-  let returnValue: xdr.ScVal = xdr.ScVal.scvVoid()
 
   while (pollStatus !== 'SUCCESS' && pollStatus !== 'FAILED') {
     await new Promise((r) => setTimeout(r, 2000))
@@ -127,9 +126,7 @@ async function invoke(
 
   if (pollStatus === 'FAILED') throw new Error('Transaction failed on-chain')
 
-  // SDK v13 can't parse TransactionMetaV4 (protocol 22+) — return void.
-  // Callers that need a return value query contract state instead.
-  return returnValue
+  return hash
 }
 
 /** Simulate a read-only call (no signing). */
@@ -294,18 +291,16 @@ export async function createStream(
 export async function withdrawFromStream(
   id: string,
   amount: bigint,
-): Promise<void> {
+): Promise<string | null> {
   if (USE_MOCK) {
     await new Promise((r) => setTimeout(r, 700))
     mockStore.withdraw(id, amount)
-    return
+    return null
   }
-  // Recipient is the signer — pulled from wallet inside invoke via signTx
-  // We need the recipient address; read it from the stream first
   const stream = await fetchStream(id)
   if (!stream) throw new Error('Stream not found')
 
-  await invoke(
+  return invoke(
     'withdraw',
     [
       nativeToScVal(BigInt(id), { type: 'u64' }),
@@ -315,20 +310,21 @@ export async function withdrawFromStream(
   )
 }
 
-export async function cancelStream(id: string): Promise<void> {
+export async function cancelStream(id: string): Promise<string | null> {
   if (USE_MOCK) {
     await new Promise((r) => setTimeout(r, 700))
     mockStore.cancel(id)
-    return
+    return null
   }
   const stream = await fetchStream(id)
   if (!stream) throw new Error('Stream not found')
 
-  await invoke(
+  return invoke(
     'cancel',
     [nativeToScVal(BigInt(id), { type: 'u64' })],
     stream.sender,
-  )}
+  )
+}
 
 export async function getTokenMetadata(tokenAddress: string): Promise<TokenInfo | null> {
   try {
