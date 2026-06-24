@@ -114,6 +114,9 @@ impl StreamingContract {
         if params.cliff_amount < 0 || params.cliff_amount > params.total_amount {
             panic!("cliff_amount must be between 0 and total_amount");
         }
+        if params.recipient == sender {
+            panic!("sender cannot be the recipient");
+        }
 
         let duration = (params.end_time - params.start_time) as i128;
         let linear_amount = params.total_amount - params.cliff_amount;

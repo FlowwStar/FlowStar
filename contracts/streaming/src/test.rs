@@ -255,6 +255,19 @@ fn test_withdraw_cliff_before_time() {
     assert!(client.get_withdrawable(&stream_id) > 0);
 }
 
+#[test]
+#[should_panic(expected = "sender cannot be the recipient")]
+fn test_create_stream_self_rejected() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let mut params = t.default_params(now);
+    params.recipient = t.sender.clone(); // same as sender
+    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
+    client.create_stream(&t.sender, &params);
+}
+
 // ─── cancel ────────────────────────────────────────────────────────────────────
 
 #[test]

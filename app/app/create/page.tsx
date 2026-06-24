@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, Info, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, Info, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { RequireWallet } from '@/components/layout/require-wallet'
@@ -17,6 +17,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useContract } from '@/hooks/use-contract'
+import { useWallet } from '@/hooks/use-wallet'
+import { AlertTriangle } from 'lucide-react'
 import { getAllTokens, saveCustomToken } from '@/lib/stellar'
 import { getTokenMetadata } from '@/lib/contract'
 import { parseTokenAmount } from '@/lib/stream-utils'
@@ -66,6 +68,7 @@ interface FormState {
 
 function CreateForm() {
   const router = useRouter()
+  const { address: walletAddress } = useWallet()
   const { createStream, estimateFee, pending, error } = useContract()
   const [feeEstimate, setFeeEstimate] = useState<string | null>(null)
   const [estimatingFee, setEstimatingFee] = useState(false)
@@ -331,6 +334,12 @@ function CreateForm() {
             />
             {errors.recipient && (
               <p className="text-xs text-destructive">{errors.recipient}</p>
+            )}
+            {walletAddress && form.recipient.trim() === walletAddress && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <span>This is your own address. Self-streams are allowed but may have been unintended.</span>
+              </div>
             )}
           </div>
         </div>
