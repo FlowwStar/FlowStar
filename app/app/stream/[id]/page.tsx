@@ -27,6 +27,7 @@ import { CountdownTimer } from '@/components/ui/countdown-timer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { FeeEstimateDialog } from '@/components/ui/fee-estimate-dialog'
 import {
   Dialog,
   DialogContent,
@@ -34,6 +35,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
+import { calculateFeeBreakdown, TYPICAL_FEES, isHighFee } from '@/lib/fee-utils'
 import { useStream } from '@/hooks/use-streams'
 import { useContract } from '@/hooks/use-contract'
 import { useWallet } from '@/hooks/use-wallet'
@@ -119,10 +121,16 @@ function WithdrawDialog({
 }) {
   const { withdraw, pending, error } = useContract()
   const [inputAmount, setInputAmount] = useState('')
+  const [showFeeEstimate, setShowFeeEstimate] = useState(false)
 
   const max = formatTokenAmount(withdrawable, token.decimals, token.decimals)
   const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
   const invalid = parsed <= 0n || parsed > withdrawable
+
+  // Calculate estimated fees
+  const estimatedFee = TYPICAL_FEES.withdraw.typical
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee)
+  const withdrawFeeHigh = isHighFee(estimatedFee, TYPICAL_FEES.withdraw.typical)
 
   async function handleWithdraw() {
     try {
@@ -144,54 +152,81 @@ function WithdrawDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Withdraw funds</DialogTitle>
-          <DialogDescription>
-            Enter how much to withdraw. Max:{' '}
-            <span className="font-mono font-medium text-foreground">
-              {max} {token.symbol}
-            </span>
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 pt-1">
-          <div className="space-y-1.5">
-            <Label htmlFor="withdraw-amount">Amount ({token.symbol})</Label>
-            <div className="flex gap-2">
-              <Input
-                id="withdraw-amount"
-                type="number"
-                min="0"
-                step="any"
-                placeholder="0.00"
-                value={inputAmount}
-                onChange={(e) => setInputAmount(e.target.value)}
-                aria-invalid={!!inputAmount && invalid}
-              />
+    <>
+      <Dialog open={open && !showFeeEstimate} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Withdraw funds</DialogTitle>
+            <DialogDescription>
+              Enter how much to withdraw. Max:{' '}
+              <span className="font-mono font-medium text-foreground">
+                {max} {token.symbol}
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="withdraw-amount">Amount ({token.symbol})</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="withdraw-amount"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="0.00"
+                  value={inputAmount}
+                  onChange={(e) => setInputAmount(e.target.value)}
+                  aria-invalid={!!inputAmount && invalid}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setInputAmount(max)}
+                >
+                  Max
+                </Button>
+              </div>
+              {inputAmount && invalid && (
+                <p className="text-xs text-destructive">Amount exceeds withdrawable balance</p>
+              )}
+            </div>
+
+            {/* Fee info */}
+            <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Estimated network fee: <span className="font-mono text-foreground">{(estimatedFee / 1e7).toFixed(7)} XLM</span>
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Fee will be shown again before wallet confirmation.
+              </p>
+            </div>
+
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={onClose} disabled={pending}>Cancel</Button>
               <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setInputAmount(max)}
+                onClick={() => setShowFeeEstimate(true)}
+                disabled={pending || invalid || !inputAmount}
               >
-                Max
+                {pending ? 'Withdrawing…' : 'Review fees'}
               </Button>
             </div>
-            {inputAmount && invalid && (
-              <p className="text-xs text-destructive">Amount exceeds withdrawable balance</p>
-            )}
           </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={pending}>Cancel</Button>
-            <Button onClick={handleWithdraw} disabled={pending || invalid || !inputAmount}>
-              {pending ? 'Withdrawing…' : 'Withdraw'}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      <FeeEstimateDialog
+        open={showFeeEstimate}
+        onConfirm={handleWithdraw}
+        onCancel={() => setShowFeeEstimate(false)}
+        fees={feeBreakdown}
+        action="withdrawal"
+        averageFee={TYPICAL_FEES.withdraw.typical}
+        isHighFee={withdrawFeeHigh}
+        loading={pending}
+      />
+    </>
   )
 }
 
@@ -208,6 +243,11 @@ function CancelDialog({
 }) {
   const { cancel, pending, error } = useContract()
   const router = useRouter()
+  const [showFeeEstimate, setShowFeeEstimate] = useState(false)
+
+  const estimatedFee = TYPICAL_FEES.cancel.typical
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee)
+  const cancelFeeHigh = isHighFee(estimatedFee, TYPICAL_FEES.cancel.typical)
 
   async function handleCancel() {
     try {
@@ -229,24 +269,49 @@ function CancelDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Cancel stream</DialogTitle>
-          <DialogDescription>
-            Unlocked funds will be sent to the recipient. Any remaining locked
-            tokens will be returned to your wallet. This cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose} disabled={pending}>Keep stream</Button>
-          <Button variant="destructive" onClick={handleCancel} disabled={pending}>
-            {pending ? 'Cancelling…' : 'Cancel stream'}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={open && !showFeeEstimate} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Cancel stream</DialogTitle>
+            <DialogDescription>
+              Unlocked funds will be sent to the recipient. Any remaining locked
+              tokens will be returned to your wallet. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Fee info */}
+          <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Estimated network fee: <span className="font-mono text-foreground">{(estimatedFee / 1e7).toFixed(7)} XLM</span>
+            </p>
+          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={onClose} disabled={pending}>Keep stream</Button>
+            <Button
+              variant="destructive"
+              onClick={() => setShowFeeEstimate(true)}
+              disabled={pending}
+            >
+              {pending ? 'Cancelling…' : 'Review & cancel'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <FeeEstimateDialog
+        open={showFeeEstimate}
+        onConfirm={handleCancel}
+        onCancel={() => setShowFeeEstimate(false)}
+        fees={feeBreakdown}
+        action="stream cancellation"
+        averageFee={TYPICAL_FEES.cancel.typical}
+        isHighFee={cancelFeeHigh}
+        loading={pending}
+      />
+    </>
   )
 }
 
