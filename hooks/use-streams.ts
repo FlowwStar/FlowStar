@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { fetchStreamsForAddress, fetchStream } from '@/lib/contract'
 import type { StreamData } from '@/types/stream'
 import { useWallet } from '@/hooks/use-wallet'
+import { useNetwork } from '@/components/providers/network-provider'
 
 // ─── Refresh bus ─────────────────────────────────────────────────────────────
 // Components call `invalidateStreams()` after a write so all stream hooks
@@ -43,6 +44,7 @@ interface UseStreamsOptions {
 
 export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
   const { address } = useWallet()
+  const { network } = useNetwork()
   const [streams, setStreams] = useState<StreamData[]>([])
   const [loading, setLoading] = useState(false)
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -53,14 +55,14 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
     if (!address) { setStreams([]); return }
     setLoading(true)
     try {
-      const data = await fetchStreamsForAddress(address)
+      const data = await fetchStreamsForAddress(network, address)
       setStreams(data)
     } catch (e) {
       console.error('useStreams fetch error:', e)
     } finally {
       setLoading(false)
     }
-  }, [address])
+  }, [address, network])
 
   // Fetch on mount and when address changes
   useEffect(() => { fetch() }, [fetch])
@@ -96,6 +98,7 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
 }
 
 export function useStream(id: string): { stream: StreamData | null; loading: boolean; refetch: () => void } {
+  const { network } = useNetwork()
   const [stream, setStream] = useState<StreamData | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -103,14 +106,14 @@ export function useStream(id: string): { stream: StreamData | null; loading: boo
     if (!id) return
     setLoading(true)
     try {
-      const data = await fetchStream(id)
+      const data = await fetchStream(network, id)
       setStream(data)
     } catch (e) {
       console.error('useStream fetch error:', e)
     } finally {
       setLoading(false)
     }
-  }, [id])
+  }, [id, network])
 
   useEffect(() => { fetch() }, [fetch])
   useInvalidation(fetch)

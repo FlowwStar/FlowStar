@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { NETWORK, STREAM_CONTRACT_ID } from '@/lib/stellar'
+import { useNetwork } from '@/components/providers/network-provider'
 
 const POLL_INTERVAL = 30_000
 const STORAGE_KEY = 'flowstar:last-seen-ledger'
@@ -81,8 +81,10 @@ function decodeEventTopic(topics: string[]): {
 
 async function fetchContractEvents(
   startLedger: number,
+  rpcUrl: string,
+  contractId: string,
 ): Promise<{ events: ContractEvent[]; latestLedger: number }> {
-  if (!STREAM_CONTRACT_ID) return { events: [], latestLedger: startLedger }
+  if (!contractId) return { events: [], latestLedger: startLedger }
 
   try {
     const body: Record<string, unknown> = {
@@ -94,14 +96,14 @@ async function fetchContractEvents(
         filters: [
           {
             type: 'contract',
-            contractIds: [STREAM_CONTRACT_ID],
+            contractIds: [contractId],
           },
         ],
         pagination: { limit: 100 },
       },
     }
 
-    const res = await fetch(NETWORK.rpcUrl, {
+    const res = await fetch(rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -124,6 +126,7 @@ async function fetchContractEvents(
 }
 
 export function useNotifications(walletAddress: string | null) {
+  const { config } = useNetwork()
   const [notifications, setNotifications] = useState<AppNotification[]>(() =>
     getSavedNotifications(),
   )
@@ -166,7 +169,9 @@ export function useNotifications(walletAddress: string | null) {
   }, [])
 
   useEffect(() => {
-    if (!walletAddress || !STREAM_CONTRACT_ID) return
+    const rpcUrl = config.rpcUrl
+    const contractId = config.streamContractId
+    if (!walletAddress || !contractId) return
 
     requestNotificationPermission()
 
@@ -176,7 +181,7 @@ export function useNotifications(walletAddress: string | null) {
 
       if (startLedger === 0) {
         try {
-          const res = await fetch(NETWORK.rpcUrl, {
+          const res = await fetch(rpcUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -194,7 +199,7 @@ export function useNotifications(walletAddress: string | null) {
         }
       }
 
-      const { events, latestLedger } = await fetchContractEvents(startLedger + 1)
+      const { events, latestLedger } = await fetchContractEvents(startLedger + 1, rpcUrl, contractId)
 
       for (const event of events) {
         const { eventType } = decodeEventTopic(event.topic ?? [])
@@ -232,7 +237,7 @@ export function useNotifications(walletAddress: string | null) {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current)
     }
-  }, [walletAddress, addNotification])
+  }, [walletAddress, addNotification, config.rpcUrl, config.streamContractId])
 
   return { notifications, unreadCount, markAllRead, clearAll }
 }

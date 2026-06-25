@@ -1,5 +1,5 @@
 import type { CreateStreamInput, StreamData } from '@/types/stream'
-import { KNOWN_TOKENS } from '@/lib/stellar'
+import { NETWORKS } from '@/lib/stellar'
 
 /**
  * In-memory mock store standing in for on-chain state.
@@ -10,6 +10,7 @@ import { KNOWN_TOKENS } from '@/lib/stellar'
  * the hooks read directly from chain data.
  */
 
+const KNOWN_TOKENS = NETWORKS.testnet.knownTokens
 const XLM = KNOWN_TOKENS[0]
 const USDC = KNOWN_TOKENS[1]
 const EURC = KNOWN_TOKENS[2]

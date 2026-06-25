@@ -67,7 +67,6 @@ export function getNetworkConfig(network: NetworkName): NetworkConfig {
     streamContractId: contractId,
   }
 }
-const CUSTOM_TOKENS_KEY = 'flowstar:custom-tokens'
 const FAVORITE_TOKENS_KEY = 'flowstar:favorite-tokens'
 
 // ─── Verified Token List ──────────────────────────────────────────────────────
@@ -162,8 +161,6 @@ export function toggleFavoriteToken(address: string) {
 export function isFavoriteToken(address: string): boolean {
   return getFavoriteTokens().includes(address)
 }
-
-const EXPLORER_NETWORK = NETWORK.name === 'testnet' ? 'testnet' : 'public'
 
 export function getAllTokens(network: NetworkName): { address: string; symbol: string; decimals: number }[] {
   const config = getNetworkConfig(network)
