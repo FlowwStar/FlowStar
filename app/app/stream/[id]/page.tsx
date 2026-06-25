@@ -44,7 +44,7 @@ import {
   shortenAddress,
   formatRate,
 } from '@/lib/stream-utils'
-import { NETWORK, explorerUrl } from '@/lib/stellar'
+import { NETWORK, STREAM_CONTRACT_ID, explorerUrl } from '@/lib/stellar'
 import { useAutoWithdraw } from '@/hooks/use-auto-withdraw'
 import { UnlockChart } from '@/components/streams/unlock-chart'
 import { bumpStreamTtl } from '@/lib/contract'
@@ -633,19 +633,22 @@ function StreamDetail({ id }: { id: string }) {
           <CopyableAddress address={stream.recipient} href={explorerUrl('account', stream.recipient)} />
         </DetailRow>
         <DetailRow label="Token">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="font-mono">{stream.token.symbol}</span>
-            <a
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-medium">{stream.token.symbol}</span>
+            <CopyableAddress
+              address={stream.token.address}
               href={explorerUrl('contract', stream.token.address)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-primary transition-colors"
-              aria-label="View token contract on Stellar Expert"
-            >
-              <ExternalLink className="size-3.5" />
-            </a>
-          </span>
+            />
+          </div>
         </DetailRow>
+        {STREAM_CONTRACT_ID && (
+          <DetailRow label="Stream Contract">
+            <CopyableAddress
+              address={STREAM_CONTRACT_ID}
+              href={explorerUrl('contract', STREAM_CONTRACT_ID)}
+            />
+          </DetailRow>
+        )}
         <DetailRow label="Total deposited">
           <TokenAmount amount={stream.depositedAmount} token={stream.token} maxFractionDigits={4} />
         </DetailRow>
