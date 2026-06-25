@@ -34,6 +34,7 @@ interface WalletContextValue {
   address: string | null
   walletId: string | null
   connecting: boolean
+  reconnecting: boolean
   isConnected: boolean
   connect: (walletId: string) => Promise<void>
   disconnect: () => void
@@ -89,7 +90,19 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [address, setAddress] = useState<string | null>(null)
   const [walletId, setWalletId] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [reconnecting, setReconnecting] = useState(true)
   const { network } = useNetwork()
+
+  // Auto-reconnect on mount using persisted walletId
+  useEffect(() => {
+    const saved = localStorage.getItem('walletId')
+    if (!saved) { setReconnecting(false); return }
+    connectWallet(saved)
+      .then(addr => { setAddress(addr); setWalletId(saved) })
+      .catch(() => { localStorage.removeItem('walletId') })
+      .finally(() => setReconnecting(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const connect = useCallback(async (id: string) => {
     setConnecting(true)
@@ -97,6 +110,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const addr = await connectWallet(id)
       setAddress(addr)
       setWalletId(id)
+      localStorage.setItem('walletId', id)
     } finally {
       setConnecting(false)
     }
@@ -105,6 +119,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const disconnect = useCallback(() => {
     setAddress(null)
     setWalletId(null)
+    localStorage.removeItem('walletId')
   }, [])
 
   const signTransaction = useCallback(
@@ -129,12 +144,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       address,
       walletId,
       connecting,
+      reconnecting,
       isConnected: address !== null,
       connect,
       disconnect,
       signTransaction,
     }),
-    [address, walletId, connecting, connect, disconnect, signTransaction],
+    [address, walletId, connecting, reconnecting, connect, disconnect, signTransaction],
   )
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>

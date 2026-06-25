@@ -10,7 +10,9 @@ import { ConnectWalletButton } from '@/components/layout/connect-wallet-button'
  * no wallet is connected.
  */
 export function RequireWallet({ children }: { children: ReactNode }) {
-  const { isConnected } = useWallet()
+  const { isConnected, reconnecting } = useWallet()
+
+  if (reconnecting) return null
 
   if (!isConnected) {
     return (
