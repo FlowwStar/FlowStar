@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import { StrKey } from '@stellar/stellar-sdk'
 import { RequireWallet } from '@/components/layout/require-wallet'
+import { useNetwork } from '@/components/providers/network-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,6 +25,8 @@ import { getTokenMetadata, getTokenBalance } from '@/lib/contract'
 import { parseTokenAmount, formatTokenAmount } from '@/lib/stream-utils'
 import { StreamPreview } from '@/components/streams/stream-preview'
 import { CreateConfirmation } from '@/components/streams/create-confirmation'
+import { addAddressBookEntry, getAddressBookEntries, touchAddressBookEntry } from '@/lib/address-book'
+import { buildNextRunAt, saveRecurringRule, type RecurrenceCadence } from '@/lib/recurring'
 import type { TokenInfo } from '@/types/stream'
 
 const CUSTOM_VALUE = '__custom__'
@@ -70,17 +73,20 @@ interface FormState {
 function CreateForm() {
   const router = useRouter()
   const { address: walletAddress } = useWallet()
+  const { network } = useNetwork()
   const { createStream, estimateFee, pending, error } = useContract()
   const [feeEstimate, setFeeEstimate] = useState<string | null>(null)
   const [estimatingFee, setEstimatingFee] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
 
-  const [tokens, setTokens] = useState<TokenInfo[]>(() => getAllTokens().map((t) => ({ ...t })))
+  const [tokens, setTokens] = useState<TokenInfo[]>(() => getAllTokens(network).map((t) => ({ ...t })))
   const [isCustom, setIsCustom] = useState(false)
   const [customAddress, setCustomAddress] = useState('')
   const [customLoading, setCustomLoading] = useState(false)
   const [customError, setCustomError] = useState<string | null>(null)
   const [customToken, setCustomToken] = useState<TokenInfo | null>(null)
+  const [addressBookEntries, setAddressBookEntries] = useState(() => getAddressBookEntries())
+  const [recurrenceCadence, setRecurrenceCadence] = useState<RecurrenceCadence>('none')
 
   // Issue #29: balance state
   const [tokenBalance, setTokenBalance] = useState<bigint | null>(null)
@@ -132,8 +138,8 @@ function CreateForm() {
         return
       }
       setCustomToken(meta)
-      saveCustomToken(meta)
-      setTokens(getAllTokens().map((t) => ({ ...t })))
+      saveCustomToken(network, meta)
+      setTokens(getAllTokens(network).map((t) => ({ ...t })))
       set('tokenAddress', meta.address)
     } catch {
       setCustomError('Failed to query token contract')
@@ -229,7 +235,23 @@ function CreateForm() {
 
   async function handleConfirmedCreate() {
     try {
-      const id = await createStream(buildInput())
+      const input = buildInput()
+      const id = await createStream(input)
+      touchAddressBookEntry(input.recipient, input.recipient)
+      setAddressBookEntries(getAddressBookEntries())
+
+      if (recurrenceCadence !== 'none') {
+        saveRecurringRule({
+          cadence: recurrenceCadence,
+          nextRunAt: buildNextRunAt(Date.now(), recurrenceCadence),
+          lastCreatedAt: Date.now(),
+          streamId: id,
+          recipient: input.recipient,
+          tokenSymbol: input.token.symbol,
+          amount: input.totalAmount.toString(),
+        })
+      }
+
       setShowConfirmation(false)
       toast.success('Stream created', { description: `Stream #${id} is live.` })
       router.push(`/app/stream/${id}`)
@@ -390,6 +412,40 @@ function CreateForm() {
               aria-invalid={!!errors.recipient}
               className="font-mono text-xs"
             />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const trimmed = form.recipient.trim()
+                  if (!trimmed || !StrKey.isValidEd25519PublicKey(trimmed)) return
+                  addAddressBookEntry({ label: 'Saved recipient', address: trimmed })
+                  setAddressBookEntries(getAddressBookEntries())
+                  toast.success('Recipient saved')
+                }}
+                disabled={!form.recipient.trim() || !StrKey.isValidEd25519PublicKey(form.recipient.trim())}
+              >
+                Save recipient
+              </Button>
+            </div>
+            {addressBookEntries.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
+                <p className="text-xs font-medium text-muted-foreground">Recent recipients</p>
+                <div className="flex flex-wrap gap-2">
+                  {addressBookEntries.slice(0, 6).map((entry) => (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => set('recipient', entry.address)}
+                      className="rounded-full border border-border bg-background px-3 py-1 text-left text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                    >
+                      <span className="font-medium text-foreground">{entry.label}</span> • {entry.address.slice(0, 8)}…
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {errors.recipient && (
               <p className="text-xs text-destructive">{errors.recipient}</p>
             )}
@@ -469,6 +525,24 @@ function CreateForm() {
             </div>
           </div>
 
+          <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
+            <Label htmlFor="recurrence">Recurring cadence</Label>
+            <Select value={recurrenceCadence} onValueChange={(value) => setRecurrenceCadence(value as RecurrenceCadence)}>
+              <SelectTrigger id="recurrence" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Do not repeat</SelectItem>
+                <SelectItem value="weekly">Weekly</SelectItem>
+                <SelectItem value="monthly">Monthly</SelectItem>
+                <SelectItem value="quarterly">Quarterly</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Save a renewal rule for this recipient so the schedule can be recreated later.
+            </p>
+          </div>
+
           {form.hasCliff && (
             <div className="space-y-4 pt-1">
             {/* Cliff presets */}
@@ -532,6 +606,13 @@ function CreateForm() {
             </div>
           )}
         </div>
+
+        {network === 'mainnet' && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span>Mainnet uses real funds. Double-check the recipient, amount, and token before creating a stream.</span>
+          </div>
+        )}
 
         {/* Contract error */}
         {error && (

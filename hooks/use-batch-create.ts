@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react'
 import { createStream as createStreamCall } from '@/lib/contract'
 import { invalidateStreams } from '@/hooks/use-streams'
 import { useWallet } from '@/hooks/use-wallet'
+import { useNetwork } from '@/components/providers/network-provider'
 import type { CreateStreamInput, TokenInfo } from '@/types/stream'
 
 export interface BatchStreamInput {
@@ -30,6 +31,7 @@ const DEFAULT_BATCH_DELAY = 2000 // 2 seconds between streams to avoid rate limi
 
 export function useBatchCreate() {
   const { address, isConnected } = useWallet()
+  const { network } = useNetwork()
   const [progress, setProgress] = useState<BatchCreateProgress>({
     total: 0,
     completed: 0,

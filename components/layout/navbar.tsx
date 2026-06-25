@@ -2,9 +2,10 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Plus, Moon, Sun, Monitor } from 'lucide-react'
+import { Plus, Moon, Sun, Monitor, Network } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Brand } from '@/components/brand'
+import { useNetwork } from '@/components/providers/network-provider'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -19,11 +20,13 @@ import { cn } from '@/lib/utils'
 const NAV_LINKS = [
   { href: '/app', label: 'Dashboard' },
   { href: '/app/streams', label: 'Streams' },
+  { href: '/app/analytics', label: 'Analytics' },
 ]
 
 export function Navbar() {
   const pathname = usePathname()
   const { setTheme, theme } = useTheme()
+  const { network, setNetwork } = useNetwork()
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
@@ -60,6 +63,23 @@ export function Navbar() {
               <span className="hidden sm:inline">New stream</span>
             </Link>
           </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-1.5">
+                <Network className="size-4" />
+                <span className="hidden sm:inline">{network === 'mainnet' ? 'Mainnet' : 'Testnet'}</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setNetwork('testnet')}>
+                Testnet
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setNetwork('mainnet')}>
+                Mainnet
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
