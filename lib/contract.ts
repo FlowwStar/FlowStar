@@ -124,8 +124,7 @@ async function invoke(
   // Submit the signed XDR directly via the RPC JSON-RPC endpoint.
   // We bypass TransactionBuilder.fromXDR because Freighter may return a
   // FeeBumpTransaction envelope (type 4) which fromXDR can't handle.
-  const rpcResponse = await fetchWithRetry(NETWORK.rpcUrl, {
-  const rpcResponse = await fetch(config.rpcUrl, {
+  const rpcResponse = await fetchWithRetry(config.rpcUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -157,9 +156,7 @@ async function invoke(
   while (pollStatus !== 'SUCCESS' && pollStatus !== 'FAILED') {
     if (Date.now() >= pollDeadline) throw new Error('Transaction confirmation timed out after 60s')
     await new Promise<void>((r) => setTimeout(r, 2000))
-    const pollRes = await fetchWithRetry(NETWORK.rpcUrl, {
-    await new Promise((r) => setTimeout(r, 2000))
-    const pollRes = await fetch(config.rpcUrl, {
+    const pollRes = await fetchWithRetry(config.rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -311,9 +308,8 @@ export async function createStream(
 
   // Step 1: approve the streaming contract to pull `totalAmount` from the sender.
   // The allowance needs to outlast the simulation ledger — set it to current + 500 ledgers.
-  const currentLedger = (await withRetry(() => server.getLatestLedger())).sequence
   const server = getServer(network)
-  const currentLedger = (await server.getLatestLedger()).sequence
+  const currentLedger = (await withRetry(() => server.getLatestLedger())).sequence
   const expirationLedger = currentLedger + 500
 
   await invoke(
@@ -347,11 +343,12 @@ export async function createStream(
     ),
   )
 
-  const result = await invoke(
+  await invoke(
     network,
     'create_stream',
     [new Address(sender).toScVal(), params],
     sender,
+    config.streamContractId,
   )
 
   // SDK v13 can't parse TransactionMetaV4 (protocol 22+) so returnValue is void.

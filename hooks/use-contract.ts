@@ -10,6 +10,7 @@ import {
 import type { FeeEstimate } from '@/lib/contract'
 import { invalidateStreams } from '@/hooks/use-streams'
 import { useWallet } from '@/hooks/use-wallet'
+import { useNetwork } from '@/components/providers/network-provider'
 import { getWithdrawableAmount } from '@/lib/stream-utils'
 import type { CreateStreamInput, StreamData } from '@/types/stream'
 
@@ -20,6 +21,7 @@ export interface WithdrawAllResult {
 
 export function useContract() {
   const { address, isConnected } = useWallet()
+  const { network } = useNetwork()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,30 +46,30 @@ export function useContract() {
   )
 
   const createStream = useCallback(
-    (input: CreateStreamInput) => run(() => createStreamCall(input, address!)),
-    [run, address],
+    (input: CreateStreamInput) => run(() => createStreamCall(network, input, address!)),
+    [run, network, address],
   )
 
   const withdraw = useCallback(
-    (id: string, amount: bigint) => run(() => withdrawFromStream(id, amount)),
-    [run],
+    (id: string, amount: bigint) => run(() => withdrawFromStream(network, id, amount)),
+    [run, network],
   )
 
   const cancel = useCallback(
-    (id: string) => run(() => cancelStreamCall(id)),
-    [run],
+    (id: string) => run(() => cancelStreamCall(network, id)),
+    [run, network],
   )
 
   const estimateFee = useCallback(
     async (input: CreateStreamInput): Promise<FeeEstimate | null> => {
       if (!isConnected || !address) return null
       try {
-        return await estimateCreateStreamFee(input, address)
+        return await estimateCreateStreamFee(network, input, address)
       } catch {
         return null
       }
     },
-    [address, isConnected],
+    [network, address, isConnected],
   )
 
   const withdrawAll = useCallback(
@@ -92,7 +94,7 @@ export function useContract() {
         const s = withdrawable[i]
         try {
           const amount = getWithdrawableAmount(s, Math.floor(Date.now() / 1000))
-          await withdrawFromStream(s.id, amount)
+          await withdrawFromStream(network, s.id, amount)
           succeeded++
         } catch {
           failed++
@@ -108,7 +110,7 @@ export function useContract() {
 
       return { succeeded, failed }
     },
-    [address, isConnected],
+    [network, address, isConnected],
   )
 
   return { createStream, withdraw, cancel, withdrawAll, estimateFee, pending, error }
