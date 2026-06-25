@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
+import { useState } from 'react'
+import { Plus, ArrowDownToLine } from 'lucide-react'
 import { RequireWallet } from '@/components/layout/require-wallet'
 import { DashboardStats } from '@/components/streams/dashboard-stats'
 import { StreamCard } from '@/components/streams/stream-card'
@@ -9,9 +10,29 @@ import { EmptyStreams } from '@/components/streams/empty-state'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { useStreams } from '@/hooks/use-streams'
+import { useContract } from '@/hooks/use-contract'
+import { useNow } from '@/hooks/use-now'
+import { getWithdrawableAmount } from '@/lib/stream-utils'
 
 function Dashboard() {
   const { sent, received, all, loading } = useStreams()
+  const { withdrawAll, pending } = useContract()
+  const now = useNow(1000)
+  const [withdrawProgress, setWithdrawProgress] = useState<{ current: number; total: number } | null>(null)
+
+  const withdrawableStreams = received.filter((s) => getWithdrawableAmount(s, now) > 0n)
+  const isWithdrawingAll = withdrawProgress !== null
+
+  const handleWithdrawAll = async () => {
+    setWithdrawProgress({ current: 0, total: withdrawableStreams.length })
+    try {
+      await withdrawAll(received, (current, total) => {
+        setWithdrawProgress({ current, total })
+      })
+    } finally {
+      setWithdrawProgress(null)
+    }
+  }
 
   return (
     <div className="space-y-8">
@@ -23,12 +44,34 @@ function Dashboard() {
             Your active and historical token streams.
           </p>
         </div>
-        <Button asChild className="gap-1.5">
-          <Link href="/app/create">
-            <Plus className="size-4" />
-            <span className="hidden sm:inline">New stream</span>
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          {withdrawableStreams.length > 0 && (
+            <Button
+              variant="outline"
+              className="gap-1.5"
+              onClick={handleWithdrawAll}
+              disabled={pending || isWithdrawingAll}
+            >
+              <ArrowDownToLine className="size-4" />
+              <span className="hidden sm:inline">
+                {isWithdrawingAll
+                  ? `Withdrawing ${withdrawProgress.current}/${withdrawProgress.total}…`
+                  : `Withdraw all (${withdrawableStreams.length})`}
+              </span>
+              <span className="sm:hidden">
+                {isWithdrawingAll
+                  ? `${withdrawProgress.current}/${withdrawProgress.total}`
+                  : withdrawableStreams.length}
+              </span>
+            </Button>
+          )}
+          <Button asChild className="gap-1.5">
+            <Link href="/app/create">
+              <Plus className="size-4" />
+              <span className="hidden sm:inline">New stream</span>
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}

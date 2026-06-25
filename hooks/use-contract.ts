@@ -10,7 +10,13 @@ import {
 import type { FeeEstimate } from '@/lib/contract'
 import { invalidateStreams } from '@/hooks/use-streams'
 import { useWallet } from '@/hooks/use-wallet'
-import type { CreateStreamInput } from '@/types/stream'
+import { getWithdrawableAmount } from '@/lib/stream-utils'
+import type { CreateStreamInput, StreamData } from '@/types/stream'
+
+export interface WithdrawAllResult {
+  succeeded: number
+  failed: number
+}
 
 export function useContract() {
   const { address, isConnected } = useWallet()
@@ -64,5 +70,46 @@ export function useContract() {
     [address, isConnected],
   )
 
-  return { createStream, withdraw, cancel, estimateFee, pending, error }
+  const withdrawAll = useCallback(
+    async (
+      streams: StreamData[],
+      onProgress?: (current: number, total: number) => void,
+    ): Promise<WithdrawAllResult> => {
+      if (!isConnected || !address) throw new Error('Connect a wallet first.')
+
+      const now = Math.floor(Date.now() / 1000)
+      const withdrawable = streams.filter((s) => getWithdrawableAmount(s, now) > 0n)
+      if (withdrawable.length === 0) return { succeeded: 0, failed: 0 }
+
+      setPending(true)
+      setError(null)
+
+      let succeeded = 0
+      let failed = 0
+
+      for (let i = 0; i < withdrawable.length; i++) {
+        onProgress?.(i + 1, withdrawable.length)
+        const s = withdrawable[i]
+        try {
+          const amount = getWithdrawableAmount(s, Math.floor(Date.now() / 1000))
+          await withdrawFromStream(s.id, amount)
+          succeeded++
+        } catch {
+          failed++
+        }
+      }
+
+      invalidateStreams()
+      setPending(false)
+
+      if (failed > 0 && succeeded === 0) {
+        setError('All withdrawals failed.')
+      }
+
+      return { succeeded, failed }
+    },
+    [address, isConnected],
+  )
+
+  return { createStream, withdraw, cancel, withdrawAll, estimateFee, pending, error }
 }
