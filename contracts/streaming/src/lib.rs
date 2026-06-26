@@ -4,6 +4,11 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, token, Address, Env, Vec,
 };
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const CONTRACT_VERSION: u32 = 1;
+const CONTRACT_NAME: &str = "FlowStar Streaming";
+
 // ─── Storage Keys ────────────────────────────────────────────────────────────
 
 #[contracttype]
@@ -471,6 +476,18 @@ impl StreamingContract {
     pub fn bump_stream(env: Env, stream_id: u64) {
         Self::load_stream(&env, stream_id);
         Self::extend_stream_ttl(&env, stream_id);
+    }
+
+    // ── Metadata ──────────────────────────────────────────────────────────────
+
+    /// Get the contract version.
+    pub fn version(_env: Env) -> u32 {
+        CONTRACT_VERSION
+    }
+
+    /// Get the contract name.
+    pub fn name(env: Env) -> String {
+        String::from_small_copy(&String::from_slice(&env, CONTRACT_NAME))
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────

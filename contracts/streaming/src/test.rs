@@ -591,3 +591,21 @@ fn test_top_up_zero_amount_panics() {
 
     client.top_up(&stream_id, &0i128);
 }
+
+
+// ─── Version and Metadata Tests ────────────────────────────────────────────────
+
+#[test]
+fn test_contract_version() {
+    let t = TestEnv::setup();
+    let client = t.client();
+    assert_eq!(client.version(), 1);
+}
+
+#[test]
+fn test_contract_name() {
+    let t = TestEnv::setup();
+    let client = t.client();
+    let name = client.name();
+    assert_eq!(name, String::from_slice(&t.env, "FlowStar Streaming"));
+}
