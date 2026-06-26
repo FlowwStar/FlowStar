@@ -67,20 +67,33 @@ pub struct CreateStreamParams {
 #[soroban_sdk::contractevent]
 pub struct StreamCreatedEvent {
     pub stream_id: u64,
+    pub sender: Address,
+    pub recipient: Address,
+    pub token: Address,
     pub deposited_amount: i128,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub cliff_time: u64,
+    pub timestamp: u64,
 }
 
 #[soroban_sdk::contractevent]
 pub struct WithdrawEvent {
     pub stream_id: u64,
+    pub recipient: Address,
     pub amount: i128,
+    pub remaining_withdrawable: i128,
+    pub timestamp: u64,
 }
 
 #[soroban_sdk::contractevent]
 pub struct CancelEvent {
     pub stream_id: u64,
+    pub sender: Address,
+    pub recipient: Address,
     pub recipient_amount: i128,
     pub sender_refund: i128,
+    pub timestamp: u64,
 }
 
 #[soroban_sdk::contractevent]
@@ -88,11 +101,20 @@ pub struct StreamTransferEvent {
     pub stream_id: u64,
     pub old_recipient: Address,
     pub new_recipient: Address,
+}
+
+#[soroban_sdk::contractevent]
 pub struct TopUpEvent {
     pub stream_id: u64,
     pub additional_amount: i128,
     pub new_deposited_amount: i128,
     pub new_amount_per_second: i128,
+}
+
+#[soroban_sdk::contractevent]
+pub struct StreamBumpedEvent {
+    pub stream_id: u64,
+    pub timestamp: u64,
 }
 
 // ─── Contract ────────────────────────────────────────────────────────────────
@@ -176,8 +198,18 @@ impl StreamingContract {
         // ── Update recipient index ───────────────────────────────────────────
         Self::push_to_index(&env, DataKey::ReceivedBy(params.recipient), id);
 
-        StreamCreatedEvent { stream_id: id, deposited_amount: stream.deposited_amount }
-            .publish(&env);
+        StreamCreatedEvent {
+            stream_id: id,
+            sender: sender.clone(),
+            recipient: params.recipient.clone(),
+            token: params.token.clone(),
+            deposited_amount: stream.deposited_amount,
+            start_time: params.start_time,
+            end_time: params.end_time,
+            cliff_time: params.cliff_time,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
 
         id
     }
@@ -325,7 +357,15 @@ impl StreamingContract {
             &amount,
         );
 
-        WithdrawEvent { stream_id, amount }.publish(&env);
+        let remaining_withdrawable = Self::withdrawable_amount(&stream, now);
+        WithdrawEvent {
+            stream_id,
+            recipient: stream.recipient.clone(),
+            amount,
+            remaining_withdrawable,
+            timestamp: now,
+        }
+        .publish(&env);
     }
 
     // ── Write: Cancel ────────────────────────────────────────────────────────
@@ -378,8 +418,11 @@ impl StreamingContract {
 
         CancelEvent {
             stream_id,
+            sender: stream.sender.clone(),
+            recipient: stream.recipient.clone(),
             recipient_amount: recipient_owes,
             sender_refund: sender_gets_back,
+            timestamp: now,
         }
         .publish(&env);
     }
@@ -459,6 +502,12 @@ impl StreamingContract {
     pub fn bump_stream(env: Env, stream_id: u64) {
         Self::load_stream(&env, stream_id);
         Self::extend_stream_ttl(&env, stream_id);
+
+        StreamBumpedEvent {
+            stream_id,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
