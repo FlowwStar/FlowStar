@@ -22,6 +22,8 @@ pub enum DataKey {
     SentBy(Address),
     /// List of stream IDs where address is the recipient. Stored in Persistent.
     ReceivedBy(Address),
+    /// Delegate for a stream (stream_id -> Address). Stored in Persistent.
+    Delegate(u64),
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -216,6 +218,11 @@ impl StreamingContract {
         Self::remove_from_index(&env, DataKey::ReceivedBy(old_recipient.clone()), stream_id);
         Self::push_to_index(&env, DataKey::ReceivedBy(new_recipient.clone()), stream_id);
 
+        // Clear delegate on transfer
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Delegate(stream_id));
+
         StreamTransferEvent { stream_id, old_recipient, new_recipient }
             .publish(&env);
         Self::extend_stream_ttl(&env, stream_id);
@@ -314,11 +321,24 @@ impl StreamingContract {
 
     /// Withdraw unlocked tokens from a stream.
     ///
-    /// Only the recipient can call this. Pass the exact amount to withdraw
+    /// Only the recipient or their delegate can call this. Pass the exact amount to withdraw
     /// (must be ≤ withdrawable amount). Use `get_withdrawable` to query first.
     pub fn withdraw(env: Env, stream_id: u64, amount: i128) {
         let mut stream = Self::load_stream(&env, stream_id);
+        let caller = env.invoker();
 
+        // Check if caller is recipient or authorized delegate
+        let is_recipient = caller == stream.recipient;
+        let is_delegate = match Self::get_delegate(&env, stream_id) {
+            Some(delegate) => caller == delegate,
+            None => false,
+        };
+
+        if !is_recipient && !is_delegate {
+            panic!("only recipient or delegate can withdraw");
+        }
+
+        // Require auth from the actual recipient, not the delegate
         stream.recipient.require_auth();
 
         if stream.cancelled {
@@ -493,6 +513,40 @@ impl StreamingContract {
     /// Get the contract name.
     pub fn name(env: Env) -> String {
         String::from_small_copy(&String::from_slice(&env, CONTRACT_NAME))
+    }
+
+    // ── Delegation ────────────────────────────────────────────────────────────
+
+    /// Set a delegate who can withdraw on behalf of the recipient.
+    pub fn set_delegate(env: Env, stream_id: u64, delegate: Address) {
+        let stream = Self::load_stream(&env, stream_id);
+        stream.recipient.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Delegate(stream_id), &delegate);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Delegate(stream_id),
+            17_280,
+            17_280,
+        );
+    }
+
+    /// Remove the delegate for a stream.
+    pub fn remove_delegate(env: Env, stream_id: u64) {
+        let stream = Self::load_stream(&env, stream_id);
+        stream.recipient.require_auth();
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Delegate(stream_id));
+    }
+
+    /// Get the delegate for a stream, if set.
+    pub fn get_delegate(env: Env, stream_id: u64) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Delegate(stream_id))
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
