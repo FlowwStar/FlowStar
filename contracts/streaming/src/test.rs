@@ -128,7 +128,7 @@ fn test_create_stream_with_cliff() {
 }
 
 #[test]
-#[should_panic(expected = "end_time must be > start_time")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_create_stream_invalid_times() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -141,7 +141,7 @@ fn test_create_stream_invalid_times() {
 }
 
 #[test]
-#[should_panic(expected = "total_amount must be > 0")]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_create_stream_zero_amount() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -206,7 +206,7 @@ fn test_withdraw_full_after_end() {
 }
 
 #[test]
-#[should_panic(expected = "invalid withdraw amount")]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_withdraw_too_much() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -303,7 +303,7 @@ fn test_cancel_midway() {
 }
 
 #[test]
-#[should_panic(expected = "stream already cancelled")]
+#[should_panic(expected = "Error(Contract, #5)")]
 fn test_cancel_twice() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -320,7 +320,7 @@ fn test_cancel_twice() {
 }
 
 #[test]
-#[should_panic(expected = "stream is cancelled")]
+#[should_panic(expected = "Error(Contract, #5)")]
 fn test_withdraw_from_cancelled_stream() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -537,7 +537,7 @@ fn test_top_up_mid_stream_recalculates_rate() {
 }
 
 #[test]
-#[should_panic(expected = "cannot top up a cancelled stream")]
+#[should_panic(expected = "Error(Contract, #5)")]
 fn test_top_up_cancelled_stream_panics() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -557,7 +557,7 @@ fn test_top_up_cancelled_stream_panics() {
 }
 
 #[test]
-#[should_panic(expected = "cannot top up an ended stream")]
+#[should_panic(expected = "Error(Contract, #8)")]
 fn test_top_up_ended_stream_panics() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -577,7 +577,7 @@ fn test_top_up_ended_stream_panics() {
 }
 
 #[test]
-#[should_panic(expected = "additional_amount must be > 0")]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_top_up_zero_amount_panics() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
