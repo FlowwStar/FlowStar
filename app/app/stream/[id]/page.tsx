@@ -51,7 +51,8 @@ import {
   shortenAddress,
   formatRate,
 } from '@/lib/stream-utils'
-import { NETWORK, STREAM_CONTRACT_ID, explorerUrl } from '@/lib/stellar'
+import { explorerUrl } from '@/lib/stellar'
+import { useNetwork } from '@/components/providers/network-provider'
 import { useAutoWithdraw } from '@/hooks/use-auto-withdraw'
 import { UnlockChart } from '@/components/streams/unlock-chart'
 import { bumpStreamTtl } from '@/lib/contract'
@@ -120,6 +121,7 @@ function WithdrawDialog({
   token: { symbol: string; decimals: number; address: string }
 }) {
   const { withdraw, pending, error } = useContract()
+  const { network } = useNetwork()
   const [inputAmount, setInputAmount] = useState('')
   const [showFeeEstimate, setShowFeeEstimate] = useState(false)
 
@@ -140,7 +142,7 @@ function WithdrawDialog({
         ...(hash && {
           action: {
             label: 'View transaction',
-            onClick: () => window.open(explorerUrl('tx', hash), '_blank'),
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
           },
         }),
       })
@@ -242,6 +244,7 @@ function CancelDialog({
   streamId: string
 }) {
   const { cancel, pending, error } = useContract()
+  const { network } = useNetwork()
   const router = useRouter()
   const [showFeeEstimate, setShowFeeEstimate] = useState(false)
 
@@ -257,7 +260,7 @@ function CancelDialog({
         ...(hash && {
           action: {
             label: 'View transaction',
-            onClick: () => window.open(explorerUrl('tx', hash), '_blank'),
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
           },
         }),
       })
@@ -534,6 +537,7 @@ function estimateDaysSinceLastWrite(stream: import('@/types/stream').StreamData,
 
 function TtlWarning({ stream, nowSeconds }: { stream: import('@/types/stream').StreamData; nowSeconds: number }) {
   const { address } = useWallet()
+  const { network } = useNetwork()
   const [bumping, setBumping] = useState(false)
   const [bumped, setBumped] = useState(false)
 
@@ -546,7 +550,7 @@ function TtlWarning({ stream, nowSeconds }: { stream: import('@/types/stream').S
     if (!address) return
     setBumping(true)
     try {
-      await bumpStreamTtl(stream.id, address)
+      await bumpStreamTtl(network, stream.id, address)
       setBumped(true)
       toast.success('Storage TTL extended by 30 days')
     } catch {
@@ -698,6 +702,8 @@ function ConnectPrompt() {
 function StreamDetail({ id }: { id: string }) {
   const { stream, loading } = useStream(id)
   const { address, isConnected } = useWallet()
+  const { network, config } = useNetwork()
+  const router = useRouter()
   const now = useNow(1000)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
@@ -737,6 +743,26 @@ function StreamDetail({ id }: { id: string }) {
   const isSender = address === stream.sender
   const canWithdraw = isRecipient && !stream.cancelled && withdrawable > 0n
   const canCancel = isSender && !stream.cancelled && status !== 'completed'
+
+  function handleDuplicate() {
+    const durationSecs = Number(stream.endTime - stream.startTime)
+    const cliffSecs = Number(stream.cliffTime - stream.startTime)
+    const hasCliff = stream.cliffTime > stream.startTime
+    const params = new URLSearchParams({
+      clone: stream.id,
+      recipient: stream.recipient,
+      token: stream.token.address,
+      amount: (Number(stream.depositedAmount) / Math.pow(10, stream.token.decimals)).toString(),
+      duration: durationSecs.toString(),
+    })
+    if (hasCliff) {
+      params.set('cliff', cliffSecs.toString())
+      if (stream.cliffAmount > 0n) {
+        params.set('cliffAmount', (Number(stream.cliffAmount) / Math.pow(10, stream.token.decimals)).toString())
+      }
+    }
+    router.push(`/app/create?${params.toString()}`)
+  }
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -844,7 +870,7 @@ function StreamDetail({ id }: { id: string }) {
         )}
 
         {/* Actions */}
-        {(canWithdraw || canCancel) && (
+        {(canWithdraw || canCancel || isSender) && (
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
             {canWithdraw && (
               <Button onClick={() => setWithdrawOpen(true)} className="gap-1.5">
@@ -862,6 +888,16 @@ function StreamDetail({ id }: { id: string }) {
                 onClick={() => setCancelOpen(true)}
               >
                 Cancel stream
+              </Button>
+            )}
+            {isSender && (
+              <Button
+                variant="outline"
+                onClick={handleDuplicate}
+                className="gap-1.5"
+              >
+                <Copy className="size-4" />
+                Duplicate stream
               </Button>
             )}
           </div>
@@ -884,25 +920,25 @@ function StreamDetail({ id }: { id: string }) {
           Details
         </h2>
         <DetailRow label="Sender">
-          <CopyableAddress address={stream.sender} href={explorerUrl('account', stream.sender)} />
+          <CopyableAddress address={stream.sender} href={explorerUrl(network, 'account', stream.sender)} />
         </DetailRow>
         <DetailRow label="Recipient">
-          <CopyableAddress address={stream.recipient} href={explorerUrl('account', stream.recipient)} />
+          <CopyableAddress address={stream.recipient} href={explorerUrl(network, 'account', stream.recipient)} />
         </DetailRow>
         <DetailRow label="Token">
           <div className="flex items-center gap-2">
             <span className="font-mono font-medium">{stream.token.symbol}</span>
             <CopyableAddress
               address={stream.token.address}
-              href={explorerUrl('contract', stream.token.address)}
+              href={explorerUrl(network, 'contract', stream.token.address)}
             />
           </div>
         </DetailRow>
-        {STREAM_CONTRACT_ID && (
+        {config.streamContractId && (
           <DetailRow label="Stream Contract">
             <CopyableAddress
-              address={STREAM_CONTRACT_ID}
-              href={explorerUrl('contract', STREAM_CONTRACT_ID)}
+              address={config.streamContractId}
+              href={explorerUrl(network, 'contract', config.streamContractId)}
             />
           </DetailRow>
         )}
@@ -937,7 +973,7 @@ function StreamDetail({ id }: { id: string }) {
           {formatDateTime(stream.endTime)}
         </DetailRow>
         <DetailRow label="Network">
-          <span className="capitalize">{NETWORK.name}</span>
+          <span className="capitalize">{network}</span>
         </DetailRow>
       </div>
 

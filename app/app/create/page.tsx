@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, ArrowRight, Info, Loader2 } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { AlertTriangle, ArrowLeft, ArrowRight, Info, Loader2, Copy } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { StrKey } from '@stellar/stellar-sdk'
@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import { useContract } from '@/hooks/use-contract'
 import { useWallet } from '@/hooks/use-wallet'
+import { useNetwork } from '@/components/providers/network-provider'
 import { getAllTokens, saveCustomToken } from '@/lib/stellar'
 import { getTokenMetadata, getTokenBalance } from '@/lib/contract'
 import { parseTokenAmount, formatTokenAmount } from '@/lib/stream-utils'
@@ -69,13 +70,16 @@ interface FormState {
 
 function CreateForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const cloneId = searchParams.get('clone')
   const { address: walletAddress } = useWallet()
+  const { network } = useNetwork()
   const { createStream, estimateFee, pending, error } = useContract()
   const [feeEstimate, setFeeEstimate] = useState<string | null>(null)
   const [estimatingFee, setEstimatingFee] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
 
-  const [tokens, setTokens] = useState<TokenInfo[]>(() => getAllTokens().map((t) => ({ ...t })))
+  const [tokens, setTokens] = useState<TokenInfo[]>(() => getAllTokens(network).map((t) => ({ ...t })))
   const [isCustom, setIsCustom] = useState(false)
   const [customAddress, setCustomAddress] = useState('')
   const [customLoading, setCustomLoading] = useState(false)
@@ -89,15 +93,28 @@ function CreateForm() {
   const defaultStart = localDatetimeMin(60)
   const defaultEnd = localDatetimeMin(60 + 30 * 24 * 3600)
 
-  const [form, setForm] = useState<FormState>({
-    recipient: '',
-    tokenAddress: tokens[0]?.address ?? '',
-    amount: '',
-    startDate: defaultStart,
-    endDate: defaultEnd,
-    hasCliff: false,
-    cliffDate: defaultStart,
-    cliffAmount: '',
+  const [form, setForm] = useState<FormState>(() => {
+    const newStart = localDatetimeMin(60)
+    const durationSecs = searchParams.get('duration')
+    const cliffSecs = searchParams.get('cliff')
+    const hasCliff = cliffSecs !== null && cliffSecs !== '0'
+    const newEnd = durationSecs
+      ? addDuration(newStart, Number(durationSecs))
+      : localDatetimeMin(60 + 30 * 24 * 3600)
+    const newCliff = hasCliff && cliffSecs
+      ? addDuration(newStart, Number(cliffSecs))
+      : newStart
+
+    return {
+      recipient: searchParams.get('recipient') ?? '',
+      tokenAddress: searchParams.get('token') ?? (tokens[0]?.address ?? ''),
+      amount: searchParams.get('amount') ?? '',
+      startDate: newStart,
+      endDate: newEnd,
+      hasCliff,
+      cliffDate: newCliff,
+      cliffAmount: searchParams.get('cliffAmount') ?? '',
+    }
   })
 
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
@@ -132,8 +149,8 @@ function CreateForm() {
         return
       }
       setCustomToken(meta)
-      saveCustomToken(meta)
-      setTokens(getAllTokens().map((t) => ({ ...t })))
+      saveCustomToken(network, meta)
+      setTokens(getAllTokens(network).map((t) => ({ ...t })))
       set('tokenAddress', meta.address)
     } catch {
       setCustomError('Failed to query token contract')
@@ -262,7 +279,16 @@ function CreateForm() {
         </p>
       </div>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_320px]">
+      {cloneId && (
+        <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+          <Copy className="size-4 shrink-0 text-primary" />
+          <p className="text-sm text-primary">
+            Duplicating Stream #{cloneId} — form pre-filled with its parameters.
+          </p>
+        </div>
+      )}
+
+      <div className="mt-6 grid gap-8 lg:grid-cols-[1fr_320px]">
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Token + Amount */}
         <div className="rounded-2xl border border-border bg-card p-5 space-y-4">

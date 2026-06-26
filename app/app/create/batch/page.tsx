@@ -16,12 +16,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useContract } from '@/hooks/use-contract'
-import { KNOWN_TOKENS } from '@/lib/stellar'
+import { useNetwork } from '@/components/providers/network-provider'
 import { parseTokenAmount, formatDateTime } from '@/lib/stream-utils'
 import { parseCsvBatch, type CsvBatchRow } from '@/lib/csv-parser'
 import type { TokenInfo } from '@/types/stream'
-
-const TOKENS: TokenInfo[] = KNOWN_TOKENS.map((t) => ({ ...t }))
 
 function parseTimestamp(value: string): bigint | null {
   const trimmed = value.trim()
@@ -68,7 +66,9 @@ interface ParsedRow {
 
 export default function BatchCreatePage() {
   const { createStream, pending, error } = useContract()
-  const [selectedToken, setSelectedToken] = useState<string>(TOKENS[0].address)
+  const { config } = useNetwork()
+  const TOKENS: TokenInfo[] = config.knownTokens.map((t) => ({ ...t }))
+  const [selectedToken, setSelectedToken] = useState<string>('')
   const [fileText, setFileText] = useState('')
   const [rows, setRows] = useState<ParsedRow[]>([])
   const [parseErrors, setParseErrors] = useState<string[]>([])
@@ -77,7 +77,7 @@ export default function BatchCreatePage() {
   const [completedCount, setCompletedCount] = useState(0)
   const [queuedCount, setQueuedCount] = useState(0)
   const [executionErrors, setExecutionErrors] = useState<string[]>([])
-  const selectedTokenInfo = TOKENS.find((t) => t.address === selectedToken) ?? TOKENS[0]
+  const selectedTokenInfo = TOKENS.find((t) => t.address === selectedToken) ?? TOKENS[0] ?? { address: '', symbol: 'XLM', decimals: 7 }
 
   const isValidRow = useCallback(
     (row: ParsedRow) => row.errors.length === 0,
