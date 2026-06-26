@@ -161,14 +161,14 @@ fn test_auth_sender_cannot_withdraw() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[should_panic(expected = "stream not found")]
+#[should_panic(expected = "Error(Contract, #4)")]
 fn test_get_nonexistent_stream() {
     let ctx = Ctx::new();
     ctx.client().get_stream(&9999);
 }
 
 #[test]
-#[should_panic(expected = "stream not found")]
+#[should_panic(expected = "Error(Contract, #4)")]
 fn test_withdraw_nonexistent_stream() {
     let ctx = Ctx::new();
     ctx.set_time(1_000_000);
@@ -176,7 +176,7 @@ fn test_withdraw_nonexistent_stream() {
 }
 
 #[test]
-#[should_panic(expected = "stream not found")]
+#[should_panic(expected = "Error(Contract, #4)")]
 fn test_cancel_nonexistent_stream() {
     let ctx = Ctx::new();
     ctx.set_time(1_000_000);
@@ -219,7 +219,7 @@ fn test_no_overdraw_multiple_partial_withdrawals() {
 }
 
 #[test]
-#[should_panic(expected = "invalid withdraw amount")]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_withdraw_more_than_withdrawable() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
@@ -231,7 +231,7 @@ fn test_withdraw_more_than_withdrawable() {
 }
 
 #[test]
-#[should_panic(expected = "invalid withdraw amount")]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_withdraw_zero() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
@@ -242,7 +242,7 @@ fn test_withdraw_zero() {
 }
 
 #[test]
-#[should_panic(expected = "invalid withdraw amount")]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_withdraw_negative_amount() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
@@ -480,7 +480,7 @@ fn test_nothing_withdrawable_before_cliff() {
 }
 
 #[test]
-#[should_panic(expected = "invalid withdraw amount")]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_withdraw_before_cliff_panics() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
@@ -674,7 +674,7 @@ fn test_self_stream_withdraw() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-#[should_panic(expected = "cliff_time must be between start_time and end_time")]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn test_cliff_before_start_time() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
@@ -696,7 +696,7 @@ fn test_cliff_before_start_time() {
 }
 
 #[test]
-#[should_panic(expected = "cliff_time must be between start_time and end_time")]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn test_cliff_after_end_time() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
@@ -718,7 +718,7 @@ fn test_cliff_after_end_time() {
 }
 
 #[test]
-#[should_panic(expected = "cliff_amount must be between 0 and total_amount")]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn test_cliff_amount_exceeds_total() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
@@ -740,7 +740,7 @@ fn test_cliff_amount_exceeds_total() {
 }
 
 #[test]
-#[should_panic(expected = "cliff_amount must be between 0 and total_amount")]
+#[should_panic(expected = "Error(Contract, #3)")]
 fn test_negative_cliff_amount() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
@@ -762,7 +762,7 @@ fn test_negative_cliff_amount() {
 }
 
 #[test]
-#[should_panic(expected = "total_amount must be > 0")]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_negative_total_amount() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
@@ -782,7 +782,7 @@ fn test_negative_total_amount() {
 }
 
 #[test]
-#[should_panic(expected = "end_time must be > start_time")]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_end_time_equals_start_time() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
