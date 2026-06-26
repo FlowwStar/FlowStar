@@ -16,6 +16,10 @@ pub enum DataKey {
     SentBy(Address),
     /// List of stream IDs where address is the recipient. Stored in Persistent.
     ReceivedBy(Address),
+    /// Admin address for pause/unpause. Stored in Instance.
+    Admin,
+    /// Pause state flag. Stored in Instance.
+    Paused,
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -117,6 +121,16 @@ pub struct StreamBumpedEvent {
     pub timestamp: u64,
 }
 
+#[soroban_sdk::contractevent]
+pub struct PauseEvent {
+    pub timestamp: u64,
+}
+
+#[soroban_sdk::contractevent]
+pub struct UnpauseEvent {
+    pub timestamp: u64,
+}
+
 // ─── Contract ────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -124,6 +138,66 @@ pub struct StreamingContract;
 
 #[contractimpl]
 impl StreamingContract {
+    // ── Admin: Initialize ────────────────────────────────────────────────────
+
+    /// Initialize contract with admin address (one-time).
+    pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
+
+        let is_initialized = env.storage().instance().has(&DataKey::Admin);
+        if is_initialized {
+            panic!("already initialized");
+        }
+
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.storage().instance().extend_ttl(17_280, 17_280);
+    }
+
+    // ── Admin: Pause/Unpause ─────────────────────────────────────────────────
+
+    /// Pause all write operations (admin only).
+    pub fn pause(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic!("not initialized"));
+        admin.require_auth();
+
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.storage().instance().extend_ttl(17_280, 17_280);
+
+        PauseEvent { timestamp: env.ledger().timestamp() }.publish(&env);
+    }
+
+    /// Unpause all write operations (admin only).
+    pub fn unpause(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic!("not initialized"));
+        admin.require_auth();
+
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.storage().instance().extend_ttl(17_280, 17_280);
+
+        UnpauseEvent { timestamp: env.ledger().timestamp() }.publish(&env);
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    fn require_not_paused(env: &Env) {
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        if paused {
+            panic!("contract is paused");
+        }
+    }
     // ── Write: Create ────────────────────────────────────────────────────────
 
     /// Create a new token stream.
@@ -134,6 +208,7 @@ impl StreamingContract {
     /// Returns the new stream's ID.
     pub fn create_stream(env: Env, sender: Address, params: CreateStreamParams) -> u64 {
         sender.require_auth();
+        Self::require_not_paused(&env);
 
         // ── Validate params ──────────────────────────────────────────────────
         if params.total_amount <= 0 {
@@ -220,6 +295,7 @@ impl StreamingContract {
     pub fn transfer_stream(env: Env, stream_id: u64, new_recipient: Address) {
         let mut stream = Self::load_stream(&env, stream_id);
         stream.recipient.require_auth();
+        Self::require_not_paused(&env);
         let old_recipient = stream.recipient;
         if stream.cancelled {
             panic!("cannot transfer a cancelled stream");
@@ -241,6 +317,7 @@ impl StreamingContract {
     pub fn top_up(env: Env, stream_id: u64, additional_amount: i128) {
         let mut stream = Self::load_stream(&env, stream_id);
         stream.sender.require_auth();
+        Self::require_not_paused(&env);
 
         if stream.cancelled {
             panic!("cannot top up a cancelled stream");
@@ -330,6 +407,7 @@ impl StreamingContract {
         let mut stream = Self::load_stream(&env, stream_id);
 
         stream.recipient.require_auth();
+        Self::require_not_paused(&env);
 
         if stream.cancelled {
             panic!("stream is cancelled");
@@ -378,6 +456,7 @@ impl StreamingContract {
         let mut stream = Self::load_stream(&env, stream_id);
 
         stream.sender.require_auth();
+        Self::require_not_paused(&env);
 
         if stream.cancelled {
             panic!("stream already cancelled");
