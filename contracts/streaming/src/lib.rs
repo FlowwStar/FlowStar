@@ -199,6 +199,18 @@ impl StreamingContract {
         stream.recipient = new_recipient.clone();
 
         // ── Persist stream ───────────────────────────────────────────────────
+        env.storage()
+            .persistent()
+            .set(&DataKey::Stream(stream_id), &stream);
+
+        Self::remove_from_index(&env, DataKey::ReceivedBy(old_recipient.clone()), stream_id);
+        Self::push_to_index(&env, DataKey::ReceivedBy(new_recipient.clone()), stream_id);
+
+        StreamTransferEvent { stream_id, old_recipient, new_recipient }
+            .publish(&env);
+        Self::extend_stream_ttl(&env, stream_id);
+    }
+
     /// Top up an existing stream with additional funds.
     ///
     /// Increases `deposited_amount` and recalculates `amount_per_second` over
