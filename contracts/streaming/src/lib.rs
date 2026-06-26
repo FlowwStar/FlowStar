@@ -8,6 +8,7 @@ use soroban_sdk::{
 
 const CONTRACT_VERSION: u32 = 1;
 const CONTRACT_NAME: &str = "FlowStar Streaming";
+const MAX_STREAM_DURATION: u64 = 315_360_000; // 10 years in seconds
 
 // ─── Storage Keys ────────────────────────────────────────────────────────────
 
@@ -125,6 +126,10 @@ impl StreamingContract {
         if params.end_time <= params.start_time {
             panic!("end_time must be > start_time");
         }
+        let duration = params.end_time - params.start_time;
+        if duration > MAX_STREAM_DURATION {
+            panic!("stream duration exceeds maximum");
+        }
         if params.cliff_time < params.start_time || params.cliff_time > params.end_time {
             panic!("cliff_time must be between start_time and end_time");
         }
@@ -135,9 +140,9 @@ impl StreamingContract {
             panic!("sender cannot be the recipient");
         }
 
-        let duration = (params.end_time - params.start_time) as i128;
+        let duration_i128 = duration as i128;
         let linear_amount = params.total_amount - params.cliff_amount;
-        let amount_per_second = if duration > 0 { linear_amount / duration } else { 0 };
+        let amount_per_second = if duration_i128 > 0 { linear_amount / duration_i128 } else { 0 };
 
         // ── Pull funds from sender into contract ─────────────────────────────
         let token_client = token::Client::new(&env, &params.token);
@@ -165,7 +170,7 @@ impl StreamingContract {
             amount_per_second,
             cancelled: false,
             linear_amount,
-            duration
+            duration: duration_i128
         };
 
         // ── Persist stream ───────────────────────────────────────────────────

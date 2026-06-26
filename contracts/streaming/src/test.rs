@@ -609,3 +609,46 @@ fn test_contract_name() {
     let name = client.name();
     assert_eq!(name, String::from_slice(&t.env, "FlowStar Streaming"));
 }
+
+// ─── Max Stream Duration Tests ─────────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "stream duration exceeds maximum")]
+fn test_create_stream_exceeds_max_duration() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let mut params = t.default_params(now);
+    // Set duration to 11 years (exceeds 10-year max)
+    params.end_time = now + 315_360_000 + 1;
+    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
+    client.create_stream(&t.sender, &params);
+}
+
+#[test]
+fn test_create_stream_at_max_duration() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let mut params = t.default_params(now);
+    // Set duration to exactly 10 years (max allowed)
+    params.end_time = now + 315_360_000;
+    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.end_time - stream.start_time, 315_360_000);
+}
+
+#[test]
+fn test_create_stream_under_max_duration() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now); // 1000 seconds < max
+    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+    assert_eq!(stream_id, 1);
+}
