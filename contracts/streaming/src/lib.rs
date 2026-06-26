@@ -131,6 +131,14 @@ pub struct UnpauseEvent {
     pub timestamp: u64,
 }
 
+#[soroban_sdk::contractevent]
+pub struct PartialCancelEvent {
+    pub stream_id: u64,
+    pub reduce_amount: i128,
+    pub old_rate: i128,
+    pub new_rate: i128,
+}
+
 // ─── Contract ────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -574,6 +582,63 @@ impl StreamingContract {
             .unwrap_or(0)
     }
 
+    // ── Write: Partial Cancel ────────────────────────────────────────────────
+
+    /// Reduce the remaining locked amount of a stream without cancelling it.
+    ///
+    /// Only the sender can call this. The stream continues streaming with a
+    /// recalculated rate. Refunds the reduce_amount to the sender immediately.
+    pub fn partial_cancel(env: Env, stream_id: u64, reduce_amount: i128) {
+        let mut stream = Self::load_stream(&env, stream_id);
+        stream.sender.require_auth();
+        Self::require_not_paused(&env);
+
+        if stream.cancelled {
+            panic!("cannot reduce a cancelled stream");
+        }
+
+        let now = env.ledger().timestamp();
+        let already_vested = Self::vested_amount(&stream, now);
+        let remaining_locked = stream.deposited_amount - already_vested;
+
+        if reduce_amount <= 0 || reduce_amount > remaining_locked {
+            panic!("reduce_amount must be between 0 and remaining locked");
+        }
+
+        let old_rate = stream.amount_per_second;
+        let remaining_seconds = (stream.end_time - now) as i128;
+        let new_remaining = remaining_locked - reduce_amount;
+        let new_rate = if remaining_seconds > 0 {
+            new_remaining / remaining_seconds
+        } else {
+            0
+        };
+
+        stream.deposited_amount -= reduce_amount;
+        stream.amount_per_second = new_rate;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Stream(stream_id), &stream);
+
+        Self::extend_stream_ttl(&env, stream_id);
+
+        let token_client = token::Client::new(&env, &stream.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &stream.sender,
+            &reduce_amount,
+        );
+
+        PartialCancelEvent {
+            stream_id,
+            reduce_amount,
+            old_rate,
+            new_rate,
+        }
+        .publish(&env);
+    }
+
     // ── Write: Bump TTL ──────────────────────────────────────────────────────
 
     /// Extend the TTL of a stream's persistent storage without modifying data.
@@ -589,7 +654,7 @@ impl StreamingContract {
         .publish(&env);
     }
 
-    // ── Internal helpers ─────────────────────────────────────────────────────
+    // ──── Internal helpers ─────────────────────────────────────────────────────
 
     fn load_stream(env: &Env, id: u64) -> Stream {
         env.storage()
