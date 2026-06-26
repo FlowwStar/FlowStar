@@ -174,6 +174,14 @@ You'll sign two transactions: one `approve` on the token contract, then `create_
 
 ---
 
+## Security
+
+Please report suspected vulnerabilities privately. See [SECURITY.md](./SECURITY.md)
+for the supported scope, reporting process, response timeline, and safe harbor
+policy.
+
+---
+
 ## License
 
 MIT
