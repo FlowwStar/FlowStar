@@ -20,7 +20,6 @@ import {
 } from '@/components/ui/select'
 import { useContract } from '@/hooks/use-contract'
 import { useWallet } from '@/hooks/use-wallet'
-import { useNetwork } from '@/components/providers/network-provider'
 import { getAllTokens, saveCustomToken } from '@/lib/stellar'
 import { getTokenMetadata, getTokenBalance } from '@/lib/contract'
 import { parseTokenAmount, formatTokenAmount } from '@/lib/stream-utils'

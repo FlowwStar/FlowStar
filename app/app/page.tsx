@@ -4,8 +4,8 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { Plus, ArrowDownToLine } from 'lucide-react'
 import { RequireWallet } from '@/components/layout/require-wallet'
-import { DashboardStats } from '@/components/streams/dashboard-stats'
-import { StreamCard } from '@/components/streams/stream-card'
+import { DashboardStats, DashboardStatsSkeleton } from '@/components/streams/dashboard-stats'
+import { StreamCard, StreamCardSkeleton } from '@/components/streams/stream-card'
 import { EmptyStreams } from '@/components/streams/empty-state'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -75,7 +75,7 @@ function Dashboard() {
       </div>
 
       {/* Stats */}
-      <DashboardStats sent={sent} received={received} />
+      {loading ? <DashboardStatsSkeleton /> : <DashboardStats sent={sent} received={received} />}
 
       {/* Stream list */}
       <Tabs defaultValue="all">
@@ -86,7 +86,11 @@ function Dashboard() {
         </TabsList>
 
         <TabsContent value="all" className="mt-4">
-          {all.length === 0 ? (
+          {loading ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[0, 1, 2, 4].map((i) => <StreamCardSkeleton key={i} />)}
+            </div>
+          ) : all.length === 0 ? (
             <EmptyStreams />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
@@ -98,7 +102,11 @@ function Dashboard() {
         </TabsContent>
 
         <TabsContent value="received" className="mt-4">
-          {received.length === 0 ? (
+          {loading ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[0, 1].map((i) => <StreamCardSkeleton key={i} />)}
+            </div>
+          ) : received.length === 0 ? (
             <EmptyStreams
               title="No incoming streams"
               description="You haven't received any streams yet."
@@ -114,7 +122,11 @@ function Dashboard() {
         </TabsContent>
 
         <TabsContent value="sent" className="mt-4">
-          {sent.length === 0 ? (
+          {loading ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[0, 1].map((i) => <StreamCardSkeleton key={i} />)}
+            </div>
+          ) : sent.length === 0 ? (
             <EmptyStreams
               title="No outgoing streams"
               description="Create a stream to start sending tokens that unlock over time."
