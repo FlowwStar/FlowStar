@@ -68,6 +68,36 @@ async function signWithFreighter(xdr: string, networkPassphrase: string): Promis
   return result.signedTxXdr
 }
 
+function passphraseToAlbedoNetwork(passphrase: string): 'testnet' | 'public' {
+  if (passphrase.includes('Test')) return 'testnet'
+  return 'public'
+}
+
+async function connectAlbedo(): Promise<string> {
+  const albedo = await import('@albedo-link/intent')
+  try {
+    const result = await albedo.default.publicKey({})
+    return result.pubkey
+  } catch (err: unknown) {
+    if (err instanceof Error && /popup/i.test(err.message)) {
+      throw new Error(
+        'Albedo popup was blocked. Please allow popups for this site and try again.',
+      )
+    }
+    throw err
+  }
+}
+
+async function signWithAlbedo(xdr: string, networkPassphrase: string): Promise<string> {
+  const albedo = await import('@albedo-link/intent')
+  const result = await albedo.default.tx({
+    xdr,
+    network: passphraseToAlbedoNetwork(networkPassphrase),
+    submit: false,
+  })
+  return result.signed_envelope_xdr
+}
+
 // Stubs for wallets that need a dedicated SDK — shows a helpful message
 async function connectStub(name: string): Promise<string> {
   throw new Error(
@@ -80,7 +110,7 @@ async function connectWallet(id: string): Promise<string> {
     case 'freighter': return connectFreighter()
     case 'xbull':     return connectStub('xBull')
     case 'lobstr':    return connectStub('LOBSTR')
-    case 'albedo':    return connectStub('Albedo')
+    case 'albedo':    return connectAlbedo()
     default:          throw new Error(`Unknown wallet: ${id}`)
   }
 }
@@ -131,6 +161,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const config = getNetworkConfig(customNetwork || network)
       switch (walletId) {
         case 'freighter': return signWithFreighter(xdr, config.passphrase)
+        case 'albedo':    return signWithAlbedo(xdr, config.passphrase)
         default: throw new Error(`Signing not implemented for ${walletId}`)
       }
     },

@@ -30,6 +30,7 @@ import { buildNextRunAt, saveRecurringRule, type RecurrenceCadence } from '@/lib
 import { useFormDraft, clearExpiredDrafts } from '@/hooks/use-form-draft'
 import { StreamTemplates, type StreamTemplate } from '@/components/streams/stream-templates'
 import type { TokenInfo } from '@/types/stream'
+import { useNetwork } from '@/components/providers/network-provider'
 
 const CUSTOM_VALUE = '__custom__'
 
@@ -633,7 +634,7 @@ function CreateForm() {
             <Label htmlFor="timezone" className="text-xs text-muted-foreground">
               Timezone — dates below are interpreted in this timezone ({timezoneOffset})
             </Label>
-            <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
+            <Select value={selectedTimezone} onValueChange={(v) => { if (v !== null) setSelectedTimezone(v) }}>
               <SelectTrigger id="timezone" className="w-full text-xs">
                 <SelectValue />
               </SelectTrigger>
