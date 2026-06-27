@@ -11,6 +11,7 @@ import {
 } from 'react'
 import { setSignTransaction } from '@/lib/contract'
 import { type NetworkName, getNetworkConfig } from '@/lib/stellar'
+import { setSentryUser } from '@/lib/sentry'
 import { useNetwork } from './network-provider'
 
 // ─── Wallet options ───────────────────────────────────────────────────────────
@@ -111,6 +112,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setAddress(addr)
       setWalletId(id)
       localStorage.setItem('walletId', id)
+      setSentryUser(addr)
     } finally {
       setConnecting(false)
     }
@@ -120,6 +122,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setAddress(null)
     setWalletId(null)
     localStorage.removeItem('walletId')
+    setSentryUser(null)
   }, [])
 
   const signTransaction = useCallback(
