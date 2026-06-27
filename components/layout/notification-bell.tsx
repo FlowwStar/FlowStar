@@ -41,6 +41,7 @@ export function NotificationBell() {
   const { notifications, unreadCount, markAllRead, clearAll } = useNotifications(address)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -48,8 +49,20 @@ export function NotificationBell() {
         setOpen(false)
       }
     }
-    if (open) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && open) {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener('keydown', handleKeyDown)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [open])
 
   function handleToggle() {
@@ -62,8 +75,11 @@ export function NotificationBell() {
   return (
     <div className="relative" ref={ref}>
       <button
+        ref={triggerRef}
         onClick={handleToggle}
-        className="relative rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground"
+        aria-expanded={open}
+        aria-haspopup="true"
+        className="relative rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
       >
         <Bell className="size-5" />
@@ -75,13 +91,17 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-border bg-card shadow-lg">
+        <div
+          role="dialog"
+          aria-label="Notifications"
+          className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-border bg-card shadow-lg"
+        >
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <h3 className="text-sm font-medium">Notifications</h3>
             {notifications.length > 0 && (
               <button
                 onClick={clearAll}
-                className="text-xs text-muted-foreground hover:text-foreground"
+                className="text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:rounded"
               >
                 Clear all
               </button>

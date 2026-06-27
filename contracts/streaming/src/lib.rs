@@ -12,14 +12,14 @@ pub enum DataKey {
     NextId,
     /// Stream struct keyed by ID. Stored in Persistent.
     Stream(u64),
-    /// List of stream IDs where address is the sender. Stored in Persistent.
+    /// Active stream IDs where address is the sender. Stored in Persistent.
     SentBy(Address),
-    /// List of stream IDs where address is the recipient. Stored in Persistent.
+    /// Active stream IDs where address is the recipient. Stored in Persistent.
     ReceivedBy(Address),
-    /// Admin address for pause/unpause. Stored in Instance.
-    Admin,
-    /// Pause state flag. Stored in Instance.
-    Paused,
+    /// Archived (completed/cancelled) stream IDs where address is the sender.
+    ArchiveSentBy(Address),
+    /// Archived (completed/cancelled) stream IDs where address is the recipient.
+    ArchiveReceivedBy(Address),
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -429,12 +429,22 @@ impl StreamingContract {
         }
 
         stream.withdrawn_amount += amount;
+        let fully_drained = stream.withdrawn_amount >= stream.deposited_amount
+            && env.ledger().timestamp() >= stream.end_time;
 
         env.storage()
             .persistent()
             .set(&DataKey::Stream(stream_id), &stream);
 
         Self::extend_stream_ttl(&env, stream_id);
+
+        // When a stream is fully drained after end_time, move it to the archive.
+        if fully_drained {
+            Self::remove_from_index(&env, DataKey::SentBy(stream.sender.clone()), stream_id);
+            Self::push_to_index(&env, DataKey::ArchiveSentBy(stream.sender.clone()), stream_id);
+            Self::remove_from_index(&env, DataKey::ReceivedBy(stream.recipient.clone()), stream_id);
+            Self::push_to_index(&env, DataKey::ArchiveReceivedBy(stream.recipient.clone()), stream_id);
+        }
 
         let token_client = token::Client::new(&env, &stream.token);
         token_client.transfer(
@@ -482,6 +492,12 @@ impl StreamingContract {
             .set(&DataKey::Stream(stream_id), &stream);
 
         Self::extend_stream_ttl(&env, stream_id);
+
+        // Move from active to archive indexes.
+        Self::remove_from_index(&env, DataKey::SentBy(stream.sender.clone()), stream_id);
+        Self::push_to_index(&env, DataKey::ArchiveSentBy(stream.sender.clone()), stream_id);
+        Self::remove_from_index(&env, DataKey::ReceivedBy(stream.recipient.clone()), stream_id);
+        Self::push_to_index(&env, DataKey::ArchiveReceivedBy(stream.recipient.clone()), stream_id);
 
         let token_client = token::Client::new(&env, &stream.token);
 
@@ -582,61 +598,71 @@ impl StreamingContract {
             .unwrap_or(0)
     }
 
-    // ── Write: Partial Cancel ────────────────────────────────────────────────
-
-    /// Reduce the remaining locked amount of a stream without cancelling it.
-    ///
-    /// Only the sender can call this. The stream continues streaming with a
-    /// recalculated rate. Refunds the reduce_amount to the sender immediately.
-    pub fn partial_cancel(env: Env, stream_id: u64, reduce_amount: i128) {
-        let mut stream = Self::load_stream(&env, stream_id);
-        stream.sender.require_auth();
-        Self::require_not_paused(&env);
-
-        if stream.cancelled {
-            panic!("cannot reduce a cancelled stream");
-        }
-
-        let now = env.ledger().timestamp();
-        let already_vested = Self::vested_amount(&stream, now);
-        let remaining_locked = stream.deposited_amount - already_vested;
-
-        if reduce_amount <= 0 || reduce_amount > remaining_locked {
-            panic!("reduce_amount must be between 0 and remaining locked");
-        }
-
-        let old_rate = stream.amount_per_second;
-        let remaining_seconds = (stream.end_time - now) as i128;
-        let new_remaining = remaining_locked - reduce_amount;
-        let new_rate = if remaining_seconds > 0 {
-            new_remaining / remaining_seconds
-        } else {
-            0
-        };
-
-        stream.deposited_amount -= reduce_amount;
-        stream.amount_per_second = new_rate;
-
-        env.storage()
+    /// Get paginated archived stream IDs where `address` is the sender.
+    pub fn get_archived_sent_streams(env: Env, address: Address, offset: u32, limit: u32) -> Vec<u64> {
+        let all: Vec<u64> = env
+            .storage()
             .persistent()
-            .set(&DataKey::Stream(stream_id), &stream);
-
-        Self::extend_stream_ttl(&env, stream_id);
-
-        let token_client = token::Client::new(&env, &stream.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &stream.sender,
-            &reduce_amount,
-        );
-
-        PartialCancelEvent {
-            stream_id,
-            reduce_amount,
-            old_rate,
-            new_rate,
+            .get(&DataKey::ArchiveSentBy(address))
+            .unwrap_or(Vec::new(&env));
+        let start = core::cmp::min(offset, all.len());
+        let end = core::cmp::min(offset + limit, all.len());
+        let mut result = Vec::new(&env);
+        let mut i = start;
+        while i < end {
+            result.push_back(all.get(i).unwrap());
+            i += 1;
         }
-        .publish(&env);
+        result
+    }
+
+    /// Get paginated archived stream IDs where `address` is the recipient.
+    pub fn get_archived_received_streams(env: Env, address: Address, offset: u32, limit: u32) -> Vec<u64> {
+        let all: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ArchiveReceivedBy(address))
+            .unwrap_or(Vec::new(&env));
+        let start = core::cmp::min(offset, all.len());
+        let end = core::cmp::min(offset + limit, all.len());
+        let mut result = Vec::new(&env);
+        let mut i = start;
+        while i < end {
+            result.push_back(all.get(i).unwrap());
+            i += 1;
+        }
+        result
+    }
+
+    /// Manually remove a completed or cancelled stream's data and index entries.
+    ///
+    /// Either party (sender or recipient) may call this. The stream must be
+    /// cancelled or fully drained before cleanup is allowed.
+    pub fn cleanup_stream(env: Env, caller: Address, stream_id: u64) {
+        caller.require_auth();
+
+        let stream = Self::load_stream(&env, stream_id);
+
+        // Only sender or recipient may clean up.
+        if caller != stream.sender && caller != stream.recipient {
+            panic!("only sender or recipient may clean up a stream");
+        }
+
+        let fully_drained = stream.withdrawn_amount >= stream.deposited_amount
+            && env.ledger().timestamp() >= stream.end_time;
+
+        if !stream.cancelled && !fully_drained {
+            panic!("stream must be cancelled or fully completed before cleanup");
+        }
+
+        // Remove from all indexes (active + archive).
+        Self::remove_from_index(&env, DataKey::SentBy(stream.sender.clone()), stream_id);
+        Self::remove_from_index(&env, DataKey::ArchiveSentBy(stream.sender.clone()), stream_id);
+        Self::remove_from_index(&env, DataKey::ReceivedBy(stream.recipient.clone()), stream_id);
+        Self::remove_from_index(&env, DataKey::ArchiveReceivedBy(stream.recipient.clone()), stream_id);
+
+        // Delete stream data to reclaim storage.
+        env.storage().persistent().remove(&DataKey::Stream(stream_id));
     }
 
     // ── Write: Bump TTL ──────────────────────────────────────────────────────
