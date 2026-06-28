@@ -19,8 +19,16 @@ pub enum DataKey {
     NextId,
     /// Admin address for upgrade gating. Stored in Instance.
     Admin,
+
+    /// Global upgrade pause / freeze. When set, prevents creating new streams.
+    Paused,
+
+    /// Whether a specific stream has already been migrated.
+    Migrated(u64),
+
     /// Stream struct keyed by ID. Stored in Persistent.
     Stream(u64),
+
     /// Active stream IDs where address is the sender. Stored in Persistent.
     SentBy(Address),
     /// Active stream IDs where address is the recipient. Stored in Persistent.
@@ -216,17 +224,14 @@ impl StreamingContract {
             panic!("already initialized");
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Paused, &false);
         env.storage().instance().extend_ttl(17_280, 17_280);
     }
 
     /// Upgrade the contract wasm. Only callable by the admin.
     pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
         admin.require_auth();
-        let stored_admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .unwrap();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         if admin != stored_admin {
             panic!("unauthorized");
         }
@@ -241,6 +246,31 @@ impl StreamingContract {
             .instance()
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic!("not initialized"));
+
+        // By default, unfreeze after wasm upgrade.
+        env.storage().instance().set(&DataKey::Paused, &false);
+    }
+
+    // ── Admin: Freeze / Unfreeze ─────────────────────────────────────────
+
+    /// Admin freezes the contract to prevent new stream creation.
+    pub fn freeze(env: Env, admin: Address) {
+        admin.require_auth();
+        Self::require_admin(&env, &admin);
+        env.storage().instance().set(&DataKey::Paused, &true);
+    }
+
+    /// Admin freezes the contract to prevent new stream creation.
+    /// Alias kept for compatibility.
+    pub fn pause(env: Env, admin: Address) {
+        Self::freeze(env, admin);
+    }
+
+    /// Admin unfreezes the contract to allow new stream creation.
+    pub fn unfreeze(env: Env, admin: Address) {
+        admin.require_auth();
+        Self::require_admin(&env, &admin);
+        env.storage().instance().set(&DataKey::Paused, &false);
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::Paused, &false);
@@ -305,9 +335,22 @@ impl StreamingContract {
         if params.recipient == sender {
             return Err(StreamError::SelfStream);
         }
+        if params.recipient == env.current_contract_address() {
+            panic!("recipient cannot be the contract itself");
+        }
 
         let duration_i128 = duration as i128;
         let linear_amount = params.total_amount - params.cliff_amount;
+        let amount_per_second = if duration > 0 {
+            linear_amount / duration
+        } else {
+            0
+        };
+
+        // Security: Reject dust streams with zero rate when linear_amount > 0
+        if amount_per_second == 0 && linear_amount > 0 {
+            panic!("stream amount too small for duration — rate would be 0");
+        }
         let amount_per_second = if duration_i128 > 0 { linear_amount / duration_i128 } else { 0 };
 
         // ── Pull funds from sender into contract ─────────────────────────────
@@ -336,7 +379,6 @@ impl StreamingContract {
             amount_per_second,
             cancelled: false,
             linear_amount,
-            duration: duration_i128
             duration,
         };
 
@@ -355,6 +397,7 @@ impl StreamingContract {
 
         StreamCreatedEvent {
             stream_id: id,
+            deposited_amount: stream.deposited_amount,
             sender: sender.clone(),
             recipient: params.recipient.clone(),
             token: params.token.clone(),
@@ -384,6 +427,7 @@ impl StreamingContract {
 
         Self::require_not_paused(&env);
         let old_recipient = stream.recipient;
+
         if stream.cancelled {
             return Err(StreamError::StreamCancelled);
         }
@@ -401,6 +445,12 @@ impl StreamingContract {
         Self::remove_from_index(&env, DataKey::ReceivedBy(old_recipient.clone()), stream_id);
         Self::push_to_index(&env, DataKey::ReceivedBy(new_recipient.clone()), stream_id);
 
+        StreamTransferEvent {
+            stream_id,
+            old_recipient,
+            new_recipient,
+        }
+        .publish(&env);
         // Clear delegate on transfer
         env.storage()
             .persistent()
@@ -410,12 +460,6 @@ impl StreamingContract {
         Self::extend_stream_ttl(&env, stream_id);
 
         Ok(())
-    }
-
-    // ── Write: Top up ────────────────────────────────────────────────────────
-        StreamTransferEvent { stream_id, old_recipient, new_recipient }
-            .publish(&env);
-        Self::extend_stream_ttl(&env, stream_id);
     }
 
     // ── Write: Top Up ─────────────────────────────────────────────────────────
@@ -476,6 +520,11 @@ impl StreamingContract {
         } else {
             0
         };
+
+        // Security: Reject dust streams with zero rate after top-up
+        if new_amount_per_second == 0 && new_remaining > 0 {
+            panic!("stream amount too small for remaining duration — rate would be 0");
+        }
 
         stream.deposited_amount = stream
             .deposited_amount
@@ -552,17 +601,25 @@ impl StreamingContract {
         // When a stream is fully drained after end_time, move it to the archive.
         if fully_drained {
             Self::remove_from_index(&env, DataKey::SentBy(stream.sender.clone()), stream_id);
-            Self::push_to_index(&env, DataKey::ArchiveSentBy(stream.sender.clone()), stream_id);
-            Self::remove_from_index(&env, DataKey::ReceivedBy(stream.recipient.clone()), stream_id);
-            Self::push_to_index(&env, DataKey::ArchiveReceivedBy(stream.recipient.clone()), stream_id);
+            Self::push_to_index(
+                &env,
+                DataKey::ArchiveSentBy(stream.sender.clone()),
+                stream_id,
+            );
+            Self::remove_from_index(
+                &env,
+                DataKey::ReceivedBy(stream.recipient.clone()),
+                stream_id,
+            );
+            Self::push_to_index(
+                &env,
+                DataKey::ArchiveReceivedBy(stream.recipient.clone()),
+                stream_id,
+            );
         }
 
         let token_client = token::Client::new(&env, &stream.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &stream.recipient,
-            &amount,
-        );
+        token_client.transfer(&env.current_contract_address(), &stream.recipient, &amount);
 
         WithdrawEvent { stream_id, amount }.publish(&env);
 
@@ -609,9 +666,21 @@ impl StreamingContract {
 
         // Move from active to archive indexes.
         Self::remove_from_index(&env, DataKey::SentBy(stream.sender.clone()), stream_id);
-        Self::push_to_index(&env, DataKey::ArchiveSentBy(stream.sender.clone()), stream_id);
-        Self::remove_from_index(&env, DataKey::ReceivedBy(stream.recipient.clone()), stream_id);
-        Self::push_to_index(&env, DataKey::ArchiveReceivedBy(stream.recipient.clone()), stream_id);
+        Self::push_to_index(
+            &env,
+            DataKey::ArchiveSentBy(stream.sender.clone()),
+            stream_id,
+        );
+        Self::remove_from_index(
+            &env,
+            DataKey::ReceivedBy(stream.recipient.clone()),
+            stream_id,
+        );
+        Self::push_to_index(
+            &env,
+            DataKey::ArchiveReceivedBy(stream.recipient.clone()),
+            stream_id,
+        );
 
         let token_client = token::Client::new(&env, &stream.token);
 
@@ -715,7 +784,12 @@ impl StreamingContract {
     }
 
     /// Get paginated archived stream IDs where `address` is the sender.
-    pub fn get_archived_sent_streams(env: Env, address: Address, offset: u32, limit: u32) -> Vec<u64> {
+    pub fn get_archived_sent_streams(
+        env: Env,
+        address: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<u64> {
         let all: Vec<u64> = env
             .storage()
             .persistent()
@@ -733,7 +807,12 @@ impl StreamingContract {
     }
 
     /// Get paginated archived stream IDs where `address` is the recipient.
-    pub fn get_archived_received_streams(env: Env, address: Address, offset: u32, limit: u32) -> Vec<u64> {
+    pub fn get_archived_received_streams(
+        env: Env,
+        address: Address,
+        offset: u32,
+        limit: u32,
+    ) -> Vec<u64> {
         let all: Vec<u64> = env
             .storage()
             .persistent()
@@ -773,12 +852,26 @@ impl StreamingContract {
 
         // Remove from all indexes (active + archive).
         Self::remove_from_index(&env, DataKey::SentBy(stream.sender.clone()), stream_id);
-        Self::remove_from_index(&env, DataKey::ArchiveSentBy(stream.sender.clone()), stream_id);
-        Self::remove_from_index(&env, DataKey::ReceivedBy(stream.recipient.clone()), stream_id);
-        Self::remove_from_index(&env, DataKey::ArchiveReceivedBy(stream.recipient.clone()), stream_id);
+        Self::remove_from_index(
+            &env,
+            DataKey::ArchiveSentBy(stream.sender.clone()),
+            stream_id,
+        );
+        Self::remove_from_index(
+            &env,
+            DataKey::ReceivedBy(stream.recipient.clone()),
+            stream_id,
+        );
+        Self::remove_from_index(
+            &env,
+            DataKey::ArchiveReceivedBy(stream.recipient.clone()),
+            stream_id,
+        );
 
         // Delete stream data to reclaim storage.
-        env.storage().persistent().remove(&DataKey::Stream(stream_id));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Stream(stream_id));
     }
 
     // ── Write: Bump TTL ──────────────────────────────────────────────────────
@@ -846,6 +939,28 @@ impl StreamingContract {
     // ── Internal helpers ─────────────────────────────────────────────────────
     // ──── Internal helpers ─────────────────────────────────────────────────────
 
+    fn require_admin(env: &Env, admin: &Address) {
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic!("not initialized"));
+        if admin != &stored_admin {
+            panic!("unauthorized");
+        }
+    }
+
+    fn require_not_paused(env: &Env) {
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        if paused {
+            panic!("contract is paused");
+        }
+    }
+
     fn load_stream(env: &Env, id: u64) -> Result<Stream, StreamError> {
         env.storage()
             .persistent()
@@ -879,7 +994,11 @@ impl StreamingContract {
         }
         let unlocked = Self::unlocked_amount(stream, now);
         let available = unlocked - stream.withdrawn_amount;
-        if available > 0 { available } else { 0 }
+        if available > 0 {
+            available
+        } else {
+            0
+        }
     }
 
     /// Increment and return the next stream ID.

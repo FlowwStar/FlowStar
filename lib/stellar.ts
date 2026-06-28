@@ -179,3 +179,37 @@ export function getServer(network: NetworkName): rpc.Server {
   const config = getNetworkConfig(network)
   return new rpc.Server(config.rpcUrl, { allowHttp: false })
 }
+
+// ─── Account Validation ────────────────────────────────────────────────────────
+
+export interface AccountInfo {
+  exists: boolean
+  funded: boolean
+  transactionCount: number
+  error?: string
+}
+
+export async function checkAccountInfo(address: string, network: NetworkName): Promise<AccountInfo> {
+  const config = getNetworkConfig(network)
+  const horizonUrl = config.horizonUrl
+
+  try {
+    const response = await fetch(`${horizonUrl}/accounts/${address}`)
+    if (!response.ok) {
+      if (response.status === 404) {
+        return { exists: false, funded: false, transactionCount: 0 }
+      }
+      return { exists: false, funded: false, transactionCount: 0, error: 'Failed to query account' }
+    }
+
+    const data = await response.json() as any
+    return {
+      exists: true,
+      funded: true,
+      transactionCount: data.data?.length || 0,
+    }
+  } catch (error) {
+    console.error('Error checking account info:', error)
+    return { exists: false, funded: false, transactionCount: 0, error: 'Network error' }
+  }
+}
