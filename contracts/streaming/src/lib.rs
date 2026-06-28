@@ -73,20 +73,33 @@ pub struct CreateStreamParams {
 #[soroban_sdk::contractevent]
 pub struct StreamCreatedEvent {
     pub stream_id: u64,
+    pub sender: Address,
+    pub recipient: Address,
+    pub token: Address,
     pub deposited_amount: i128,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub cliff_time: u64,
+    pub timestamp: u64,
 }
 
 #[soroban_sdk::contractevent]
 pub struct WithdrawEvent {
     pub stream_id: u64,
+    pub recipient: Address,
     pub amount: i128,
+    pub remaining_withdrawable: i128,
+    pub timestamp: u64,
 }
 
 #[soroban_sdk::contractevent]
 pub struct CancelEvent {
     pub stream_id: u64,
+    pub sender: Address,
+    pub recipient: Address,
     pub recipient_amount: i128,
     pub sender_refund: i128,
+    pub timestamp: u64,
 }
 
 #[soroban_sdk::contractevent]
@@ -104,6 +117,30 @@ pub struct TopUpEvent {
     pub new_amount_per_second: i128,
 }
 
+#[soroban_sdk::contractevent]
+pub struct StreamBumpedEvent {
+    pub stream_id: u64,
+    pub timestamp: u64,
+}
+
+#[soroban_sdk::contractevent]
+pub struct PauseEvent {
+    pub timestamp: u64,
+}
+
+#[soroban_sdk::contractevent]
+pub struct UnpauseEvent {
+    pub timestamp: u64,
+}
+
+#[soroban_sdk::contractevent]
+pub struct PartialCancelEvent {
+    pub stream_id: u64,
+    pub reduce_amount: i128,
+    pub old_rate: i128,
+    pub new_rate: i128,
+}
+
 // ─── Contract ────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -111,6 +148,42 @@ pub struct StreamingContract;
 
 #[contractimpl]
 impl StreamingContract {
+    // ── Admin: Initialize ────────────────────────────────────────────────────
+
+    /// Initialize contract with admin address (one-time).
+    pub fn initialize(env: Env, admin: Address) {
+        admin.require_auth();
+
+        let is_initialized = env.storage().instance().has(&DataKey::Admin);
+        if is_initialized {
+            panic!("already initialized");
+        }
+
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.storage().instance().extend_ttl(17_280, 17_280);
+    }
+
+    // ── Admin: Pause/Unpause ─────────────────────────────────────────────────
+
+    /// Pause all write operations (admin only).
+    pub fn pause(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic!("not initialized"));
+        admin.require_auth();
+
+        env.storage().instance().set(&DataKey::Paused, &true);
+        env.storage().instance().extend_ttl(17_280, 17_280);
+
+        PauseEvent { timestamp: env.ledger().timestamp() }.publish(&env);
+    }
+
+    /// Unpause all write operations (admin only).
+    pub fn unpause(env: Env) {
+        let admin: Address = env
     // ── Write: Admin / Upgrade ───────────────────────────────────────────────
 
     /// Initialize the contract with an admin address.
@@ -145,6 +218,26 @@ impl StreamingContract {
             .instance()
             .get(&DataKey::Admin)
             .unwrap_or_else(|| panic!("not initialized"));
+        admin.require_auth();
+
+        env.storage().instance().set(&DataKey::Paused, &false);
+        env.storage().instance().extend_ttl(17_280, 17_280);
+
+        UnpauseEvent { timestamp: env.ledger().timestamp() }.publish(&env);
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    fn require_not_paused(env: &Env) {
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        if paused {
+            panic!("contract is paused");
+        }
+    }
     }
 
     /// Return the current contract version.
@@ -163,6 +256,7 @@ impl StreamingContract {
     /// Returns the new stream's ID.
     pub fn create_stream(env: Env, sender: Address, params: CreateStreamParams) -> u64 {
         sender.require_auth();
+        Self::require_not_paused(&env);
 
         // ── Validate params ──────────────────────────────────────────────────
         if params.total_amount <= 0 {
@@ -227,8 +321,18 @@ impl StreamingContract {
         // ── Update recipient index ───────────────────────────────────────────
         Self::push_to_index(&env, DataKey::ReceivedBy(params.recipient), id);
 
-        StreamCreatedEvent { stream_id: id, deposited_amount: stream.deposited_amount }
-            .publish(&env);
+        StreamCreatedEvent {
+            stream_id: id,
+            sender: sender.clone(),
+            recipient: params.recipient.clone(),
+            token: params.token.clone(),
+            deposited_amount: stream.deposited_amount,
+            start_time: params.start_time,
+            end_time: params.end_time,
+            cliff_time: params.cliff_time,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
 
         id
     }
@@ -239,6 +343,7 @@ impl StreamingContract {
     pub fn transfer_stream(env: Env, stream_id: u64, new_recipient: Address) {
         let mut stream = Self::load_stream(&env, stream_id);
         stream.recipient.require_auth();
+        Self::require_not_paused(&env);
         let old_recipient = stream.recipient;
         if stream.cancelled {
             panic!("cannot transfer a cancelled stream");
@@ -273,6 +378,7 @@ impl StreamingContract {
     pub fn top_up(env: Env, stream_id: u64, additional_amount: i128) {
         let mut stream = Self::load_stream(&env, stream_id);
         stream.sender.require_auth();
+        Self::require_not_paused(&env);
 
         if stream.cancelled {
             panic!("cannot top up a cancelled stream");
@@ -347,6 +453,7 @@ impl StreamingContract {
         let mut stream = Self::load_stream(&env, stream_id);
 
         stream.recipient.require_auth();
+        Self::require_not_paused(&env);
 
         if stream.cancelled {
             panic!("stream is cancelled");
@@ -384,7 +491,15 @@ impl StreamingContract {
             &amount,
         );
 
-        WithdrawEvent { stream_id, amount }.publish(&env);
+        let remaining_withdrawable = Self::withdrawable_amount(&stream, now);
+        WithdrawEvent {
+            stream_id,
+            recipient: stream.recipient.clone(),
+            amount,
+            remaining_withdrawable,
+            timestamp: now,
+        }
+        .publish(&env);
     }
 
     // ── Write: Cancel ────────────────────────────────────────────────────────
@@ -397,6 +512,7 @@ impl StreamingContract {
         let mut stream = Self::load_stream(&env, stream_id);
 
         stream.sender.require_auth();
+        Self::require_not_paused(&env);
 
         if stream.cancelled {
             panic!("stream already cancelled");
@@ -443,8 +559,11 @@ impl StreamingContract {
 
         CancelEvent {
             stream_id,
+            sender: stream.sender.clone(),
+            recipient: stream.recipient.clone(),
             recipient_amount: recipient_owes,
             sender_refund: sender_gets_back,
+            timestamp: now,
         }
         .publish(&env);
     }
@@ -591,9 +710,15 @@ impl StreamingContract {
     pub fn bump_stream(env: Env, stream_id: u64) {
         Self::load_stream(&env, stream_id);
         Self::extend_stream_ttl(&env, stream_id);
+
+        StreamBumpedEvent {
+            stream_id,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
     }
 
-    // ── Internal helpers ─────────────────────────────────────────────────────
+    // ──── Internal helpers ─────────────────────────────────────────────────────
 
     fn load_stream(env: &Env, id: u64) -> Stream {
         env.storage()
