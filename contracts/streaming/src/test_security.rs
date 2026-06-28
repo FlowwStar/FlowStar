@@ -18,6 +18,7 @@ struct Ctx {
     sender: Address,
     recipient: Address,
     attacker: Address,
+    admin: Address,
 }
 
 impl Ctx {
@@ -28,12 +29,14 @@ impl Ctx {
         let sender = Address::generate(&env);
         let recipient = Address::generate(&env);
         let attacker = Address::generate(&env);
+        let admin = Address::generate(&env);
         let token_admin = Address::generate(&env);
         let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
         let asset = StellarAssetClient::new(&env, &token_id);
         asset.mint(&sender,   &10_000_000_0000000);
         asset.mint(&attacker, &10_000_000_0000000);
-        Ctx { env, contract_id, token_id, sender, recipient, attacker }
+        StreamingContractClient::new(&env, &contract_id).initialize(&admin);
+        Ctx { env, contract_id, token_id, sender, recipient, attacker, admin }
     }
 
     fn client(&self) -> StreamingContractClient<'_> {
@@ -132,6 +135,24 @@ fn test_auth_recipient_cannot_cancel() {
         },
     }]);
     ctx.client().cancel(&id).unwrap();
+}
+
+/// Non-admin cannot upgrade the contract.
+#[test]
+#[should_panic]
+fn test_auth_non_admin_cannot_upgrade() {
+    let ctx = Ctx::new();
+    let fake_hash = soroban_sdk::BytesN::from_array(&ctx.env, &[0u8; 32]);
+    ctx.env.mock_auths(&[MockAuth {
+        address: &ctx.attacker,
+        invoke: &MockAuthInvoke {
+            contract: &ctx.contract_id,
+            fn_name: "upgrade",
+            args: (ctx.attacker.clone(), fake_hash.clone()).into_val(&ctx.env),
+            sub_invokes: &[],
+        },
+    }]);
+    ctx.client().upgrade(&ctx.attacker, &fake_hash);
 }
 
 /// Sender cannot withdraw from their own outgoing stream.
@@ -638,6 +659,7 @@ fn test_self_stream_withdraw() {
     ctx.client().withdraw(&id, &total).unwrap();
     assert_eq!(ctx.token().balance(&ctx.contract_id), 0);
 }
+
 
 // ═══════════════════════════════════════════════════════════════════
 // 8. CREATE PARAM VALIDATION
