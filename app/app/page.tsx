@@ -5,8 +5,8 @@ import { useState, useMemo, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Plus, ArrowDownToLine, Search, X } from 'lucide-react'
 import { RequireWallet } from '@/components/layout/require-wallet'
-import { DashboardStats } from '@/components/streams/dashboard-stats'
-import { StreamCard } from '@/components/streams/stream-card'
+import { DashboardStats, DashboardStatsSkeleton } from '@/components/streams/dashboard-stats'
+import { StreamCard, StreamCardSkeleton } from '@/components/streams/stream-card'
 import { EmptyStreams } from '@/components/streams/empty-state'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
@@ -325,6 +325,7 @@ function Dashboard() {
       </div>
 
       {/* Stats */}
+      {loading ? <DashboardStatsSkeleton /> : <DashboardStats sent={sent} received={received} />}
       <SectionErrorBoundary sectionName="Dashboard stats">
         <DashboardStats sent={sent} received={received} />
       </SectionErrorBoundary>
@@ -358,6 +359,27 @@ function Dashboard() {
           </TabsList>
 
         <TabsContent value="all" className="mt-4">
+          {loading ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[0, 1, 2, 4].map((i) => <StreamCardSkeleton key={i} />)}
+            </div>
+          ) : all.length === 0 ? (
+            <EmptyStreams />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {all.map((s) => (
+                <StreamCard key={s.id} stream={s} />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="received" className="mt-4">
+          {loading ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[0, 1].map((i) => <StreamCardSkeleton key={i} />)}
+            </div>
+          ) : received.length === 0 ? (
           <StreamGrid streams={filteredAll} />
         </TabsContent>
 
@@ -405,6 +427,11 @@ function Dashboard() {
           </TabsContent>
 
         <TabsContent value="sent" className="mt-4">
+          {loading ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[0, 1].map((i) => <StreamCardSkeleton key={i} />)}
+            </div>
+          ) : sent.length === 0 ? (
           {filteredSent.length === 0 && sent.length === 0 ? (
             <EmptyStreams
               title="No outgoing streams"

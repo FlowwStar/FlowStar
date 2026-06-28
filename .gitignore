@@ -17,6 +17,8 @@ node_modules
 # Rust build artifacts
 contracts/target/
 
+# Soroban test snapshots (auto-generated, not needed in source control)
+contracts/**/test_snapshots/
 # Test snapshots
 contracts/streaming/test_snapshots/
 
@@ -27,6 +29,8 @@ coverage/
 # TypeScript build info
 tsconfig.tsbuildinfo
 
+# Lock files (keep package-lock.json, ignore pnpm if using npm)
+pnpm-lock.yaml
 # Editor
 .vscode/
 .idea/

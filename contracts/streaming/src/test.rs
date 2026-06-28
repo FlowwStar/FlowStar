@@ -4,6 +4,9 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    token::{Client as TokenClient, StellarAssetClient},
+    Address, Env,
     Address, Env, testutils::{Address as _, Ledger}, token::{Client as TokenClient, StellarAssetClient}, vec
 };
 
@@ -60,8 +63,8 @@ impl TestEnv {
             token: self.token_id.clone(),
             total_amount: 1_000_0000000, // 1000 tokens
             start_time: now,
-            end_time: now + 1000,        // 1000 seconds
-            cliff_time: now,             // no cliff delay
+            end_time: now + 1000, // 1000 seconds
+            cliff_time: now,      // no cliff delay
             cliff_amount: 0,
         }
     }
@@ -82,11 +85,11 @@ fn test_create_stream_basic() {
     // Approve contract to pull funds.
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
 
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     assert_eq!(stream_id, 1);
 
-    let stream = client.get_stream(&stream_id);
+    let stream = client.get_stream(&stream_id).unwrap();
     assert_eq!(stream.sender, t.sender);
     assert_eq!(stream.recipient, t.recipient);
     assert_eq!(stream.deposited_amount, total);
@@ -113,7 +116,7 @@ fn test_create_stream_with_cliff() {
         total_amount: 1_000_0000000,
         start_time: now,
         end_time: now + 1000,
-        cliff_time: now + 200,  // cliff kicks in after 200s
+        cliff_time: now + 200, // cliff kicks in after 200s
         cliff_amount,
     };
 
@@ -124,16 +127,15 @@ fn test_create_stream_with_cliff() {
         &(t.env.ledger().sequence() + 500),
     );
 
-    let stream_id = client.create_stream(&t.sender, &params);
-    let stream = client.get_stream(&stream_id);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
+    let stream = client.get_stream(&stream_id).unwrap();
 
     assert_eq!(stream.cliff_amount, cliff_amount);
     // Before cliff — nothing withdrawable.
-    assert_eq!(client.get_withdrawable(&stream_id), 0);
+    assert_eq!(client.get_withdrawable(&stream_id).unwrap(), 0);
 }
 
 #[test]
-#[should_panic(expected = "end_time must be > start_time")]
 fn test_create_stream_invalid_times() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -142,11 +144,11 @@ fn test_create_stream_invalid_times() {
     let mut params = t.default_params(now);
     params.end_time = params.start_time; // same = invalid
     t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
-    client.create_stream(&t.sender, &params);
+    let result = client.try_create_stream(&t.sender, &params);
+    assert_eq!(result, Err(Ok(StreamError::InvalidTimeRange)));
 }
 
 #[test]
-#[should_panic(expected = "total_amount must be > 0")]
 fn test_create_stream_zero_amount() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -155,7 +157,8 @@ fn test_create_stream_zero_amount() {
     let mut params = t.default_params(now);
     params.total_amount = 0;
     t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
-    client.create_stream(&t.sender, &params);
+    let result = client.try_create_stream(&t.sender, &params);
+    assert_eq!(result, Err(Ok(StreamError::InvalidAmount)));
 }
 
 // ─── withdraw ──────────────────────────────────────────────────────────────────
@@ -170,19 +173,19 @@ fn test_withdraw_partial() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     // Advance time by 500s (halfway through the 1000s stream).
     t.set_time(now + 500);
 
-    let withdrawable = client.get_withdrawable(&stream_id);
+    let withdrawable = client.get_withdrawable(&stream_id).unwrap();
     // Should be ~500/1000 * total.
     assert!(withdrawable > 0);
     assert!(withdrawable <= total / 2 + 1); // allow for rounding
 
-    client.withdraw(&stream_id, &withdrawable);
+    client.withdraw(&stream_id, &withdrawable).unwrap();
 
-    let stream = client.get_stream(&stream_id);
+    let stream = client.get_stream(&stream_id).unwrap();
     assert_eq!(stream.withdrawn_amount, withdrawable);
     assert_eq!(t.token().balance(&t.recipient), withdrawable);
 }
@@ -197,21 +200,20 @@ fn test_withdraw_full_after_end() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     // After end time — all unlocked.
     t.set_time(now + 2000);
-    let withdrawable = client.get_withdrawable(&stream_id);
+    let withdrawable = client.get_withdrawable(&stream_id).unwrap();
     assert_eq!(withdrawable, total);
 
-    client.withdraw(&stream_id, &total);
+    client.withdraw(&stream_id, &total).unwrap();
 
     assert_eq!(t.token().balance(&t.recipient), total);
     assert_eq!(t.token().balance(&t.contract_id), 0);
 }
 
 #[test]
-#[should_panic(expected = "invalid withdraw amount")]
 fn test_withdraw_too_much() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -221,12 +223,13 @@ fn test_withdraw_too_much() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     t.set_time(now + 500);
 
     // Try to withdraw more than unlocked.
-    client.withdraw(&stream_id, &total);
+    let result = client.try_withdraw(&stream_id, &total);
+    assert_eq!(result, Err(Ok(StreamError::InsufficientFunds)));
 }
 
 #[test]
@@ -247,19 +250,18 @@ fn test_withdraw_cliff_before_time() {
     };
 
     t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     // Before cliff — nothing available.
     t.set_time(now + 100);
-    assert_eq!(client.get_withdrawable(&stream_id), 0);
+    assert_eq!(client.get_withdrawable(&stream_id).unwrap(), 0);
 
     // After cliff — linear unlock starts.
     t.set_time(now + 600);
-    assert!(client.get_withdrawable(&stream_id) > 0);
+    assert!(client.get_withdrawable(&stream_id).unwrap() > 0);
 }
 
 #[test]
-#[should_panic(expected = "sender cannot be the recipient")]
 fn test_create_stream_self_rejected() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -268,7 +270,8 @@ fn test_create_stream_self_rejected() {
     let mut params = t.default_params(now);
     params.recipient = t.sender.clone(); // same as sender
     t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
-    client.create_stream(&t.sender, &params);
+    let result = client.try_create_stream(&t.sender, &params);
+    assert_eq!(result, Err(Ok(StreamError::SelfStream)));
 }
 
 // ─── cancel ────────────────────────────────────────────────────────────────────
@@ -283,16 +286,16 @@ fn test_cancel_midway() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     // Advance halfway.
     t.set_time(now + 500);
 
     let sender_balance_before = t.token().balance(&t.sender);
 
-    client.cancel(&stream_id);
+    client.cancel(&stream_id).unwrap();
 
-    let stream = client.get_stream(&stream_id);
+    let stream = client.get_stream(&stream_id).unwrap();
     assert!(stream.cancelled);
 
     let recipient_balance = t.token().balance(&t.recipient);
@@ -308,7 +311,6 @@ fn test_cancel_midway() {
 }
 
 #[test]
-#[should_panic(expected = "stream already cancelled")]
 fn test_cancel_twice() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -318,14 +320,14 @@ fn test_cancel_twice() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
-    client.cancel(&stream_id);
-    client.cancel(&stream_id); // should panic
+    client.cancel(&stream_id).unwrap();
+    let result = client.try_cancel(&stream_id);
+    assert_eq!(result, Err(Ok(StreamError::StreamCancelled)));
 }
 
 #[test]
-#[should_panic(expected = "stream is cancelled")]
 fn test_withdraw_from_cancelled_stream() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -335,13 +337,14 @@ fn test_withdraw_from_cancelled_stream() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     t.set_time(now + 500);
-    client.cancel(&stream_id);
+    client.cancel(&stream_id).unwrap();
 
-    // Recipient tries to withdraw after cancel — should fail.
-    client.withdraw(&stream_id, &1_0000000);
+    // Recipient tries to withdraw after cancel — should return StreamCancelled.
+    let result = client.try_withdraw(&stream_id, &1_0000000);
+    assert_eq!(result, Err(Ok(StreamError::StreamCancelled)));
 }
 
 // ─── indexes ───────────────────────────────────────────────────────────────────
@@ -360,7 +363,7 @@ fn test_stream_indexes() {
             &params.total_amount,
             &(t.env.ledger().sequence() + 500),
         );
-        client.create_stream(&t.sender, &params)
+        client.create_stream(&t.sender, &params).unwrap()
     };
 
     let id1 = approve_and_create(t.default_params(now));
@@ -400,7 +403,7 @@ fn test_incrementing_ids() {
             &params.total_amount,
             &(t.env.ledger().sequence() + 500),
         );
-        let id = client.create_stream(&t.sender, &params);
+        let id = client.create_stream(&t.sender, &params).unwrap();
         assert_eq!(id, expected_id);
     }
 }
@@ -448,6 +451,7 @@ fn test_transfer_stream_with_partial_withdrawals() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
     let stream_id = client.create_stream(&t.sender, &params);
 
     // Advance halfway; old recipient withdraws half
@@ -541,12 +545,24 @@ fn test_transfer_stream_at_cliff_time() {
     let stream_id = client.create_stream(&t.sender, &params);
 
     let new_recipient = Address::generate(&t.env);
-    client.transfer_stream(&stream_id, &new_recipient);
+    client.transfer_stream(&stream_id, &new_recipient).unwrap();
 
+    let stream = client.get_stream(&stream_id).unwrap();
+    assert_eq!(stream.sender, t.sender);
     let stream = client.get_stream(&stream_id);
     assert_eq!(stream.recipient, new_recipient);
 }
 
+    let old_received = client.get_received_streams(&t.recipient, &0, &100);
+    assert_eq!(old_received.len(), 0);
+
+    let new_received = client.get_received_streams(&new_recipient, &0, &100);
+    assert_eq!(new_received.len(), 1);
+    assert_eq!(new_received.get(0).unwrap(), stream_id);
+}
+
+#[test]
+fn test_transfer_stream_cancelled_fails() {
 #[test]
 fn test_transfer_stream_near_end() {
     // Transfer when stream is 99% complete
@@ -587,6 +603,15 @@ fn test_transfer_stream_sender_index_unaffected() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
+
+    client.cancel(&stream_id).unwrap();
+
+    let new_recipient = Address::generate(&t.env);
+    let result = client.try_transfer_stream(&stream_id, &new_recipient);
+    assert_eq!(result, Err(Ok(StreamError::StreamCancelled)));
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
     let stream_id = client.create_stream(&t.sender, &params);
 
     client.cancel(&stream_id);
@@ -608,6 +633,7 @@ fn test_top_up_increases_deposited_amount() {
 
     // Approve contract to pull funds.
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     let stream_id = client.create_stream(&t.sender, &params);
 
@@ -642,8 +668,11 @@ fn test_transfer_stream_multiple_times() {
 
     let additional = 500_0000000i128;
     t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
-    client.top_up(&stream_id, &additional);
+    client.top_up(&stream_id, &additional).unwrap();
 
+    let stream = client.get_stream(&stream_id).unwrap();
+    assert_eq!(stream.deposited_amount, total + additional);
+    assert_eq!(stream.end_time, now + 1000);
     let stream = client.get_stream(&stream_id);
     assert_eq!(stream.recipient, r3);
 
@@ -664,8 +693,10 @@ fn test_transfer_then_cancel() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
+    let stream_before = client.get_stream(&stream_id).unwrap();
+    let rate_before = stream_before.amount_per_second;
     let new_recipient = Address::generate(&t.env);
     t.set_time(now + 500);
     client.transfer_stream(&stream_id, &new_recipient);
@@ -694,6 +725,12 @@ fn test_transfer_stream_cancelled_panics() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    client.top_up(&stream_id, &total).unwrap();
+
+    let stream_after = client.get_stream(&stream_id).unwrap();
+    assert_eq!(stream_after.amount_per_second, rate_before * 2);
+}
+
     let stream_id = client.create_stream(&t.sender, &params);
 
     client.cancel(&stream_id);
@@ -755,14 +792,17 @@ fn test_top_up_mid_stream_recalculates_rate() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     t.set_time(now + 500);
 
     let additional = 500_0000000i128;
     t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
-    client.top_up(&stream_id, &additional);
+    client.top_up(&stream_id, &additional).unwrap();
 
+    // remaining_deposited = 500, additional = 500 → new_remaining = 1000
+    // new_rate = 1000 / 500s remaining = 2 tokens/sec
+    let stream = client.get_stream(&stream_id).unwrap();
     // remaining_deposited = 500 tokens, additional = 500 tokens
     // new_rate = 1000 / 500s remaining = 2 tokens/sec (in smallest units)
     let stream = client.get_stream(&stream_id);
@@ -771,8 +811,7 @@ fn test_top_up_mid_stream_recalculates_rate() {
 }
 
 #[test]
-#[should_panic(expected = "cannot top up a cancelled stream")]
-fn test_top_up_cancelled_stream_panics() {
+fn test_top_up_cancelled_stream_returns_error() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
     t.set_time(now);
@@ -781,18 +820,18 @@ fn test_top_up_cancelled_stream_panics() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
-    client.cancel(&stream_id);
+    client.cancel(&stream_id).unwrap();
 
     let additional = 100_0000000i128;
     t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
-    client.top_up(&stream_id, &additional);
+    let result = client.try_top_up(&stream_id, &additional);
+    assert_eq!(result, Err(Ok(StreamError::StreamCancelled)));
 }
 
 #[test]
-#[should_panic(expected = "cannot top up an ended stream")]
-fn test_top_up_ended_stream_panics() {
+fn test_top_up_ended_stream_returns_error() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
     t.set_time(now);
@@ -801,18 +840,18 @@ fn test_top_up_ended_stream_panics() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
     t.set_time(now + 2000);
 
     let additional = 100_0000000i128;
     t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
-    client.top_up(&stream_id, &additional);
+    let result = client.try_top_up(&stream_id, &additional);
+    assert_eq!(result, Err(Ok(StreamError::StreamEnded)));
 }
 
 #[test]
-#[should_panic(expected = "additional_amount must be > 0")]
-fn test_top_up_zero_amount_panics() {
+fn test_top_up_zero_amount_returns_error() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
     t.set_time(now);
@@ -821,9 +860,10 @@ fn test_top_up_zero_amount_panics() {
     let total = params.total_amount;
 
     t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
+    let stream_id = client.create_stream(&t.sender, &params).unwrap();
 
-    client.top_up(&stream_id, &0i128);
+    let result = client.try_top_up(&stream_id, &0i128);
+    assert_eq!(result, Err(Ok(StreamError::InvalidAmount)));
 }
 
 #[test]
