@@ -615,6 +615,54 @@ function RateDisplay({ stream }: { stream: import('@/types/stream').StreamData }
   )
 }
 
+// ─── Stream detail skeleton ──────────────────────────────────────────────────
+
+function StreamDetailSkeleton() {
+  return (
+    <div className="mx-auto max-w-2xl space-y-6 animate-pulse">
+      {/* Back bar */}
+      <div className="flex items-center justify-between">
+        <div className="h-4 w-24 rounded bg-muted" />
+        <div className="h-4 w-12 rounded bg-muted" />
+      </div>
+      {/* Header card */}
+      <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-xl bg-muted" />
+            <div className="space-y-1.5">
+              <div className="h-4 w-36 rounded bg-muted" />
+              <div className="h-3 w-20 rounded bg-muted" />
+            </div>
+          </div>
+          <div className="h-5 w-16 rounded-full bg-muted" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-3 w-24 rounded bg-muted" />
+          <div className="h-9 w-48 rounded bg-muted" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-2 w-full rounded-full bg-muted" />
+          <div className="flex justify-between">
+            <div className="h-3 w-20 rounded bg-muted" />
+            <div className="h-3 w-32 rounded bg-muted" />
+          </div>
+        </div>
+      </div>
+      {/* Details card */}
+      <div className="rounded-2xl border border-border bg-card p-6 space-y-3">
+        <div className="h-3.5 w-16 rounded bg-muted" />
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="flex justify-between py-2 border-b border-border last:border-0">
+            <div className="h-3.5 w-20 rounded bg-muted" />
+            <div className="h-3.5 w-32 rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 function ShareButtons({ streamId }: { streamId: string }) {
@@ -710,11 +758,7 @@ function StreamDetail({ id }: { id: string }) {
   const [cancelOpen, setCancelOpen] = useState(false)
 
   if (loading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground text-sm">
-        Loading stream…
-      </div>
-    )
+    return <StreamDetailSkeleton />
   }
 
   if (!stream) {
@@ -958,7 +1002,12 @@ function StreamDetail({ id }: { id: string }) {
           <RateDisplay stream={stream} />
         </DetailRow>
         <DetailRow label="Start">
-          {formatDateTime(stream.startTime)}
+          <span>
+            {formatDateTime(stream.startTime)}
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              ({new Date(Number(stream.startTime) * 1000).toUTCString().replace(' GMT', ' UTC')})
+            </span>
+          </span>
         </DetailRow>
         {stream.cliffTime > stream.startTime && (
           <DetailRow label="Cliff">
@@ -971,7 +1020,12 @@ function StreamDetail({ id }: { id: string }) {
           </DetailRow>
         )}
         <DetailRow label="End">
-          {formatDateTime(stream.endTime)}
+          <span>
+            {formatDateTime(stream.endTime)}
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              ({new Date(Number(stream.endTime) * 1000).toUTCString().replace(' GMT', ' UTC')})
+            </span>
+          </span>
         </DetailRow>
         <DetailRow label="Network">
           <span className="capitalize">{network}</span>

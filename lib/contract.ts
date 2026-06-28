@@ -110,6 +110,8 @@ async function buildAndSimulate(
   return { prepared, estimatedFee, minFee }
 }
 
+export type TxStep = 'simulating' | 'signing' | 'submitting' | 'confirming'
+
 /** Build, simulate, sign, and submit a contract call. Returns the transaction hash. */
 async function invoke(
   network: NetworkName,
@@ -117,10 +119,14 @@ async function invoke(
   args: xdr.ScVal[],
   signerAddress: string,
   contractAddress: string,
+  onStep?: (step: TxStep) => void,
 ): Promise<string> {
   const config = getNetworkConfig(network)
+  onStep?.('simulating')
   const { prepared } = await buildAndSimulate(network, method, args, signerAddress, contractAddress)
+  onStep?.('signing')
   const signedXdr = await signTx(prepared.toXDR())
+  onStep?.('submitting')
   // Submit the signed XDR directly via the RPC JSON-RPC endpoint.
   // We bypass TransactionBuilder.fromXDR because Freighter may return a
   // FeeBumpTransaction envelope (type 4) which fromXDR can't handle.
@@ -150,6 +156,7 @@ async function invoke(
 
   // Poll until finalized (max 60 s)
   const hash = sendResult.hash
+  onStep?.('confirming')
   let pollStatus = 'PENDING'
   const pollDeadline = Date.now() + POLL_TIMEOUT_MS
 
@@ -249,6 +256,103 @@ export interface FeeEstimate {
   estimatedFeeXlm: string
 }
 
+export interface SimulationPreview {
+  success: boolean
+  estimatedFeeXlm: string
+  estimatedFeeUsd: string
+  cpuInstructions: number
+  memoryBytes: number
+  errorMessage?: string
+}
+
+/** Run a dry-run simulation and return a structured preview for display. */
+export async function simulateCreateStreamPreview(
+  network: NetworkName,
+  input: CreateStreamInput,
+  sender: string,
+): Promise<SimulationPreview> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    return {
+      success: true,
+      estimatedFeeXlm: '0.0115',
+      estimatedFeeUsd: '~$0.001',
+      cpuInstructions: 42_000,
+      memoryBytes: 128,
+    }
+  }
+
+  try {
+    const server = getServer(network)
+    const contract = new Contract(config.streamContractId)
+    const account = await withRetry(() => server.getAccount(sender))
+
+    const params = xdr.ScVal.scvMap(
+      [
+        ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
+        ['cliff_time',   nativeToScVal(input.cliffTime,   { type: 'u64' })],
+        ['end_time',     nativeToScVal(input.endTime,     { type: 'u64' })],
+        ['recipient',    new Address(input.recipient).toScVal()],
+        ['start_time',   nativeToScVal(input.startTime,   { type: 'u64' })],
+        ['token',        new Address(input.token.address).toScVal()],
+        ['total_amount', nativeToScVal(input.totalAmount, { type: 'i128' })],
+      ].map(([k, v]) =>
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvSymbol(k as string),
+          val: v as xdr.ScVal,
+        }),
+      ),
+    )
+
+    const tx = new TransactionBuilder(account, {
+      fee: '100000',
+      networkPassphrase: config.passphrase,
+    })
+      .addOperation(contract.call('create_stream', new Address(sender).toScVal(), params))
+      .setTimeout(180)
+      .build()
+
+    const sim = await withRetry(() => server.simulateTransaction(tx))
+
+    if (StellarRpc.Api.isSimulationError(sim)) {
+      return {
+        success: false,
+        estimatedFeeXlm: '0',
+        estimatedFeeUsd: '—',
+        cpuInstructions: 0,
+        memoryBytes: 0,
+        errorMessage: sim.error,
+      }
+    }
+
+    const successSim = sim as StellarRpc.Api.SimulateTransactionSuccessResponse
+    const minFee = Number(successSim.minResourceFee ?? 0)
+    const estimatedFee = Math.ceil(minFee * FEE_BUFFER)
+    const feeXlm = (estimatedFee / 1e7).toFixed(4)
+    const feeUsd = `~$${(estimatedFee / 1e7 * 0.08).toFixed(4)}`
+    const cost = successSim.cost ?? { cpuInsns: '0', memBytes: '0' }
+
+    return {
+      success: true,
+      estimatedFeeXlm: feeXlm,
+      estimatedFeeUsd: feeUsd,
+      cpuInstructions: Number(cost.cpuInsns ?? 0),
+      memoryBytes: Number(cost.memBytes ?? 0),
+    }
+  } catch (err) {
+    return {
+      success: false,
+      estimatedFeeXlm: '0',
+      estimatedFeeUsd: '—',
+      cpuInstructions: 0,
+      memoryBytes: 0,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
 export async function estimateCreateStreamFee(
   network: NetworkName,
   input: CreateStreamInput,
@@ -297,6 +401,7 @@ export async function createStream(
   input: CreateStreamInput,
   sender: string,
   network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
 ): Promise<string> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
@@ -323,6 +428,7 @@ export async function createStream(
     ],
     sender,
     input.token.address, // invoke on the token contract, not the streaming contract
+    onStep,
   )
 
   // Step 2: create the stream.
@@ -349,6 +455,7 @@ export async function createStream(
     [new Address(sender).toScVal(), params],
     sender,
     config.streamContractId,
+    onStep,
   )
 
   // SDK v13 can't parse TransactionMetaV4 (protocol 22+) so returnValue is void.
@@ -364,6 +471,7 @@ export async function withdrawFromStream(
   id: string,
   amount: bigint,
   network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
 ): Promise<string | null> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
@@ -385,12 +493,14 @@ export async function withdrawFromStream(
     ],
     stream.recipient,
     config.streamContractId,
+    onStep,
   )
 }
 
 export async function cancelStream(
   id: string,
   network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
 ): Promise<string | null> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
@@ -409,6 +519,7 @@ export async function cancelStream(
     [nativeToScVal(BigInt(id), { type: 'u64' })],
     stream.sender,
     config.streamContractId,
+    onStep,
   )
 }
 
