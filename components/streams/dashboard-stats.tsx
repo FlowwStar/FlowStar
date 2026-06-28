@@ -11,11 +11,16 @@ interface DashboardStatsProps {
 }
 
 /**
- * Aggregates per-token totals. Amounts only sum within a single token symbol
- * to avoid mixing units. We display the dominant token plus active counts.
+ * Aggregates per-token totals. Only ticks every second when there are
+ * active (streaming) streams; otherwise uses a 60s interval to avoid
+ * unnecessary re-renders on dashboards with only static streams.
  */
 export function DashboardStats({ sent, received }: DashboardStatsProps) {
-  const now = useNow(1000)
+  const hasActiveStreams =
+    sent.some((s) => !s.cancelled && Math.floor(Date.now() / 1000) < Number(s.endTime) && Math.floor(Date.now() / 1000) >= Number(s.startTime)) ||
+    received.some((s) => !s.cancelled && Math.floor(Date.now() / 1000) < Number(s.endTime) && Math.floor(Date.now() / 1000) >= Number(s.startTime))
+
+  const now = useNow(hasActiveStreams ? 1000 : 60000)
 
   const activeReceiving = received.filter(
     (s) => getStreamStatus(s, now) === 'streaming',
@@ -24,7 +29,6 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
     (s) => getStreamStatus(s, now) === 'streaming',
   ).length
 
-  // Total currently withdrawable across received streams, grouped by token.
   const withdrawableByToken = new Map<
     string,
     { amount: bigint; token: StreamData['token'] }
@@ -77,6 +81,22 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
             {stat.value}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{stat.hint}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── Skeleton ────────────────────────────────────────────────────────────────
+
+export function DashboardStatsSkeleton() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="rounded-2xl border border-border bg-card p-5 animate-pulse">
+          <div className="h-3.5 w-32 rounded bg-muted" />
+          <div className="mt-2 h-8 w-24 rounded bg-muted" />
+          <div className="mt-1 h-3 w-28 rounded bg-muted" />
         </div>
       ))}
     </div>
