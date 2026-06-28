@@ -11,6 +11,7 @@ import {
 } from 'react'
 import { setSignTransaction } from '@/lib/contract'
 import { type NetworkName, getNetworkConfig } from '@/lib/stellar'
+import { setSentryUser } from '@/lib/sentry'
 import { useNetwork } from './network-provider'
 
 // ─── Wallet options ───────────────────────────────────────────────────────────
@@ -36,6 +37,8 @@ interface WalletContextValue {
   connecting: boolean
   reconnecting: boolean
   isConnected: boolean
+  networkMismatch: boolean
+  walletNetwork: string | null
   connect: (walletId: string) => Promise<void>
   disconnect: () => void
   signTransaction: (xdr: string, network?: NetworkName) => Promise<string>
@@ -51,20 +54,58 @@ async function connectFreighter(): Promise<string> {
   if (!connected.isConnected) {
     throw new Error('Freighter is not installed. Please install the Freighter extension.')
   }
-  // Request access prompts the user to approve
   await requestAccess()
   const result = await getAddress()
   if (result.error) throw new Error(result.error)
   return result.address
 }
 
+async function getFreighterNetwork(): Promise<string | null> {
+  try {
+    const { getNetwork } = await import('@stellar/freighter-api')
+    const result = await getNetwork()
+    if (result.error) return null
+    return result.network ?? null
+  } catch {
+    return null
+  }
+}
+
 async function signWithFreighter(xdr: string, networkPassphrase: string): Promise<string> {
   const { signTransaction } = await import('@stellar/freighter-api')
-  const result = await signTransaction(xdr, {
-    networkPassphrase,
-  })
+  const result = await signTransaction(xdr, { networkPassphrase })
   if (result.error) throw new Error(result.error)
   return result.signedTxXdr
+}
+
+function passphraseToAlbedoNetwork(passphrase: string): 'testnet' | 'public' {
+  if (passphrase.includes('Test')) return 'testnet'
+  return 'public'
+}
+
+async function connectAlbedo(): Promise<string> {
+  const albedo = await import('@albedo-link/intent')
+  try {
+    const result = await albedo.default.publicKey({})
+    return result.pubkey
+  } catch (err: unknown) {
+    if (err instanceof Error && /popup/i.test(err.message)) {
+      throw new Error(
+        'Albedo popup was blocked. Please allow popups for this site and try again.',
+      )
+    }
+    throw err
+  }
+}
+
+async function signWithAlbedo(xdr: string, networkPassphrase: string): Promise<string> {
+  const albedo = await import('@albedo-link/intent')
+  const result = await albedo.default.tx({
+    xdr,
+    network: passphraseToAlbedoNetwork(networkPassphrase),
+    submit: false,
+  })
+  return result.signed_envelope_xdr
 }
 
 // Stubs for wallets that need a dedicated SDK — shows a helpful message
@@ -79,9 +120,17 @@ async function connectWallet(id: string): Promise<string> {
     case 'freighter': return connectFreighter()
     case 'xbull':     return connectStub('xBull')
     case 'lobstr':    return connectStub('LOBSTR')
-    case 'albedo':    return connectStub('Albedo')
+    case 'albedo':    return connectAlbedo()
     default:          throw new Error(`Unknown wallet: ${id}`)
   }
+}
+
+// Maps Freighter network names → our NetworkName
+function normalizeFreighterNetwork(raw: string): NetworkName | null {
+  const lower = raw.toLowerCase()
+  if (lower.includes('test')) return 'testnet'
+  if (lower === 'mainnet' || lower === 'public' || lower.includes('public')) return 'mainnet'
+  return null
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -91,6 +140,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [walletId, setWalletId] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [reconnecting, setReconnecting] = useState(true)
+  const [walletNetwork, setWalletNetwork] = useState<string | null>(null)
   const { network } = useNetwork()
 
   // Auto-reconnect on mount using persisted walletId
@@ -104,6 +154,29 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Poll Freighter's active network while connected
+  useEffect(() => {
+    if (!address || walletId !== 'freighter') {
+      setWalletNetwork(null)
+      return
+    }
+    let cancelled = false
+    const check = () => {
+      getFreighterNetwork().then((net) => {
+        if (!cancelled) setWalletNetwork(net)
+      })
+    }
+    check()
+    const interval = setInterval(check, 5000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [address, walletId])
+
+  const networkMismatch = useMemo(() => {
+    if (!address || walletId !== 'freighter' || !walletNetwork) return false
+    const normalized = normalizeFreighterNetwork(walletNetwork)
+    return normalized !== null && normalized !== network
+  }, [address, walletId, walletNetwork, network])
+
   const connect = useCallback(async (id: string) => {
     setConnecting(true)
     try {
@@ -111,6 +184,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setAddress(addr)
       setWalletId(id)
       localStorage.setItem('walletId', id)
+      setSentryUser(addr)
     } finally {
       setConnecting(false)
     }
@@ -119,7 +193,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const disconnect = useCallback(() => {
     setAddress(null)
     setWalletId(null)
+    setWalletNetwork(null)
     localStorage.removeItem('walletId')
+    setSentryUser(null)
   }, [])
 
   const signTransaction = useCallback(
@@ -128,6 +204,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const config = getNetworkConfig(customNetwork || network)
       switch (walletId) {
         case 'freighter': return signWithFreighter(xdr, config.passphrase)
+        case 'albedo':    return signWithAlbedo(xdr, config.passphrase)
         default: throw new Error(`Signing not implemented for ${walletId}`)
       }
     },
@@ -146,11 +223,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       connecting,
       reconnecting,
       isConnected: address !== null,
+      networkMismatch,
+      walletNetwork,
       connect,
       disconnect,
       signTransaction,
     }),
-    [address, walletId, connecting, reconnecting, connect, disconnect, signTransaction],
+    [address, walletId, connecting, reconnecting, networkMismatch, walletNetwork, connect, disconnect, signTransaction],
   )
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>

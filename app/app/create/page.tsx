@@ -19,18 +19,19 @@ import {
 } from '@/components/ui/select'
 import { useContract } from '@/hooks/use-contract'
 import { useWallet } from '@/hooks/use-wallet'
-import { useNetwork } from '@/components/providers/network-provider'
 import { getAllTokens, saveCustomToken } from '@/lib/stellar'
 import { getTokenMetadata, getTokenBalance } from '@/lib/contract'
 import { parseTokenAmount, formatTokenAmount } from '@/lib/stream-utils'
 import { StreamPreview } from '@/components/streams/stream-preview'
 import { CreateConfirmation } from '@/components/streams/create-confirmation'
+import { TxPreviewDialog } from '@/components/ui/tx-preview-dialog'
 import { addAddressBookEntry, getAddressBookEntries, touchAddressBookEntry } from '@/lib/address-book'
 import { buildNextRunAt, saveRecurringRule, type RecurrenceCadence } from '@/lib/recurring'
 import { useFormDraft, clearExpiredDrafts } from '@/hooks/use-form-draft'
 import { StreamTemplates, type StreamTemplate } from '@/components/streams/stream-templates'
 import { useTokenPrice } from '@/hooks/use-token-price'
 import type { TokenInfo } from '@/types/stream'
+import { useNetwork } from '@/components/providers/network-provider'
 
 const CUSTOM_VALUE = '__custom__'
 
@@ -119,6 +120,7 @@ function CreateForm() {
   const { createStream, estimateFee, pending, error } = useContract()
   const [feeEstimate, setFeeEstimate] = useState<string | null>(null)
   const [estimatingFee, setEstimatingFee] = useState(false)
+  const [showTxPreview, setShowTxPreview] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
 
   const [tokens, setTokens] = useState<TokenInfo[]>(() => getAllTokens(network).map((t) => ({ ...t })))
@@ -345,8 +347,8 @@ function CreateForm() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!validate()) return
-    // Issue #30: show confirmation dialog instead of immediately transacting
-    setShowConfirmation(true)
+    // Show tx simulation preview first; user proceeds to Freighter from there.
+    setShowTxPreview(true)
   }
 
   async function handleConfirmedCreate() {
@@ -401,7 +403,7 @@ function CreateForm() {
     setErrors({})
   }
 
-  const input = showConfirmation ? buildInput() : null
+  const input = (showTxPreview || showConfirmation) ? buildInput() : null
   const durationSeconds = (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000
   const amountPerSecond = input && durationSeconds > 0
     ? input.totalAmount / BigInt(Math.floor(durationSeconds))
@@ -719,7 +721,7 @@ function CreateForm() {
             <Label htmlFor="timezone" className="text-xs text-muted-foreground">
               Timezone — dates below are interpreted in this timezone ({timezoneOffset})
             </Label>
-            <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
+            <Select value={selectedTimezone} onValueChange={(v) => { if (v !== null) setSelectedTimezone(v) }}>
               <SelectTrigger id="timezone" className="w-full text-xs">
                 <SelectValue />
               </SelectTrigger>
@@ -944,7 +946,21 @@ function CreateForm() {
       </aside>
       </div>
 
-      {/* Issue #30: confirmation dialog */}
+      {/* Step 1: dry-run simulation preview */}
+      {input && (
+        <TxPreviewDialog
+          open={showTxPreview}
+          input={input}
+          network={network}
+          sender={walletAddress ?? ''}
+          operationLabel="Create Stream"
+          onConfirm={() => { setShowTxPreview(false); setShowConfirmation(true) }}
+          onCancel={() => setShowTxPreview(false)}
+          pending={false}
+        />
+      )}
+
+      {/* Step 2: confirmation + fee details → Freighter signing */}
       {input && (
         <CreateConfirmation
           open={showConfirmation}
