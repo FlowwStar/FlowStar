@@ -1,34 +1,91 @@
+'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Menu, X } from 'lucide-react'
 import { Brand } from '@/components/brand'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { LiveStreamPreview } from '@/components/landing/live-stream-preview'
 
+const NAV_LINKS = [
+  { href: '#features', label: 'Features' },
+  { href: '#how', label: 'How it works' },
+  { href: '#use-cases', label: 'Use cases' },
+]
+
 export function LandingHeader() {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+
   return (
     <header className="absolute inset-x-0 top-0 z-30">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6">
         <Brand />
         <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
-          <a href="#features" className="transition-colors hover:text-foreground">
-            Features
-          </a>
-          <a href="#how" className="transition-colors hover:text-foreground">
-            How it works
-          </a>
-          <a
-            href="#use-cases"
-            className="transition-colors hover:text-foreground"
-          >
-            Use cases
-          </a>
+          {NAV_LINKS.map((link) => (
+            <a
+              key={link.href}
+              href={link.href}
+              className="transition-colors hover:text-foreground"
+            >
+              {link.label}
+            </a>
+          ))}
         </nav>
-        <Button asChild size="sm">
-          <Link href="/app">
-            Open app
-            <ArrowRight className="size-4" />
-          </Link>
-        </Button>
+
+        <div className="ml-auto flex items-center gap-2">
+          <DropdownMenu open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                aria-label="Open navigation menu"
+              >
+                {mobileNavOpen ? (
+                  <X className="size-5" />
+                ) : (
+                  <Menu className="size-5" />
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={12}
+              className="min-w-56 rounded-xl border border-border bg-background/95 p-2 shadow-xl backdrop-blur-md"
+            >
+              <div className="mb-1 px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Navigate
+              </div>
+              {NAV_LINKS.map((link) => (
+                <DropdownMenuItem
+                  key={link.href}
+                  render={
+                    <a
+                      href={link.href}
+                      onClick={() => setMobileNavOpen(false)}
+                      className="w-full"
+                    >
+                      {link.label}
+                    </a>
+                  }
+                />
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button asChild size="sm">
+            <Link href="/app">
+              Open app
+              <ArrowRight className="size-4" />
+            </Link>
+          </Button>
+        </div>
       </div>
     </header>
   )

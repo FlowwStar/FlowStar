@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test -u",
     "prepare": "husky",
     "analyze": "ANALYZE=true next build"
   },
