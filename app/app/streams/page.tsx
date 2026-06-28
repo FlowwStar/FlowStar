@@ -1,17 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Search, Download } from 'lucide-react'
 import { RequireWallet } from '@/components/layout/require-wallet'
 import { Button } from '@/components/ui/button'
 import { streamsToCSV, downloadCSV } from '@/lib/export'
 import { StreamCard } from '@/components/streams/stream-card'
 import { EmptyStreams } from '@/components/streams/empty-state'
-import { StreamStatusBadge } from '@/components/streams/stream-status-badge'
 import { Input } from '@/components/ui/input'
 import { useStreams } from '@/hooks/use-streams'
 import { useNow } from '@/hooks/use-now'
-import { getStreamStatus, shortenAddress } from '@/lib/stream-utils'
+import { getStreamStatus } from '@/lib/stream-utils'
 import type { StreamStatus } from '@/types/stream'
 
 const STATUS_FILTERS: { label: string; value: StreamStatus | 'all' }[] = [
@@ -22,15 +22,41 @@ const STATUS_FILTERS: { label: string; value: StreamStatus | 'all' }[] = [
   { label: 'Cancelled', value: 'cancelled' },
 ]
 
+const TOKEN_OPTIONS = ['all', 'XLM', 'USDC', 'EURC'] as const
+
 function StreamsPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { all } = useStreams()
   const now = useNow(5000)
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StreamStatus | 'all'>('all')
+
+  const search = searchParams.get('q') ?? ''
+  const statusFilter = (searchParams.get('status') ?? 'all') as StreamStatus | 'all'
+  const tokenFilter = searchParams.get('token') ?? 'all'
+
+  const setParam = useCallback(
+    (key: string, value: string) => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (!value || value === 'all') {
+        params.delete(key)
+      } else {
+        params.set(key, value)
+      }
+      router.replace(`?${params.toString()}`, { scroll: false })
+    },
+    [router, searchParams],
+  )
+
+  const clearFilters = useCallback(() => {
+    router.replace('?', { scroll: false })
+  }, [router])
 
   const filtered = all.filter((s) => {
     const matchesStatus =
       statusFilter === 'all' || getStreamStatus(s, now) === statusFilter
+    const matchesToken =
+      tokenFilter === 'all' ||
+      s.token.symbol.toUpperCase() === tokenFilter.toUpperCase()
     const q = search.toLowerCase()
     const matchesSearch =
       !q ||
@@ -38,8 +64,10 @@ function StreamsPage() {
       s.sender.toLowerCase().includes(q) ||
       s.recipient.toLowerCase().includes(q) ||
       s.token.symbol.toLowerCase().includes(q)
-    return matchesStatus && matchesSearch
+    return matchesStatus && matchesToken && matchesSearch
   })
+
+  const hasFilters = search || statusFilter !== 'all' || tokenFilter !== 'all'
 
   return (
     <div className="space-y-6">
@@ -66,21 +94,42 @@ function StreamsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1 sm:max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by address or token…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by address or token…"
+              value={search}
+              onChange={(e) => setParam('q', e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          {/* Token filter */}
+          <div className="flex flex-wrap gap-2">
+            {TOKEN_OPTIONS.map((t) => (
+              <button
+                key={t}
+                onClick={() => setParam('token', t)}
+                className={
+                  'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
+                  (tokenFilter === t
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-card text-muted-foreground hover:text-foreground')
+                }
+              >
+                {t === 'all' ? 'All tokens' : t}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Status filter */}
         <div className="flex flex-wrap gap-2">
           {STATUS_FILTERS.map((f) => (
             <button
               key={f.value}
-              onClick={() => setStatusFilter(f.value)}
+              onClick={() => setParam('status', f.value)}
               className={
                 'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
                 (statusFilter === f.value
@@ -96,11 +145,11 @@ function StreamsPage() {
 
       {/* Results */}
       {filtered.length === 0 ? (
-        search || statusFilter !== 'all' ? (
+        hasFilters ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
             <p className="text-sm font-medium">No streams match your filters</p>
             <button
-              onClick={() => { setSearch(''); setStatusFilter('all') }}
+              onClick={clearFilters}
               className="mt-2 text-xs text-primary hover:underline"
             >
               Clear filters
@@ -123,7 +172,9 @@ function StreamsPage() {
 export default function StreamsRoute() {
   return (
     <RequireWallet>
-      <StreamsPage />
+      <Suspense>
+        <StreamsPage />
+      </Suspense>
     </RequireWallet>
   )
 }
