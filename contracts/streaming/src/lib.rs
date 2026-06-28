@@ -5,6 +5,12 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, token, Address, BytesN, Env, Vec,
 };
 
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const CONTRACT_VERSION: u32 = 1;
+const CONTRACT_NAME: &str = "FlowStar Streaming";
+const MAX_STREAM_DURATION: u64 = 315_360_000; // 10 years in seconds
+
 // ─── Storage Keys ────────────────────────────────────────────────────────────
 
 #[contracttype]
@@ -286,6 +292,10 @@ impl StreamingContract {
         if params.end_time <= params.start_time {
             return Err(StreamError::InvalidTimeRange);
         }
+        let duration = params.end_time - params.start_time;
+        if duration > MAX_STREAM_DURATION {
+            panic!("stream duration exceeds maximum");
+        }
         if params.cliff_time < params.start_time || params.cliff_time > params.end_time {
             return Err(StreamError::InvalidCliff);
         }
@@ -296,9 +306,9 @@ impl StreamingContract {
             return Err(StreamError::SelfStream);
         }
 
-        let duration = (params.end_time - params.start_time) as i128;
+        let duration_i128 = duration as i128;
         let linear_amount = params.total_amount - params.cliff_amount;
-        let amount_per_second = if duration > 0 { linear_amount / duration } else { 0 };
+        let amount_per_second = if duration_i128 > 0 { linear_amount / duration_i128 } else { 0 };
 
         // ── Pull funds from sender into contract ─────────────────────────────
         let token_client = token::Client::new(&env, &params.token);
@@ -326,6 +336,7 @@ impl StreamingContract {
             amount_per_second,
             cancelled: false,
             linear_amount,
+            duration: duration_i128
             duration,
         };
 
@@ -382,12 +393,18 @@ impl StreamingContract {
 
         stream.recipient = new_recipient.clone();
 
+        // ── Persist stream ───────────────────────────────────────────────────
         env.storage()
             .persistent()
             .set(&DataKey::Stream(stream_id), &stream);
 
         Self::remove_from_index(&env, DataKey::ReceivedBy(old_recipient.clone()), stream_id);
         Self::push_to_index(&env, DataKey::ReceivedBy(new_recipient.clone()), stream_id);
+
+        // Clear delegate on transfer
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Delegate(stream_id));
 
         StreamTransferEvent { stream_id, old_recipient, new_recipient }.publish(&env);
         Self::extend_stream_ttl(&env, stream_id);
@@ -488,11 +505,26 @@ impl StreamingContract {
 
     /// Withdraw unlocked tokens from a stream.
     ///
-    /// Only the recipient can call this. Pass the exact amount to withdraw
+    /// Only the recipient or their delegate can call this. Pass the exact amount to withdraw
     /// (must be ≤ withdrawable amount). Use `get_withdrawable` to query first.
+    pub fn withdraw(env: Env, stream_id: u64, amount: i128) {
+        let mut stream = Self::load_stream(&env, stream_id);
+        let caller = env.invoker();
+
+        // Check if caller is recipient or authorized delegate
+        let is_recipient = caller == stream.recipient;
+        let is_delegate = match Self::get_delegate(&env, stream_id) {
+            Some(delegate) => caller == delegate,
+            None => false,
+        };
+
+        if !is_recipient && !is_delegate {
+            panic!("only recipient or delegate can withdraw");
+        }
     pub fn withdraw(env: Env, stream_id: u64, amount: i128) -> Result<(), StreamError> {
         let mut stream = Self::load_stream(&env, stream_id)?;
 
+        // Require auth from the actual recipient, not the delegate
         stream.recipient.require_auth();
         Self::require_not_paused(&env);
 
@@ -765,6 +797,53 @@ impl StreamingContract {
         .publish(&env);
     }
 
+    // ── Metadata ──────────────────────────────────────────────────────────────
+
+    /// Get the contract version.
+    pub fn version(_env: Env) -> u32 {
+        CONTRACT_VERSION
+    }
+
+    /// Get the contract name.
+    pub fn name(env: Env) -> String {
+        String::from_small_copy(&String::from_slice(&env, CONTRACT_NAME))
+    }
+
+    // ── Delegation ────────────────────────────────────────────────────────────
+
+    /// Set a delegate who can withdraw on behalf of the recipient.
+    pub fn set_delegate(env: Env, stream_id: u64, delegate: Address) {
+        let stream = Self::load_stream(&env, stream_id);
+        stream.recipient.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Delegate(stream_id), &delegate);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Delegate(stream_id),
+            17_280,
+            17_280,
+        );
+    }
+
+    /// Remove the delegate for a stream.
+    pub fn remove_delegate(env: Env, stream_id: u64) {
+        let stream = Self::load_stream(&env, stream_id);
+        stream.recipient.require_auth();
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::Delegate(stream_id));
+    }
+
+    /// Get the delegate for a stream, if set.
+    pub fn get_delegate(env: Env, stream_id: u64) -> Option<Address> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Delegate(stream_id))
+    }
+
+    // ── Internal helpers ─────────────────────────────────────────────────────
     // ──── Internal helpers ─────────────────────────────────────────────────────
 
     fn load_stream(env: &Env, id: u64) -> Result<Stream, StreamError> {

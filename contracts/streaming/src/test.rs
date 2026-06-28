@@ -1058,3 +1058,237 @@ fn test_upgrade_succeeds_with_admin_auth() {
     // We just verify it panics at all (not an auth panic).
     assert!(result.is_err());
 }
+
+
+// ─── Version and Metadata Tests ────────────────────────────────────────────────
+
+#[test]
+fn test_contract_version() {
+    let t = TestEnv::setup();
+    let client = t.client();
+    assert_eq!(client.version(), 1);
+}
+
+#[test]
+fn test_contract_name() {
+    let t = TestEnv::setup();
+    let client = t.client();
+    let name = client.name();
+    assert_eq!(name, String::from_slice(&t.env, "FlowStar Streaming"));
+}
+
+// ─── Max Stream Duration Tests ─────────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "stream duration exceeds maximum")]
+fn test_create_stream_exceeds_max_duration() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let mut params = t.default_params(now);
+    // Set duration to 11 years (exceeds 10-year max)
+    params.end_time = now + 315_360_000 + 1;
+    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
+    client.create_stream(&t.sender, &params);
+}
+
+#[test]
+fn test_create_stream_at_max_duration() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let mut params = t.default_params(now);
+    // Set duration to exactly 10 years (max allowed)
+    params.end_time = now + 315_360_000;
+    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.end_time - stream.start_time, 315_360_000);
+}
+
+#[test]
+fn test_create_stream_under_max_duration() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now); // 1000 seconds < max
+    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+    assert_eq!(stream_id, 1);
+}
+
+// ─── Stream Delegation Tests ───────────────────────────────────────────────────
+
+#[test]
+fn test_set_delegate_by_recipient() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Recipient sets a delegate
+    let delegate = Address::generate(&t.env);
+    client.set_delegate(&stream_id, &delegate);
+
+    // Verify delegate is set
+    let stored_delegate = client.get_delegate(&stream_id);
+    assert_eq!(stored_delegate, Some(delegate));
+}
+
+#[test]
+fn test_delegate_can_withdraw() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Recipient sets a delegate
+    let delegate = Address::generate(&t.env);
+    client.set_delegate(&stream_id, &delegate);
+
+    // Advance time and let delegate withdraw
+    t.set_time(now + 500);
+    let withdrawable = client.get_withdrawable(&stream_id);
+    assert!(withdrawable > 0);
+
+    // Delegate withdraws (funds go to recipient)
+    client.withdraw(&stream_id, &withdrawable);
+
+    // Recipient receives the funds
+    assert_eq!(t.token().balance(&t.recipient), withdrawable);
+}
+
+#[test]
+fn test_remove_delegate() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let delegate = Address::generate(&t.env);
+    client.set_delegate(&stream_id, &delegate);
+    
+    // Verify delegate is set
+    assert_eq!(client.get_delegate(&stream_id), Some(delegate.clone()));
+
+    // Remove delegate
+    client.remove_delegate(&stream_id);
+
+    // Verify delegate is removed
+    assert_eq!(client.get_delegate(&stream_id), None);
+}
+
+#[test]
+fn test_transfer_clears_delegate() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let delegate = Address::generate(&t.env);
+    client.set_delegate(&stream_id, &delegate);
+    assert_eq!(client.get_delegate(&stream_id), Some(delegate));
+
+    // Transfer stream to new recipient
+    let new_recipient = Address::generate(&t.env);
+    client.transfer_stream(&stream_id, &new_recipient);
+
+    // Verify delegate is cleared
+    assert_eq!(client.get_delegate(&stream_id), None);
+}
+
+// ─── Transfer Function Fix Tests ──────────────────────────────────────────────
+
+#[test]
+fn test_transfer_stream_basic() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let old_recipient = t.recipient.clone();
+    let new_recipient = Address::generate(&t.env);
+
+    // Transfer
+    client.transfer_stream(&stream_id, &new_recipient);
+
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.recipient, new_recipient);
+
+    // Verify indices updated
+    let old_received = client.get_received_streams(&old_recipient, &0, &100);
+    let new_received = client.get_received_streams(&new_recipient, &0, &100);
+    assert_eq!(old_received.len(), 0);
+    assert_eq!(new_received.len(), 1);
+    assert_eq!(new_received.get(0), Some(stream_id));
+}
+
+#[test]
+#[should_panic(expected = "cannot transfer a cancelled stream")]
+fn test_transfer_cancelled_stream_panics() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Cancel stream
+    client.cancel(&stream_id);
+
+    // Try to transfer cancelled stream
+    let new_recipient = Address::generate(&t.env);
+    client.transfer_stream(&stream_id, &new_recipient);
+}
+
+#[test]
+fn test_transfer_stream_updates_indices() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let new_recipient = Address::generate(&t.env);
+    client.transfer_stream(&stream_id, &new_recipient);
+
+    // Verify new recipient can see the stream
+    let received = client.get_received_streams(&new_recipient, &0, &100);
+    assert_eq!(received.len(), 1);
+    assert_eq!(received.get(0), Some(stream_id));
+}
