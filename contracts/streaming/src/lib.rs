@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, Env, Vec,
+    contract, contractimpl, contracttype, token, Address, BytesN, Env, Vec,
 };
 
 // ─── Storage Keys ────────────────────────────────────────────────────────────
@@ -10,12 +10,18 @@ use soroban_sdk::{
 pub enum DataKey {
     /// Global counter for next stream ID. Stored in Instance.
     NextId,
+    /// Admin address for upgrade gating. Stored in Instance.
+    Admin,
     /// Stream struct keyed by ID. Stored in Persistent.
     Stream(u64),
-    /// List of stream IDs where address is the sender. Stored in Persistent.
+    /// Active stream IDs where address is the sender. Stored in Persistent.
     SentBy(Address),
-    /// List of stream IDs where address is the recipient. Stored in Persistent.
+    /// Active stream IDs where address is the recipient. Stored in Persistent.
     ReceivedBy(Address),
+    /// Archived (completed/cancelled) stream IDs where address is the sender.
+    ArchiveSentBy(Address),
+    /// Archived (completed/cancelled) stream IDs where address is the recipient.
+    ArchiveReceivedBy(Address),
 }
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -88,6 +94,9 @@ pub struct StreamTransferEvent {
     pub stream_id: u64,
     pub old_recipient: Address,
     pub new_recipient: Address,
+}
+
+#[soroban_sdk::contractevent]
 pub struct TopUpEvent {
     pub stream_id: u64,
     pub additional_amount: i128,
@@ -102,6 +111,48 @@ pub struct StreamingContract;
 
 #[contractimpl]
 impl StreamingContract {
+    // ── Write: Admin / Upgrade ───────────────────────────────────────────────
+
+    /// Initialize the contract with an admin address.
+    /// Can only be called once.
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().instance().has(&DataKey::Admin) {
+            panic!("already initialized");
+        }
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().extend_ttl(17_280, 17_280);
+    }
+
+    /// Upgrade the contract wasm. Only callable by the admin.
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        admin.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap();
+        if admin != stored_admin {
+            panic!("unauthorized");
+        }
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+    }
+
+    /// Post-upgrade data migration hook. Call this after an upgrade to
+    /// migrate storage layouts.
+    pub fn migrate(env: Env) {
+        let _admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic!("not initialized"));
+    }
+
+    /// Return the current contract version.
+    pub fn version(env: Env) -> u32 {
+        let _ = env;
+        1
+    }
+
     // ── Write: Create ────────────────────────────────────────────────────────
 
     /// Create a new token stream.
@@ -182,7 +233,7 @@ impl StreamingContract {
         id
     }
 
-     // ── Write: Transfer ────────────────────────────────────────────────────────
+    // ── Write: Transfer ────────────────────────────────────────────────────────
 
     /// Transfer a token stream right to a new address
     pub fn transfer_stream(env: Env, stream_id: u64, new_recipient: Address) {
@@ -198,7 +249,20 @@ impl StreamingContract {
 
         stream.recipient = new_recipient.clone();
 
-        // ── Persist stream ───────────────────────────────────────────────────
+        env.storage()
+            .persistent()
+            .set(&DataKey::Stream(stream_id), &stream);
+
+        Self::remove_from_index(&env, DataKey::ReceivedBy(old_recipient.clone()), stream_id);
+        Self::push_to_index(&env, DataKey::ReceivedBy(new_recipient.clone()), stream_id);
+
+        StreamTransferEvent { stream_id, old_recipient, new_recipient }
+            .publish(&env);
+        Self::extend_stream_ttl(&env, stream_id);
+    }
+
+    // ── Write: Top Up ─────────────────────────────────────────────────────────
+
     /// Top up an existing stream with additional funds.
     ///
     /// Increases `deposited_amount` and recalculates `amount_per_second` over
@@ -233,14 +297,6 @@ impl StreamingContract {
         );
 
         // ── Recalculate rate over remaining duration ──────────────────────────
-        // Already-vested funds keep their rate; only the remaining
-        // unlocked portion is recalculated with the new total.
-        //
-        // remaining_linear = (deposited - cliff_amount - withdrawn_linear) + additional
-        // amount_per_second = remaining_linear / remaining_seconds
-        //
-        // We compute remaining_seconds from now rather than cliff_time so a
-        // mid-stream top-up doesn't retroactively change already-vested amounts.
         let remaining_seconds = (stream.end_time - now) as i128;
 
         let already_vested = Self::vested_amount(&stream, now);
@@ -259,7 +315,6 @@ impl StreamingContract {
             0
         };
 
-        // ── Apply changes ────────────────────────────────────────────────────
         stream.deposited_amount = stream
             .deposited_amount
             .checked_add(additional_amount)
@@ -271,14 +326,8 @@ impl StreamingContract {
             .persistent()
             .set(&DataKey::Stream(stream_id), &stream);
 
-        Self::remove_from_index(&env, DataKey::ReceivedBy(old_recipient.clone()), stream_id);
-        Self::push_to_index(&env, DataKey::ReceivedBy(new_recipient.clone()), stream_id);
-
-        StreamTransferEvent { stream_id, old_recipient, new_recipient }
-            .publish(&env);
         Self::extend_stream_ttl(&env, stream_id);
 
-        // ── Emit event ───────────────────────────────────────────────────────
         TopUpEvent {
             stream_id,
             additional_amount,
@@ -311,12 +360,22 @@ impl StreamingContract {
         }
 
         stream.withdrawn_amount += amount;
+        let fully_drained = stream.withdrawn_amount >= stream.deposited_amount
+            && env.ledger().timestamp() >= stream.end_time;
 
         env.storage()
             .persistent()
             .set(&DataKey::Stream(stream_id), &stream);
 
         Self::extend_stream_ttl(&env, stream_id);
+
+        // When a stream is fully drained after end_time, move it to the archive.
+        if fully_drained {
+            Self::remove_from_index(&env, DataKey::SentBy(stream.sender.clone()), stream_id);
+            Self::push_to_index(&env, DataKey::ArchiveSentBy(stream.sender.clone()), stream_id);
+            Self::remove_from_index(&env, DataKey::ReceivedBy(stream.recipient.clone()), stream_id);
+            Self::push_to_index(&env, DataKey::ArchiveReceivedBy(stream.recipient.clone()), stream_id);
+        }
 
         let token_client = token::Client::new(&env, &stream.token);
         token_client.transfer(
@@ -355,6 +414,12 @@ impl StreamingContract {
             .set(&DataKey::Stream(stream_id), &stream);
 
         Self::extend_stream_ttl(&env, stream_id);
+
+        // Move from active to archive indexes.
+        Self::remove_from_index(&env, DataKey::SentBy(stream.sender.clone()), stream_id);
+        Self::push_to_index(&env, DataKey::ArchiveSentBy(stream.sender.clone()), stream_id);
+        Self::remove_from_index(&env, DataKey::ReceivedBy(stream.recipient.clone()), stream_id);
+        Self::push_to_index(&env, DataKey::ArchiveReceivedBy(stream.recipient.clone()), stream_id);
 
         let token_client = token::Client::new(&env, &stream.token);
 
@@ -452,6 +517,73 @@ impl StreamingContract {
             .unwrap_or(0)
     }
 
+    /// Get paginated archived stream IDs where `address` is the sender.
+    pub fn get_archived_sent_streams(env: Env, address: Address, offset: u32, limit: u32) -> Vec<u64> {
+        let all: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ArchiveSentBy(address))
+            .unwrap_or(Vec::new(&env));
+        let start = core::cmp::min(offset, all.len());
+        let end = core::cmp::min(offset + limit, all.len());
+        let mut result = Vec::new(&env);
+        let mut i = start;
+        while i < end {
+            result.push_back(all.get(i).unwrap());
+            i += 1;
+        }
+        result
+    }
+
+    /// Get paginated archived stream IDs where `address` is the recipient.
+    pub fn get_archived_received_streams(env: Env, address: Address, offset: u32, limit: u32) -> Vec<u64> {
+        let all: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ArchiveReceivedBy(address))
+            .unwrap_or(Vec::new(&env));
+        let start = core::cmp::min(offset, all.len());
+        let end = core::cmp::min(offset + limit, all.len());
+        let mut result = Vec::new(&env);
+        let mut i = start;
+        while i < end {
+            result.push_back(all.get(i).unwrap());
+            i += 1;
+        }
+        result
+    }
+
+    /// Manually remove a completed or cancelled stream's data and index entries.
+    ///
+    /// Either party (sender or recipient) may call this. The stream must be
+    /// cancelled or fully drained before cleanup is allowed.
+    pub fn cleanup_stream(env: Env, caller: Address, stream_id: u64) {
+        caller.require_auth();
+
+        let stream = Self::load_stream(&env, stream_id);
+
+        // Only sender or recipient may clean up.
+        if caller != stream.sender && caller != stream.recipient {
+            panic!("only sender or recipient may clean up a stream");
+        }
+
+        let fully_drained = stream.withdrawn_amount >= stream.deposited_amount
+            && env.ledger().timestamp() >= stream.end_time;
+
+        if !stream.cancelled && !fully_drained {
+            panic!("stream must be cancelled or fully completed before cleanup");
+        }
+
+        // Remove from all indexes (active + archive).
+        Self::remove_from_index(&env, DataKey::SentBy(stream.sender.clone()), stream_id);
+        Self::remove_from_index(&env, DataKey::ArchiveSentBy(stream.sender.clone()), stream_id);
+        Self::remove_from_index(&env, DataKey::ReceivedBy(stream.recipient.clone()), stream_id);
+        Self::remove_from_index(&env, DataKey::ArchiveReceivedBy(stream.recipient.clone()), stream_id);
+
+        // Delete stream data to reclaim storage.
+        env.storage().persistent().remove(&DataKey::Stream(stream_id));
+    }
+
     // ── Write: Bump TTL ──────────────────────────────────────────────────────
 
     /// Extend the TTL of a stream's persistent storage without modifying data.
@@ -539,7 +671,7 @@ impl StreamingContract {
             .get(&key)
             .unwrap_or(Vec::new(env));
 
-        let position = indexes.iter().position(|id| id == id);
+        let position = indexes.iter().position(|x| x == id);
         if let Some(i) = position {
             indexes.remove(i as u32);
         }

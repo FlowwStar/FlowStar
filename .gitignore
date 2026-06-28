@@ -16,3 +16,20 @@ node_modules
 
 # Rust build artifacts
 contracts/target/
+
+# Test snapshots
+contracts/streaming/test_snapshots/
+
+# Vitest
+*.snap
+coverage/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+Thumbs.db

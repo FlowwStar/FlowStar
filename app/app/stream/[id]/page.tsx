@@ -958,7 +958,12 @@ function StreamDetail({ id }: { id: string }) {
           <RateDisplay stream={stream} />
         </DetailRow>
         <DetailRow label="Start">
-          {formatDateTime(stream.startTime)}
+          <span>
+            {formatDateTime(stream.startTime)}
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              ({new Date(Number(stream.startTime) * 1000).toUTCString().replace(' GMT', ' UTC')})
+            </span>
+          </span>
         </DetailRow>
         {stream.cliffTime > stream.startTime && (
           <DetailRow label="Cliff">
@@ -971,7 +976,12 @@ function StreamDetail({ id }: { id: string }) {
           </DetailRow>
         )}
         <DetailRow label="End">
-          {formatDateTime(stream.endTime)}
+          <span>
+            {formatDateTime(stream.endTime)}
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              ({new Date(Number(stream.endTime) * 1000).toUTCString().replace(' GMT', ' UTC')})
+            </span>
+          </span>
         </DetailRow>
         <DetailRow label="Network">
           <span className="capitalize">{network}</span>

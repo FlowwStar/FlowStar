@@ -1,13 +1,12 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { AlertTriangle, ArrowLeft, ArrowRight, Info, Loader2, Copy } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, Info, Loader2, Copy, Clock } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { StrKey } from '@stellar/stellar-sdk'
 import { RequireWallet } from '@/components/layout/require-wallet'
-import { useNetwork } from '@/components/providers/network-provider'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -20,16 +19,19 @@ import {
 } from '@/components/ui/select'
 import { useContract } from '@/hooks/use-contract'
 import { useWallet } from '@/hooks/use-wallet'
-import { useNetwork } from '@/components/providers/network-provider'
 import { getAllTokens, saveCustomToken } from '@/lib/stellar'
 import { getTokenMetadata, getTokenBalance } from '@/lib/contract'
 import { parseTokenAmount, formatTokenAmount } from '@/lib/stream-utils'
 import { StreamPreview } from '@/components/streams/stream-preview'
 import { CreateConfirmation } from '@/components/streams/create-confirmation'
+import { TxPreviewDialog } from '@/components/ui/tx-preview-dialog'
 import { addAddressBookEntry, getAddressBookEntries, touchAddressBookEntry } from '@/lib/address-book'
 import { buildNextRunAt, saveRecurringRule, type RecurrenceCadence } from '@/lib/recurring'
+import { useFormDraft, clearExpiredDrafts } from '@/hooks/use-form-draft'
 import { StreamTemplates, type StreamTemplate } from '@/components/streams/stream-templates'
+import { useTokenPrice } from '@/hooks/use-token-price'
 import type { TokenInfo } from '@/types/stream'
+import { useNetwork } from '@/components/providers/network-provider'
 
 const CUSTOM_VALUE = '__custom__'
 
@@ -39,13 +41,50 @@ function toUnixSeconds(localDatetimeValue: string): bigint {
 
 function localDatetimeMin(offsetSeconds = 0): string {
   const d = new Date(Date.now() + offsetSeconds * 1000)
-  return d.toISOString().slice(0, 16)
+  // Format as YYYY-MM-DDTHH:mm in local time (not UTC)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function addDuration(baseDatetime: string, seconds: number): string {
   const base = new Date(baseDatetime)
-  return new Date(base.getTime() + seconds * 1000).toISOString().slice(0, 16)
+  const d = new Date(base.getTime() + seconds * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
+
+function detectTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch {
+    return 'UTC'
+  }
+}
+
+function getTimezoneOffset(): string {
+  const offset = -new Date().getTimezoneOffset()
+  const sign = offset >= 0 ? '+' : '-'
+  const h = Math.floor(Math.abs(offset) / 60)
+  const m = Math.abs(offset) % 60
+  return `UTC${sign}${h}${m > 0 ? `:${String(m).padStart(2, '0')}` : ''}`
+}
+
+const COMMON_TIMEZONES = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Sao_Paulo',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Singapore',
+  'Asia/Tokyo',
+  'Australia/Sydney',
+] as const
 
 const DURATION_PRESETS = [
   { label: '1 week', seconds: 7 * 24 * 3600 },
@@ -81,6 +120,7 @@ function CreateForm() {
   const { createStream, estimateFee, pending, error } = useContract()
   const [feeEstimate, setFeeEstimate] = useState<string | null>(null)
   const [estimatingFee, setEstimatingFee] = useState(false)
+  const [showTxPreview, setShowTxPreview] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
 
   const [tokens, setTokens] = useState<TokenInfo[]>(() => getAllTokens(network).map((t) => ({ ...t })))
@@ -126,9 +166,46 @@ function CreateForm() {
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | undefined>(undefined)
 
+  // Issue #168: draft state
+  const [showDraftBanner, setShowDraftBanner] = useState(false)
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null)
+  const isFirstMount = useRef(true)
+
+  // Issue #170: timezone state
+  const [selectedTimezone, setSelectedTimezone] = useState(() => detectTimezone())
+  const timezoneOffset = getTimezoneOffset()
+
   const selectedToken = isCustom && customToken
     ? customToken
     : tokens.find((t) => t.address === form.tokenAddress) ?? tokens[0]
+
+  // Issue #186: USD conversion
+  const [usdInputMode, setUsdInputMode] = useState(false)
+  const [usdAmount, setUsdAmount] = useState('')
+  const { usdPrice, stale: priceStale, loading: priceLoading } = useTokenPrice(selectedToken?.symbol ?? '')
+
+  const supportsUsd = usdPrice !== null
+  const tokenAmountNum = parseFloat(form.amount) || 0
+  const usdEquivalent = supportsUsd && tokenAmountNum > 0
+    ? (tokenAmountNum * usdPrice).toFixed(2)
+    : null
+
+  const amountPerSecondUsd = usdEquivalent && (() => {
+    const dur = (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000
+    if (dur <= 0) return null
+    const usdPerSec = (parseFloat(usdEquivalent) / dur)
+    return usdPerSec < 0.01 ? usdPerSec.toExponential(2) : usdPerSec.toFixed(4)
+  })()
+
+  function handleUsdAmountChange(val: string) {
+    setUsdAmount(val)
+    if (usdPrice && val) {
+      const tokenAmt = parseFloat(val) / usdPrice
+      if (!isNaN(tokenAmt)) set('amount', tokenAmt.toFixed(selectedToken?.decimals ?? 7))
+    } else {
+      set('amount', '')
+    }
+  }
 
   // Fetch balance when token or wallet changes
   useEffect(() => {
@@ -140,6 +217,29 @@ function CreateForm() {
       .catch(() => setTokenBalance(null))
       .finally(() => setBalanceLoading(false))
   }, [selectedToken?.address, walletAddress])
+
+  // Issue #168: wire up draft hook
+  const { loadDraft, restore, discard } = useFormDraft(
+    `create-stream-${walletAddress ?? 'anonymous'}`,
+    form,
+    (draft) => {
+      setForm(draft)
+    },
+    true,
+  )
+
+  // Check for existing draft on first mount
+  useEffect(() => {
+    if (!isFirstMount.current) return
+    isFirstMount.current = false
+    clearExpiredDrafts()
+    const entry = loadDraft()
+    if (entry) {
+      setDraftSavedAt(entry.savedAt)
+      setShowDraftBanner(true)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleCustomTokenLookup() {
     if (!customAddress || customAddress.length < 56) {
@@ -247,8 +347,8 @@ function CreateForm() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!validate()) return
-    // Issue #30: show confirmation dialog instead of immediately transacting
-    setShowConfirmation(true)
+    // Show tx simulation preview first; user proceeds to Freighter from there.
+    setShowTxPreview(true)
   }
 
   async function handleConfirmedCreate() {
@@ -270,6 +370,7 @@ function CreateForm() {
         })
       }
 
+      discard()
       setShowConfirmation(false)
       toast.success('Stream created', { description: `Stream #${id} is live.` })
       router.push(`/app/stream/${id}`)
@@ -302,7 +403,7 @@ function CreateForm() {
     setErrors({})
   }
 
-  const input = showConfirmation ? buildInput() : null
+  const input = (showTxPreview || showConfirmation) ? buildInput() : null
   const durationSeconds = (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000
   const amountPerSecond = input && durationSeconds > 0
     ? input.totalAmount / BigInt(Math.floor(durationSeconds))
@@ -335,6 +436,45 @@ function CreateForm() {
           <p className="text-sm text-primary">
             Duplicating Stream #{cloneId} — form pre-filled with its parameters.
           </p>
+        </div>
+      )}
+
+      {/* Issue #168: Draft restore banner */}
+      {showDraftBanner && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <Clock className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              You have an unsaved draft from{' '}
+              {draftSavedAt
+                ? new Date(draftSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'earlier'}
+              .
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                restore()
+                setShowDraftBanner(false)
+                toast.success('Draft restored')
+              }}
+            >
+              Restore
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                discard()
+                setShowDraftBanner(false)
+              }}
+            >
+              Discard
+            </Button>
+          </div>
         </div>
       )}
 
@@ -423,17 +563,56 @@ function CreateForm() {
                   : null}
               </span>
             </div>
+
+            {/* Issue #186: USD/token mode toggle */}
+            {supportsUsd && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={() => { setUsdInputMode(false); setUsdAmount('') }}
+                  className={`rounded-full border px-2 py-0.5 transition-colors ${!usdInputMode ? 'border-primary bg-primary/10 text-foreground' : 'border-border hover:border-foreground'}`}
+                >
+                  {selectedToken.symbol} amount
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUsdInputMode(true)}
+                  className={`rounded-full border px-2 py-0.5 transition-colors ${usdInputMode ? 'border-primary bg-primary/10 text-foreground' : 'border-border hover:border-foreground'}`}
+                >
+                  USD amount
+                </button>
+                {priceStale && <span className="text-yellow-500">Price may be stale</span>}
+              </div>
+            )}
+
             <div className="flex gap-2">
-              <Input
-                id="amount"
-                type="number"
-                min="0"
-                step="any"
-                placeholder="e.g. 10000"
-                value={form.amount}
-                onChange={(e) => set('amount', e.target.value)}
-                aria-invalid={!!errors.amount}
-              />
+              {usdInputMode && supportsUsd ? (
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                  <Input
+                    id="amount"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="e.g. 500"
+                    className="pl-6"
+                    value={usdAmount}
+                    onChange={(e) => handleUsdAmountChange(e.target.value)}
+                    aria-invalid={!!errors.amount}
+                  />
+                </div>
+              ) : (
+                <Input
+                  id="amount"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="e.g. 10000"
+                  value={form.amount}
+                  onChange={(e) => set('amount', e.target.value)}
+                  aria-invalid={!!errors.amount}
+                />
+              )}
               {tokenBalance !== null && tokenBalance > 0n && (
                 <Button
                   type="button"
@@ -445,6 +624,25 @@ function CreateForm() {
                 </Button>
               )}
             </div>
+
+            {/* Issue #186: USD equivalent + per-second rate */}
+            {usdEquivalent && !usdInputMode && (
+              <p className="text-xs text-muted-foreground">
+                ≈ ${usdEquivalent} USD
+                {amountPerSecondUsd && (
+                  <span className="ml-2">
+                    · Streaming rate: {(tokenAmountNum / Math.max(1, (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000)).toFixed(6)} {selectedToken.symbol}/sec (≈ ${amountPerSecondUsd}/sec)
+                  </span>
+                )}
+                {priceLoading && <span className="ml-1 opacity-60">Fetching price…</span>}
+              </p>
+            )}
+            {usdInputMode && form.amount && (
+              <p className="text-xs text-muted-foreground">
+                ≈ {form.amount} {selectedToken.symbol}
+              </p>
+            )}
+
             {errors.amount && (
               <p className="text-xs text-destructive">{errors.amount}</p>
             )}
@@ -518,9 +716,31 @@ function CreateForm() {
             Schedule
           </h2>
 
+          {/* Issue #170: timezone selector */}
+          <div className="space-y-1.5">
+            <Label htmlFor="timezone" className="text-xs text-muted-foreground">
+              Timezone — dates below are interpreted in this timezone ({timezoneOffset})
+            </Label>
+            <Select value={selectedTimezone} onValueChange={(v) => { if (v !== null) setSelectedTimezone(v) }}>
+              <SelectTrigger id="timezone" className="w-full text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {COMMON_TIMEZONES.map((tz) => (
+                  <SelectItem key={tz} value={tz} className="text-xs">
+                    {tz}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="startDate">Start date</Label>
+              <Label htmlFor="startDate">
+                Start date{' '}
+                <span className="font-normal text-muted-foreground text-xs">({timezoneOffset})</span>
+              </Label>
               <Input
                 id="startDate"
                 type="datetime-local"
@@ -530,7 +750,10 @@ function CreateForm() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="endDate">End date</Label>
+              <Label htmlFor="endDate">
+                End date{' '}
+                <span className="font-normal text-muted-foreground text-xs">({timezoneOffset})</span>
+              </Label>
               <Input
                 id="endDate"
                 type="datetime-local"
@@ -623,7 +846,10 @@ function CreateForm() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="cliffDate">Cliff date</Label>
+                <Label htmlFor="cliffDate">
+                  Cliff date{' '}
+                  <span className="font-normal text-muted-foreground text-xs">({timezoneOffset})</span>
+                </Label>
                 <Input
                   id="cliffDate"
                   type="datetime-local"
@@ -720,7 +946,21 @@ function CreateForm() {
       </aside>
       </div>
 
-      {/* Issue #30: confirmation dialog */}
+      {/* Step 1: dry-run simulation preview */}
+      {input && (
+        <TxPreviewDialog
+          open={showTxPreview}
+          input={input}
+          network={network}
+          sender={walletAddress ?? ''}
+          operationLabel="Create Stream"
+          onConfirm={() => { setShowTxPreview(false); setShowConfirmation(true) }}
+          onCancel={() => setShowTxPreview(false)}
+          pending={false}
+        />
+      )}
+
+      {/* Step 2: confirmation + fee details → Freighter signing */}
       {input && (
         <CreateConfirmation
           open={showConfirmation}

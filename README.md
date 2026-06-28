@@ -174,6 +174,18 @@ You'll sign two transactions: one `approve` on the token contract, then `create_
 
 ---
 
+## Architecture Decision Records
+
+Key design choices are documented in [`docs/adr/`](./docs/adr/README.md). Start there if you're wondering "why was it done this way?" before changing something fundamental.
+
+---
+
+## Security
+
+Found a vulnerability? Please read our [Security Policy](./SECURITY.md) before disclosing. We prefer private disclosure via [GitHub Security Advisories](https://github.com/FlowwStar/FlowStar/security/advisories/new).
+
+---
+
 ## License
 
 MIT

@@ -1,0 +1,71 @@
+name: Staging
+
+on:
+  push:
+    branches: [staging]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ${{ secrets.STAGING_CONTRACT_ID_TESTNET }}
+          NEXT_PUBLIC_APP_ENV: staging
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      # Deploy preview for PRs, production-like staging deploy for staging branch
+      - name: Deploy to Vercel (staging branch)
+        if: github.ref == 'refs/heads/staging'
+        run: |
+          vercel deploy \
+            --token ${{ secrets.VERCEL_TOKEN }} \
+            --env NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET=${{ secrets.STAGING_CONTRACT_ID_TESTNET }} \
+            --env NEXT_PUBLIC_APP_ENV=staging \
+            --prod \
+            --yes \
+            > deployment-url.txt
+          echo "Deployed to: $(cat deployment-url.txt)"
+
+      - name: Deploy preview (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          vercel deploy \
+            --token ${{ secrets.VERCEL_TOKEN }} \
+            --env NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET=${{ secrets.STAGING_CONTRACT_ID_TESTNET }} \
+            --env NEXT_PUBLIC_APP_ENV=staging \
+            --yes \
+            > deployment-url.txt
+          PREVIEW_URL=$(cat deployment-url.txt)
+          echo "Preview URL: $PREVIEW_URL"
+          echo "PREVIEW_URL=$PREVIEW_URL" >> $GITHUB_ENV
+
+      - name: Comment PR with preview URL
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Staging Preview\n\nDeployed to: ${{ env.PREVIEW_URL }}\n\nThis preview uses the staging testnet contract (isolated from the shared testnet deployment).`
+            })

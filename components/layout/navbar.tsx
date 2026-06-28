@@ -2,10 +2,11 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Plus, Moon, Sun, Monitor, Network } from 'lucide-react'
+import { Plus, Moon, Sun, Monitor, Network, AlertTriangle } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Brand } from '@/components/brand'
 import { useNetwork } from '@/components/providers/network-provider'
+import { useWalletContext } from '@/components/providers/wallet-provider'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -21,12 +22,14 @@ const NAV_LINKS = [
   { href: '/app', label: 'Dashboard' },
   { href: '/app/streams', label: 'Streams' },
   { href: '/app/analytics', label: 'Analytics' },
+  { href: '/app/settings', label: 'Settings' },
 ]
 
 export function Navbar() {
   const pathname = usePathname()
-  const { setTheme, theme } = useTheme()
+  const { setTheme } = useTheme()
   const { network, setNetwork } = useNetwork()
+  const { networkMismatch, walletNetwork, isConnected } = useWalletContext()
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
@@ -57,7 +60,13 @@ export function Navbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          <Button asChild variant="ghost" size="sm" className="gap-1.5">
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="gap-1.5"
+            disabled={networkMismatch}
+          >
             <Link href="/app/create">
               <Plus className="size-4" />
               <span className="hidden sm:inline">New stream</span>
@@ -109,6 +118,17 @@ export function Navbar() {
           <ConnectWalletButton />
         </div>
       </div>
+
+      {/* Network mismatch banner */}
+      {isConnected && networkMismatch && (
+        <div className="flex items-center gap-2 border-t border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-600 dark:text-yellow-400">
+          <AlertTriangle className="size-4 shrink-0" />
+          <span>
+            Your wallet is on <strong>{walletNetwork}</strong> — please switch to{' '}
+            <strong>{network}</strong> in Freighter settings. Transactions are disabled until you switch.
+          </span>
+        </div>
+      )}
 
       {/* Mobile nav */}
       <nav className="flex items-center gap-1 border-t border-border px-4 py-2 md:hidden">

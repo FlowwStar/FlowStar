@@ -234,12 +234,21 @@ function FilterBar({
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
+import { SectionErrorBoundary } from '@/components/error-boundary/section-error-boundary'
+import { ComponentErrorBoundary } from '@/components/error-boundary/component-error-boundary'
+import { useStreams } from '@/hooks/use-streams'
+import { useContract } from '@/hooks/use-contract'
+import { useNow } from '@/hooks/use-now'
+import { useWallet } from '@/hooks/use-wallet'
+import { getWithdrawableAmount } from '@/lib/stream-utils'
+import { ActivityFeed } from '@/components/streams/activity-feed'
 
 function Dashboard() {
   const { sent, received, all, loading } = useStreams()
   const { withdrawAll, pending } = useContract()
   const now = useNow(1000)
   const filters = useFilters()
+  const { address: walletAddress } = useWallet()
   const [withdrawProgress, setWithdrawProgress] = useState<{ current: number; total: number } | null>(null)
 
   const withdrawableStreams = received.filter((s) => getWithdrawableAmount(s, now) > 0n)
@@ -316,7 +325,9 @@ function Dashboard() {
       </div>
 
       {/* Stats */}
-      <DashboardStats sent={sent} received={received} />
+      <SectionErrorBoundary sectionName="Dashboard stats">
+        <DashboardStats sent={sent} received={received} />
+      </SectionErrorBoundary>
 
       {/* Search / filter */}
       <FilterBar tokens={tokenSymbols} filters={filters} />
@@ -333,7 +344,18 @@ function Dashboard() {
           <TabsTrigger value="sent">
             Sending ({filteredSent.length}{filteredSent.length !== sent.length ? `/${sent.length}` : ''})
           </TabsTrigger>
+          <TabsTrigger value="all">All ({all.length})</TabsTrigger>
+          <TabsTrigger value="received">Receiving ({received.length})</TabsTrigger>
+          <TabsTrigger value="sent">Sending ({sent.length})</TabsTrigger>
+          <TabsTrigger value="activity">Activity</TabsTrigger>
         </TabsList>
+      <SectionErrorBoundary sectionName="Stream list">
+        <Tabs defaultValue="all">
+          <TabsList>
+            <TabsTrigger value="all">All ({all.length})</TabsTrigger>
+            <TabsTrigger value="received">Receiving ({received.length})</TabsTrigger>
+            <TabsTrigger value="sent">Sending ({sent.length})</TabsTrigger>
+          </TabsList>
 
         <TabsContent value="all" className="mt-4">
           <StreamGrid streams={filteredAll} />
@@ -350,6 +372,37 @@ function Dashboard() {
             <StreamGrid streams={filteredReceived} />
           )}
         </TabsContent>
+          <TabsContent value="all" className="mt-4">
+            {all.length === 0 ? (
+              <EmptyStreams />
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {all.map((s) => (
+                  <ComponentErrorBoundary key={s.id} label="stream card">
+                    <StreamCard stream={s} />
+                  </ComponentErrorBoundary>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="received" className="mt-4">
+            {received.length === 0 ? (
+              <EmptyStreams
+                title="No incoming streams"
+                description="You haven't received any streams yet."
+                showCreate={false}
+              />
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {received.map((s) => (
+                  <ComponentErrorBoundary key={s.id} label="stream card">
+                    <StreamCard stream={s} />
+                  </ComponentErrorBoundary>
+                ))}
+              </div>
+            )}
+          </TabsContent>
 
         <TabsContent value="sent" className="mt-4">
           {filteredSent.length === 0 && sent.length === 0 ? (
@@ -361,7 +414,29 @@ function Dashboard() {
             <StreamGrid streams={filteredSent} />
           )}
         </TabsContent>
+
+        <TabsContent value="activity" className="mt-4">
+          <ActivityFeed walletAddress={walletAddress ?? null} />
+        </TabsContent>
       </Tabs>
+          <TabsContent value="sent" className="mt-4">
+            {sent.length === 0 ? (
+              <EmptyStreams
+                title="No outgoing streams"
+                description="Create a stream to start sending tokens that unlock over time."
+              />
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {sent.map((s) => (
+                  <ComponentErrorBoundary key={s.id} label="stream card">
+                    <StreamCard stream={s} />
+                  </ComponentErrorBoundary>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      </SectionErrorBoundary>
     </div>
   )
 }
