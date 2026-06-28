@@ -15,6 +15,10 @@ on:
 jobs:
   contract:
     runs-on: ubuntu-latest
+    # This ensures all 'run' commands happen in the contracts folder
+    defaults:
+      run:
+        working-directory: contracts
     steps:
       - uses: actions/checkout@v4
 
@@ -22,11 +26,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.84
-
           targets: wasm32v1-none
 
       - name: Build Contracts
         run: cargo build --target wasm32v1-none --release
 
       - name: Test
-        run: cargo test --target wasm32v1-none
+        # Remove --target for tests; they run on the runner's native architecture
+        run: cargo test
