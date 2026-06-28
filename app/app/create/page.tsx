@@ -29,7 +29,9 @@ import { addAddressBookEntry, getAddressBookEntries, touchAddressBookEntry } fro
 import { buildNextRunAt, saveRecurringRule, type RecurrenceCadence } from '@/lib/recurring'
 import { useFormDraft, clearExpiredDrafts } from '@/hooks/use-form-draft'
 import { StreamTemplates, type StreamTemplate } from '@/components/streams/stream-templates'
+import { useTokenPrice } from '@/hooks/use-token-price'
 import type { TokenInfo } from '@/types/stream'
+import { useNetwork } from '@/components/providers/network-provider'
 
 const CUSTOM_VALUE = '__custom__'
 
@@ -176,6 +178,34 @@ function CreateForm() {
   const selectedToken = isCustom && customToken
     ? customToken
     : tokens.find((t) => t.address === form.tokenAddress) ?? tokens[0]
+
+  // Issue #186: USD conversion
+  const [usdInputMode, setUsdInputMode] = useState(false)
+  const [usdAmount, setUsdAmount] = useState('')
+  const { usdPrice, stale: priceStale, loading: priceLoading } = useTokenPrice(selectedToken?.symbol ?? '')
+
+  const supportsUsd = usdPrice !== null
+  const tokenAmountNum = parseFloat(form.amount) || 0
+  const usdEquivalent = supportsUsd && tokenAmountNum > 0
+    ? (tokenAmountNum * usdPrice).toFixed(2)
+    : null
+
+  const amountPerSecondUsd = usdEquivalent && (() => {
+    const dur = (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000
+    if (dur <= 0) return null
+    const usdPerSec = (parseFloat(usdEquivalent) / dur)
+    return usdPerSec < 0.01 ? usdPerSec.toExponential(2) : usdPerSec.toFixed(4)
+  })()
+
+  function handleUsdAmountChange(val: string) {
+    setUsdAmount(val)
+    if (usdPrice && val) {
+      const tokenAmt = parseFloat(val) / usdPrice
+      if (!isNaN(tokenAmt)) set('amount', tokenAmt.toFixed(selectedToken?.decimals ?? 7))
+    } else {
+      set('amount', '')
+    }
+  }
 
   // Fetch balance when token or wallet changes
   useEffect(() => {
@@ -533,17 +563,56 @@ function CreateForm() {
                   : null}
               </span>
             </div>
+
+            {/* Issue #186: USD/token mode toggle */}
+            {supportsUsd && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={() => { setUsdInputMode(false); setUsdAmount('') }}
+                  className={`rounded-full border px-2 py-0.5 transition-colors ${!usdInputMode ? 'border-primary bg-primary/10 text-foreground' : 'border-border hover:border-foreground'}`}
+                >
+                  {selectedToken.symbol} amount
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUsdInputMode(true)}
+                  className={`rounded-full border px-2 py-0.5 transition-colors ${usdInputMode ? 'border-primary bg-primary/10 text-foreground' : 'border-border hover:border-foreground'}`}
+                >
+                  USD amount
+                </button>
+                {priceStale && <span className="text-yellow-500">Price may be stale</span>}
+              </div>
+            )}
+
             <div className="flex gap-2">
-              <Input
-                id="amount"
-                type="number"
-                min="0"
-                step="any"
-                placeholder="e.g. 10000"
-                value={form.amount}
-                onChange={(e) => set('amount', e.target.value)}
-                aria-invalid={!!errors.amount}
-              />
+              {usdInputMode && supportsUsd ? (
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                  <Input
+                    id="amount"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder="e.g. 500"
+                    className="pl-6"
+                    value={usdAmount}
+                    onChange={(e) => handleUsdAmountChange(e.target.value)}
+                    aria-invalid={!!errors.amount}
+                  />
+                </div>
+              ) : (
+                <Input
+                  id="amount"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="e.g. 10000"
+                  value={form.amount}
+                  onChange={(e) => set('amount', e.target.value)}
+                  aria-invalid={!!errors.amount}
+                />
+              )}
               {tokenBalance !== null && tokenBalance > 0n && (
                 <Button
                   type="button"
@@ -555,6 +624,25 @@ function CreateForm() {
                 </Button>
               )}
             </div>
+
+            {/* Issue #186: USD equivalent + per-second rate */}
+            {usdEquivalent && !usdInputMode && (
+              <p className="text-xs text-muted-foreground">
+                ≈ ${usdEquivalent} USD
+                {amountPerSecondUsd && (
+                  <span className="ml-2">
+                    · Streaming rate: {(tokenAmountNum / Math.max(1, (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000)).toFixed(6)} {selectedToken.symbol}/sec (≈ ${amountPerSecondUsd}/sec)
+                  </span>
+                )}
+                {priceLoading && <span className="ml-1 opacity-60">Fetching price…</span>}
+              </p>
+            )}
+            {usdInputMode && form.amount && (
+              <p className="text-xs text-muted-foreground">
+                ≈ {form.amount} {selectedToken.symbol}
+              </p>
+            )}
+
             {errors.amount && (
               <p className="text-xs text-destructive">{errors.amount}</p>
             )}
@@ -633,7 +721,7 @@ function CreateForm() {
             <Label htmlFor="timezone" className="text-xs text-muted-foreground">
               Timezone — dates below are interpreted in this timezone ({timezoneOffset})
             </Label>
-            <Select value={selectedTimezone} onValueChange={setSelectedTimezone}>
+            <Select value={selectedTimezone} onValueChange={(v) => { if (v !== null) setSelectedTimezone(v) }}>
               <SelectTrigger id="timezone" className="w-full text-xs">
                 <SelectValue />
               </SelectTrigger>

@@ -12,6 +12,7 @@ export const metadata: Metadata = {
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
+    <>
     <div className="flex min-h-svh flex-col">
       <a
         href="#main-content"
@@ -47,5 +48,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <MockModeBanner />
       </div>
     </PageErrorBoundary>
+    </>
   )
 }
