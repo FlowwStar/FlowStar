@@ -760,3 +760,161 @@ fn test_end_time_equals_start_time() {
         },
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// 9. DUST STREAM PREVENTION
+// ═══════════════════════════════════════════════════════════════════
+
+/// Reject dust stream: very small amount over long duration results in zero rate.
+#[test]
+#[should_panic(expected = "stream amount too small for duration — rate would be 0")]
+fn test_dust_stream_rejected() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    // 100 stroops over 1 year (31,536,000 seconds) = 0 per second due to integer division
+    let total = 100i128;
+    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.client().create_stream(
+        &ctx.sender,
+        &CreateStreamParams {
+            recipient: ctx.recipient.clone(),
+            token: ctx.token_id.clone(),
+            total_amount: total,
+            start_time: now,
+            end_time: now + 31_536_000, // 1 year
+            cliff_time: now,
+            cliff_amount: 0,
+        },
+    );
+}
+
+/// Reject dust stream with cliff: linear amount too small for duration.
+#[test]
+#[should_panic(expected = "stream amount too small for duration — rate would be 0")]
+fn test_dust_stream_with_cliff_rejected() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    // Total 1000, but cliff takes 999, leaving only 1 for linear over 1 year
+    let total = 1000i128;
+    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.client().create_stream(
+        &ctx.sender,
+        &CreateStreamParams {
+            recipient: ctx.recipient.clone(),
+            token: ctx.token_id.clone(),
+            total_amount: total,
+            start_time: now,
+            end_time: now + 31_536_000, // 1 year
+            cliff_time: now,
+            cliff_amount: 999, // almost all in cliff
+        },
+    );
+}
+
+/// Accept stream with zero linear amount (all in cliff) - not a dust stream.
+#[test]
+fn test_all_cliff_stream_accepted() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let total = 1_000_0000000i128;
+    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    let id = ctx.client().create_stream(
+        &ctx.sender,
+        &CreateStreamParams {
+            recipient: ctx.recipient.clone(),
+            token: ctx.token_id.clone(),
+            total_amount: total,
+            start_time: now,
+            end_time: now + 31_536_000, // 1 year
+            cliff_time: now,
+            cliff_amount: total, // 100% cliff, zero linear
+        },
+    );
+    // Should succeed - all in cliff is valid
+    assert!(id > 0);
+}
+
+/// Top-up that would result in zero rate should be rejected.
+#[test]
+#[should_panic(expected = "stream amount too small for remaining duration — rate would be 0")]
+fn test_top_up_dust_stream_rejected() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let total = 1_000_0000000i128;
+    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    let id = ctx.client().create_stream(
+        &ctx.sender,
+        &CreateStreamParams {
+            recipient: ctx.recipient.clone(),
+            token: ctx.token_id.clone(),
+            total_amount: total,
+            start_time: now,
+            end_time: now + 1000,
+            cliff_time: now,
+            cliff_amount: 0,
+        },
+    );
+
+    // Advance to near end
+    ctx.set_time(now + 999);
+
+    // Try to add tiny amount that would result in zero rate
+    let tiny_addition = 1i128;
+    ctx.token().approve(&ctx.sender, &ctx.contract_id, &tiny_addition, &(ctx.env.ledger().sequence() + 500));
+    ctx.client().top_up(&id, &tiny_addition);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 10. RECIPIENT VALIDATION
+// ═══════════════════════════════════════════════════════════════════
+
+/// Reject stream with contract's own address as recipient.
+#[test]
+#[should_panic(expected = "recipient cannot be the contract itself")]
+fn test_recipient_is_contract_rejected() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let total = 1_000_0000000i128;
+    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.client().create_stream(
+        &ctx.sender,
+        &CreateStreamParams {
+            recipient: ctx.contract_id.clone(), // contract itself as recipient
+            token: ctx.token_id.clone(),
+            total_amount: total,
+            start_time: now,
+            end_time: now + 1000,
+            cliff_time: now,
+            cliff_amount: 0,
+        },
+    );
+}
+
+/// Accept stream with valid recipient address.
+#[test]
+fn test_valid_recipient_accepted() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let total = 1_000_0000000i128;
+    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    let id = ctx.client().create_stream(
+        &ctx.sender,
+        &CreateStreamParams {
+            recipient: ctx.recipient.clone(), // valid recipient
+            token: ctx.token_id.clone(),
+            total_amount: total,
+            start_time: now,
+            end_time: now + 1000,
+            cliff_time: now,
+            cliff_amount: 0,
+        },
+    );
+    // Should succeed
+    assert!(id > 0);
+}
