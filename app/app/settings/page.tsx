@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { RequireWallet } from '@/components/layout/require-wallet'
 import { WebhookSettings } from '@/components/webhooks/webhook-settings'
+import { UsdToggle } from './usd-toggle'
 
 export const metadata: Metadata = {
   title: 'Settings — FlowStar',
@@ -17,6 +18,11 @@ export default function SettingsPage() {
             Configure webhooks and notification preferences for your streams.
           </p>
         </div>
+
+        <section>
+          <h2 className="text-lg font-medium mb-4">Display</h2>
+          <UsdToggle />
+        </section>
 
         <section>
           <h2 className="text-lg font-medium mb-4">Webhooks</h2>
