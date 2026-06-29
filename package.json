@@ -14,6 +14,8 @@
   },
   "dependencies": {
     "@albedo-link/intent": "^0.13.0",
+    "@walletconnect/modal": "^2.6.2",
+    "@walletconnect/sign-client": "^2.17.0",
     "@base-ui/react": "^1.5.0",
     "@sentry/nextjs": "^8.0.0",
     "@stellar/freighter-api": "^6.0.1",
