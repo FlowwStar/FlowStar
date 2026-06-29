@@ -5,9 +5,6 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  images: {
-    unoptimized: true,
-  },
 }
 
 // Bundle analyzer — run with: ANALYZE=true npm run build
