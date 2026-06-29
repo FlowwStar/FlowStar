@@ -1,6 +1,8 @@
 'use client'
 
 import { useNow } from '@/hooks/use-now'
+import { usePortfolioValue, formatUsd } from '@/hooks/use-token-price'
+import { useShowUsd } from '@/hooks/use-show-usd'
 import { getStreamStatus, getWithdrawableAmount } from '@/lib/stream-utils'
 import { TokenAmount } from '@/components/ui/token-amount'
 import type { StreamData } from '@/types/stream'
@@ -21,6 +23,8 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
     received.some((s) => !s.cancelled && Math.floor(Date.now() / 1000) < Number(s.endTime) && Math.floor(Date.now() / 1000) >= Number(s.startTime))
 
   const now = useNow(hasActiveStreams ? 1000 : 60000)
+  const [showUsd] = useShowUsd()
+  const { totalUsd, loading: priceLoading, stale } = usePortfolioValue([...sent, ...received])
 
   const activeReceiving = received.filter(
     (s) => getStreamStatus(s, now) === 'streaming',
@@ -43,7 +47,27 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
     a.amount > b.amount ? -1 : 1,
   )[0]
 
+  const usdValue = showUsd ? (
+    priceLoading ? (
+      <span className="inline-block h-6 w-20 animate-pulse rounded bg-muted" />
+    ) : totalUsd !== null ? (
+      <span>
+        {formatUsd(totalUsd)}
+        {stale && <span className="ml-1 text-base" title="Price may be outdated">⚠️</span>}
+      </span>
+    ) : (
+      <span className="text-muted-foreground">—</span>
+    )
+  ) : (
+    <span className="text-muted-foreground">—</span>
+  )
+
   const stats = [
+    {
+      label: 'Total streaming value',
+      value: usdValue,
+      hint: showUsd && totalUsd !== null ? 'locked across all streams' : 'enable USD in settings',
+    },
     {
       label: 'Available to withdraw',
       value: topWithdrawable ? (
@@ -73,7 +97,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
   ]
 
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
+    <div className="grid gap-4 sm:grid-cols-4">
       {stats.map((stat) => (
         <div key={stat.label} className="rounded-2xl border border-border bg-card p-5">
           <p className="text-sm text-muted-foreground">{stat.label}</p>
@@ -91,8 +115,8 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
 
 export function DashboardStatsSkeleton() {
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
-      {[0, 1, 2].map((i) => (
+    <div className="grid gap-4 sm:grid-cols-4">
+      {[0, 1, 2, 3].map((i) => (
         <div key={i} className="rounded-2xl border border-border bg-card p-5 animate-pulse">
           <div className="h-3.5 w-32 rounded bg-muted" />
           <div className="mt-2 h-8 w-24 rounded bg-muted" />

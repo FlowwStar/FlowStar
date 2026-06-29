@@ -31,7 +31,6 @@ import { StreamTemplates, type StreamTemplate } from '@/components/streams/strea
 import { useTokenPrice } from '@/hooks/use-token-price'
 import type { TokenInfo } from '@/types/stream'
 import { useNetwork } from '@/components/providers/network-provider'
-
 export const metadata: Metadata = {
   title: 'Create a Token Stream',
   description: 'Create a new token stream on FlowStar with customizable schedules, cliffs, and cancellation options.',
@@ -135,6 +134,11 @@ function CreateForm() {
   const [customToken, setCustomToken] = useState<TokenInfo | null>(null)
   const [addressBookEntries, setAddressBookEntries] = useState(() => getAddressBookEntries())
   const [recurrenceCadence, setRecurrenceCadence] = useState<RecurrenceCadence>('none')
+
+  // Issue #166: stream metadata
+  const [metaName, setMetaName] = useState('')
+  const [metaCategory, setMetaCategory] = useState('')
+  const [metaMemo, setMetaMemo] = useState('')
 
   // Issue #29: balance state
   const [tokenBalance, setTokenBalance] = useState<bigint | null>(null)
@@ -353,6 +357,9 @@ function CreateForm() {
     const cliffAmount = form.hasCliff && form.cliffAmount
       ? parseTokenAmount(form.cliffAmount, selectedToken.decimals)
       : 0n
+    const metadata = metaName || metaCategory || metaMemo
+      ? { name: metaName, category: metaCategory, memo: metaMemo }
+      : undefined
     return {
       recipient: form.recipient.trim(),
       token: selectedToken,
@@ -361,8 +368,9 @@ function CreateForm() {
       endTime,
       cliffTime,
       cliffAmount,
+      metadata,
     }
-  }, [form, selectedToken])
+  }, [form, selectedToken, metaName, metaCategory, metaMemo])
 
   async function handleEstimateFee() {
     if (!validate()) return
@@ -948,8 +956,54 @@ function CreateForm() {
             )}
           </div>
 
-          {network === 'mainnet' && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
+          {/* Optional metadata */}
+          <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
+            <p className="text-sm font-medium">Stream metadata <span className="font-normal text-muted-foreground text-xs">(optional)</span></p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="meta-name" className="text-xs text-muted-foreground">
+                  Name <span className="text-muted-foreground/60">max 64 chars</span>
+                </Label>
+                <Input
+                  id="meta-name"
+                  placeholder="e.g. Q3 Salary — Alice"
+                  value={metaName}
+                  onChange={(e) => setMetaName(e.target.value.slice(0, 64))}
+                  maxLength={64}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="meta-category" className="text-xs text-muted-foreground">Category</Label>
+                <Select value={metaCategory} onValueChange={setMetaCategory}>
+                  <SelectTrigger id="meta-category" className="w-full">
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="payroll">Payroll</SelectItem>
+                    <SelectItem value="vesting">Vesting</SelectItem>
+                    <SelectItem value="grant">Grant</SelectItem>
+                    <SelectItem value="airdrop">Airdrop</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="meta-memo" className="text-xs text-muted-foreground">
+                Memo <span className="text-muted-foreground/60">max 256 chars</span>
+              </Label>
+              <Input
+                id="meta-memo"
+                placeholder="e.g. Grant tranche 2 — accounting ref #4892"
+                value={metaMemo}
+                onChange={(e) => setMetaMemo(e.target.value.slice(0, 256))}
+                maxLength={256}
+              />
+            </div>
+          </div>
+
+          {network === 'mainnet' && (            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span>Mainnet uses real funds. Double-check the recipient, amount, and token before creating a stream.</span>
             </div>

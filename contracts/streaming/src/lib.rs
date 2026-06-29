@@ -29,6 +29,9 @@ pub enum DataKey {
     /// Stream struct keyed by ID. Stored in Persistent.
     Stream(u64),
 
+    /// Metadata for a stream, keyed by ID. Stored in Persistent.
+    StreamMetadata(u64),
+
     /// Active stream IDs where address is the sender. Stored in Persistent.
     SentBy(Address),
     /// Active stream IDs where address is the recipient. Stored in Persistent.
@@ -67,6 +70,16 @@ pub struct Stream {
     pub cancelled: bool,
     pub linear_amount: i128,
     pub duration: i128,
+    /// Optional metadata attached to this stream.
+    pub metadata: Option<StreamMetadata>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct StreamMetadata {
+    pub name: soroban_sdk::String,
+    pub category: soroban_sdk::String,
+    pub memo: soroban_sdk::String,
 }
 
 #[contracttype]
@@ -79,6 +92,7 @@ pub struct CreateStreamParams {
     pub end_time: u64,
     pub cliff_time: u64,
     pub cliff_amount: i128,
+    pub metadata: Option<StreamMetadata>,
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
@@ -380,12 +394,25 @@ impl StreamingContract {
             cancelled: false,
             linear_amount,
             duration,
+            metadata: params.metadata.clone(),
         };
 
         // ── Persist stream ───────────────────────────────────────────────────
         env.storage()
             .persistent()
             .set(&DataKey::Stream(id), &stream);
+
+        // ── Persist metadata separately if provided ──────────────────────────
+        if let Some(ref meta) = params.metadata {
+            env.storage()
+                .persistent()
+                .set(&DataKey::StreamMetadata(id), meta);
+            env.storage().persistent().extend_ttl(
+                &DataKey::StreamMetadata(id),
+                518_400,
+                518_400,
+            );
+        }
 
         Self::extend_stream_ttl(&env, id);
 
@@ -892,11 +919,38 @@ impl StreamingContract {
 
     // ── Metadata ──────────────────────────────────────────────────────────────
 
+    /// Update the metadata for a stream. Only the sender can update.
+    pub fn update_stream_metadata(
+        env: Env,
+        stream_id: u64,
+        metadata: StreamMetadata,
+    ) -> Result<(), StreamError> {
+        let stream = Self::load_stream(&env, stream_id)?;
+        stream.sender.require_auth();
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::StreamMetadata(stream_id), &metadata);
+        env.storage().persistent().extend_ttl(
+            &DataKey::StreamMetadata(stream_id),
+            518_400,
+            518_400,
+        );
+
+        Ok(())
+    }
+
+    /// Get the metadata for a stream.
+    pub fn get_stream_metadata(env: Env, stream_id: u64) -> Option<StreamMetadata> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::StreamMetadata(stream_id))
+    }
+
     /// Get the contract version.
     pub fn version(_env: Env) -> u32 {
         CONTRACT_VERSION
     }
-
     /// Get the contract name.
     pub fn name(env: Env) -> String {
         String::from_small_copy(&String::from_slice(&env, CONTRACT_NAME))
