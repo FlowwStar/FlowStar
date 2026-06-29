@@ -213,3 +213,34 @@ export async function checkAccountInfo(address: string, network: NetworkName): P
     return { exists: false, funded: false, transactionCount: 0, error: 'Network error' }
   }
 }
+
+/**
+ * Get the native XLM balance for an account.
+ * Returns the balance in stroops (smallest unit, 1 XLM = 10,000,000 stroops).
+ */
+export async function getXlmBalance(address: string, network: NetworkName): Promise<bigint | null> {
+  const config = getNetworkConfig(network)
+  const horizonUrl = config.horizonUrl
+
+  try {
+    const response = await fetch(`${horizonUrl}/accounts/${address}`)
+    if (!response.ok) {
+      return null
+    }
+
+    const data = await response.json() as any
+    const balances = data.balances as Array<{ asset_type: string; balance: string }> | undefined
+    if (!balances) return null
+
+    // Find native (XLM) balance
+    const nativeBalance = balances.find((b: any) => b.asset_type === 'native')
+    if (!nativeBalance) return null
+
+    // Convert to stroops (multiply by 10,000,000)
+    const xlmAmount = parseFloat(nativeBalance.balance)
+    return BigInt(Math.floor(xlmAmount * 1e7))
+  } catch (error) {
+    console.error('Error fetching XLM balance:', error)
+    return null
+  }
+}
