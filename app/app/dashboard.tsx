@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { Plus, ArrowDownToLine } from 'lucide-react'
 import { RequireWallet } from '@/components/layout/require-wallet'
+import { TestnetFaucetBanner } from '@/components/layout/testnet-faucet-banner'
 import { DashboardStats } from '@/components/streams/dashboard-stats'
 import { StreamCard } from '@/components/streams/stream-card'
 import { EmptyStreams } from '@/components/streams/empty-state'
@@ -75,6 +76,9 @@ export function Dashboard() {
           </Button>
         </div>
       </div>
+
+      {/* Testnet faucet banner */}
+      <TestnetFaucetBanner />
 
       {/* Stats */}
       <SectionErrorBoundary sectionName="Dashboard stats">

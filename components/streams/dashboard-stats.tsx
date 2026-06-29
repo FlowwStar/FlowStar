@@ -48,6 +48,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
   )[0]
 
   const usdValue = showUsd ? (
+  const usdDisplay = showUsd ? (
     priceLoading ? (
       <span className="inline-block h-6 w-20 animate-pulse rounded bg-muted" />
     ) : totalUsd !== null ? (
@@ -66,6 +67,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
     {
       label: 'Total streaming value',
       value: usdValue,
+      value: usdDisplay,
       hint: showUsd && totalUsd !== null ? 'locked across all streams' : 'enable USD in settings',
     },
     {

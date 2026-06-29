@@ -17,6 +17,7 @@ import {
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { TokenAmount } from '@/components/ui/token-amount'
 import { CountdownTimer } from '@/components/ui/countdown-timer'
+import { AccessibleCountdownTimer } from '@/components/ui/accessible-countdown-timer'
 import { StreamStatusBadge } from '@/components/streams/stream-status-badge'
 import type { StreamData } from '@/types/stream'
 
@@ -114,11 +115,11 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
           </p>
           <p className="text-sm font-medium">
             {status === 'scheduled' ? (
-              <CountdownTimer target={stream.startTime} />
+              <AccessibleCountdownTimer target={stream.startTime} hideButton />
             ) : status === 'completed' || status === 'cancelled' ? (
               <span className="text-muted-foreground">—</span>
             ) : (
-              <CountdownTimer target={stream.endTime} />
+              <AccessibleCountdownTimer target={stream.endTime} hideButton />
             )}
           </p>
         </div>
