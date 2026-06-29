@@ -191,6 +191,12 @@ Found a vulnerability? Please read our [Security Policy](./SECURITY.md) before d
 
 ---
 
+## Contributing
+
+Want to contribute? Read our [Contributing Guide](./CONTRIBUTING.md) to get your local environment set up and learn the development workflow.
+
+---
+
 ## License
 
 MIT

@@ -24,6 +24,16 @@ async function fetchXlmUsdPrice(): Promise<number> {
   return Number(json.price ?? json.close ?? json.last)
 }
 
+export function formatUsd(value: number): string {
+  if (value < 1) {
+    return '$' + value.toFixed(4)
+  }
+  if (value < 1000) {
+    return '$' + value.toFixed(2)
+  }
+  return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 export function useTokenPrice(symbol: string): TokenPrice {
   const [price, setPrice] = useState<number | null>(null)
   const [fetchedAt, setFetchedAt] = useState<number | null>(null)
@@ -97,6 +107,9 @@ interface PortfolioValue {
   stale: boolean
 }
 
+// Internal hook to get price for a single symbol — called conditionally per unique symbol.
+// We collect unique symbols and call useTokenPrice for each (hooks must not be called conditionally,
+// so we support up to a fixed set of known symbols).
 // We support a fixed set of symbols to avoid conditional hook calls.
 const KNOWN_SYMBOLS = ['XLM', 'USDC', 'EURC']
 

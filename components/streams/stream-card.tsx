@@ -82,7 +82,7 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
           </span>
           <div>
             <p className="text-sm font-medium">
-              {isOutgoing ? 'Sending to' : 'Receiving from'}
+              {stream.metadata?.name ?? (isOutgoing ? 'Sending to' : 'Receiving from')}
             </p>
             <p className="font-mono text-xs text-muted-foreground">
               {shortenAddress(counterparty, 5)}
