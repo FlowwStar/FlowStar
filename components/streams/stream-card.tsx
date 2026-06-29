@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { ArrowDownLeft, ArrowUpRight } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import { useWallet } from '@/hooks/use-wallet'
+import { useTokenPrice, formatUsd } from '@/hooks/use-token-price'
+import { useShowUsd } from '@/hooks/use-show-usd'
 import {
   getStreamProgress,
   getStreamStatus,
@@ -34,6 +36,8 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
   const interval = getInterval(stream)
   const now = useNow(interval)
   const { address } = useWallet()
+  const { usdPrice } = useTokenPrice(stream.token.symbol)
+  const [showUsd] = useShowUsd()
   const status = getStreamStatus(stream, now)
   const progress = getStreamProgress(stream, now)
   const withdrawnFrac =
@@ -47,6 +51,11 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
   const direction = isOutgoing ? 'Sending' : 'Receiving'
   const displayAmount = formatTokenAmount(stream.depositedAmount, stream.token.decimals, 2)
   const ariaLabel = `${direction} ${displayAmount} ${stream.token.symbol}, ${status}, ${(progress * 100).toFixed(0)}% unlocked`
+
+  const usdValue =
+    showUsd && usdPrice !== null
+      ? (Number(stream.depositedAmount) / Math.pow(10, stream.token.decimals)) * usdPrice
+      : null
 
   return (
     <Link
@@ -91,6 +100,9 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
             className="text-lg font-semibold"
             maxFractionDigits={2}
           />
+          {usdValue !== null && (
+            <p className="text-xs text-muted-foreground">{formatUsd(usdValue)}</p>
+          )}
         </div>
         <div className="text-right">
           <p className="text-xs text-muted-foreground">

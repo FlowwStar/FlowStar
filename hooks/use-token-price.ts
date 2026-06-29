@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import type { StreamData } from '@/types/stream'
 
 interface TokenPrice {
   usdPrice: number | null
@@ -77,4 +78,51 @@ export function useTokenPrice(symbol: string): TokenPrice {
   const stale = fetchedAt !== null && Date.now() - fetchedAt > STALENESS_WARNING_MS
 
   return { usdPrice: price, lastUpdated: fetchedAt, loading, stale }
+}
+
+/** Format a USD value with context-aware decimal places. */
+export function formatUsd(value: number): string {
+  if (value < 1) {
+    return '$' + value.toFixed(4)
+  }
+  if (value < 1000) {
+    return '$' + value.toFixed(2)
+  }
+  return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+interface PortfolioValue {
+  totalUsd: number | null
+  loading: boolean
+  stale: boolean
+}
+
+// We support a fixed set of symbols to avoid conditional hook calls.
+const KNOWN_SYMBOLS = ['XLM', 'USDC', 'EURC']
+
+export function usePortfolioValue(streams: StreamData[]): PortfolioValue {
+  const xlm = useTokenPrice('XLM')
+  const usdc = useTokenPrice('USDC')
+  const eurc = useTokenPrice('EURC')
+
+  const priceMap: Record<string, TokenPrice> = { XLM: xlm, USDC: usdc, EURC: eurc }
+
+  const usedSymbols = [...new Set(streams.map((s) => s.token.symbol))]
+
+  const loading = usedSymbols.some((sym) => KNOWN_SYMBOLS.includes(sym) && priceMap[sym]?.loading)
+  const stale = usedSymbols.some((sym) => KNOWN_SYMBOLS.includes(sym) && priceMap[sym]?.stale)
+
+  let totalUsd: number | null = 0
+  for (const stream of streams) {
+    const tp = priceMap[stream.token.symbol]
+    if (!tp || tp.usdPrice === null) {
+      totalUsd = null
+      break
+    }
+    const locked = stream.depositedAmount - stream.withdrawnAmount
+    const human = Number(locked) / Math.pow(10, stream.token.decimals)
+    totalUsd = (totalUsd ?? 0) + human * tp.usdPrice
+  }
+
+  return { totalUsd, loading, stale }
 }
