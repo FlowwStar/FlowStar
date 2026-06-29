@@ -1,3 +1,45 @@
+//! # FlowStar Streaming Contract
+//!
+//! ## Storage Strategy
+//!
+//! This contract uses two Soroban storage tiers with different TTL policies:
+//!
+//! ### Instance storage (`env.storage().instance()`)
+//! Holds small, contract-wide data that must always be available:
+//! - `NextId` — global stream ID counter
+//! - `Admin` — admin address for upgrade gating
+//! - `Paused` — global pause flag
+//!
+//! Instance storage is cheap to keep alive because it shares a single ledger
+//! entry for the whole contract. TTL is bumped to [`INSTANCE_TTL_LEDGERS`]
+//! (~1 day) on every write so the contract stays accessible as long as it is
+//! actively used.
+//!
+//! ### Persistent storage (`env.storage().persistent()`)
+//! Holds per-stream and per-address data that must survive long-term:
+//! - `Stream(id)` — full stream struct
+//! - `SentBy(addr)` / `ReceivedBy(addr)` — active stream index lists
+//! - `ArchiveSentBy(addr)` / `ArchiveReceivedBy(addr)` — completed/cancelled index lists
+//! - `Delegate(id)` — optional withdrawal delegate per stream
+//!
+//! Each entry has its TTL bumped to [`PERSISTENT_TTL_LEDGERS`] (~30 days) on
+//! every write. Streams that are not touched for 30 days become inaccessible
+//! (the ledger entry expires) but can be renewed by anyone via [`bump_stream`].
+//!
+//! ### TTL math
+//! Stellar produces a ledger roughly every 5 seconds.
+//! ```text
+//! INSTANCE_TTL_LEDGERS  = 17_280  →  17_280 × 5s = 86_400s  = ~1 day
+//! PERSISTENT_TTL_LEDGERS = 518_400 → 518_400 × 5s = 2_592_000s = ~30 days
+//! ```
+//!
+//! ### What happens when a TTL expires?
+//! Soroban does **not** delete expired entries immediately — they become
+//! *inaccessible* to the contract. Reads return `None`; writes restore the
+//! entry with a fresh TTL. For stream data this means a stream that has not
+//! been touched in >30 days will appear as "not found" until `bump_stream` is
+//! called to restore its TTL.
+
 #![no_std]
 
 use soroban_sdk::{
@@ -10,6 +52,25 @@ use soroban_sdk::{
 const CONTRACT_VERSION: u32 = 1;
 const CONTRACT_NAME: &str = "FlowStar Streaming";
 const MAX_STREAM_DURATION: u64 = 315_360_000; // 10 years in seconds
+
+/// TTL for instance storage entries (~1 day).
+///
+/// Stellar produces ~1 ledger every 5 seconds.
+/// `17_280 ledgers × 5 s = 86_400 s = 24 h`
+///
+/// Instance storage (admin, pause flag, stream counter) is bumped to this
+/// value on every write so the contract remains accessible as long as it is
+/// being actively used.
+const INSTANCE_TTL_LEDGERS: u32 = 17_280;
+
+/// TTL for persistent storage entries (~30 days).
+///
+/// `518_400 ledgers × 5 s = 2_592_000 s ≈ 30 days`
+///
+/// Each stream struct and address-index list is bumped to this value on every
+/// write. Streams that go untouched for longer than 30 days will appear as
+/// "not found" until `bump_stream` is called to restore the TTL.
+const PERSISTENT_TTL_LEDGERS: u32 = 518_400;
 
 // ─── Storage Keys ────────────────────────────────────────────────────────────
 
@@ -192,7 +253,7 @@ impl StreamingContract {
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Paused, &false);
-        env.storage().instance().extend_ttl(17_280, 17_280);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_LEDGERS, INSTANCE_TTL_LEDGERS);
     }
 
     // ── Admin: Pause/Unpause ─────────────────────────────────────────────────
@@ -207,7 +268,7 @@ impl StreamingContract {
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::Paused, &true);
-        env.storage().instance().extend_ttl(17_280, 17_280);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_LEDGERS, INSTANCE_TTL_LEDGERS);
 
         PauseEvent { timestamp: env.ledger().timestamp() }.publish(&env);
     }
@@ -225,7 +286,7 @@ impl StreamingContract {
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::Paused, &false);
-        env.storage().instance().extend_ttl(17_280, 17_280);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_LEDGERS, INSTANCE_TTL_LEDGERS);
     }
 
     /// Upgrade the contract wasm. Only callable by the admin.
@@ -274,7 +335,7 @@ impl StreamingContract {
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::Paused, &false);
-        env.storage().instance().extend_ttl(17_280, 17_280);
+        env.storage().instance().extend_ttl(INSTANCE_TTL_LEDGERS, INSTANCE_TTL_LEDGERS);
 
         UnpauseEvent { timestamp: env.ledger().timestamp() }.publish(&env);
     }
@@ -914,8 +975,8 @@ impl StreamingContract {
             .set(&DataKey::Delegate(stream_id), &delegate);
         env.storage().persistent().extend_ttl(
             &DataKey::Delegate(stream_id),
-            17_280,
-            17_280,
+            PERSISTENT_TTL_LEDGERS,
+            PERSISTENT_TTL_LEDGERS,
         );
     }
 
@@ -1011,8 +1072,8 @@ impl StreamingContract {
         let next = id + 1;
         env.storage().instance().set(&DataKey::NextId, &next);
         env.storage().instance().extend_ttl(
-            17_280, // ~1 day in ledgers
-            17_280,
+            INSTANCE_TTL_LEDGERS,
+            INSTANCE_TTL_LEDGERS,
         );
         next
     }
@@ -1026,7 +1087,7 @@ impl StreamingContract {
             .unwrap_or(Vec::new(env));
         list.push_back(id);
         env.storage().persistent().set(&key, &list);
-        env.storage().persistent().extend_ttl(&key, 17_280, 17_280);
+        env.storage().persistent().extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
     }
 
     /// Remove a stream ID from an address index list.
@@ -1047,12 +1108,16 @@ impl StreamingContract {
         env.storage().persistent().set(&key, &indexes);
     }
 
-    /// Extend the TTL of a stream entry (~30 days).
+    /// Extend the TTL of all storage entries for a stream to [`PERSISTENT_TTL_LEDGERS`] (~30 days).
+    ///
+    /// Called automatically on every write that touches a stream. Can also be
+    /// called manually via the public [`bump_stream`] function to keep a
+    /// long-running stream alive without modifying its data.
     fn extend_stream_ttl(env: &Env, id: u64) {
         env.storage().persistent().extend_ttl(
             &DataKey::Stream(id),
-            518_400, // ~30 days in ledgers
-            518_400,
+            PERSISTENT_TTL_LEDGERS,
+            PERSISTENT_TTL_LEDGERS,
         );
     }
 
