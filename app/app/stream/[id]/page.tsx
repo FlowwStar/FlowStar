@@ -24,6 +24,8 @@ import { StreamStatusBadge } from '@/components/streams/stream-status-badge'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { TokenAmount } from '@/components/ui/token-amount'
 import { CountdownTimer } from '@/components/ui/countdown-timer'
+import { AccessibleCountdownTimer } from '@/components/ui/accessible-countdown-timer'
+import { AccessibleUnlockAmount } from '@/components/ui/accessible-unlock-amount'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -56,6 +58,7 @@ import { useNetwork } from '@/components/providers/network-provider'
 import { useAutoWithdraw } from '@/hooks/use-auto-withdraw'
 import { UnlockChart } from '@/components/streams/unlock-chart'
 import { StreamTimeline } from '@/components/streams/stream-timeline'
+import { DownloadReceiptButton } from '@/components/streams/download-receipt-button'
 import { bumpStreamTtl } from '@/lib/contract'
 
 // ─── Address copy button ────────────────────────────────────────────────────
@@ -862,12 +865,16 @@ function StreamDetail({ id }: { id: string }) {
           <p className="text-xs text-muted-foreground uppercase tracking-wide">
             Unlocked so far
           </p>
-          <p className="mt-1 font-mono text-3xl font-semibold tabular-nums">
-            {formatTokenAmount(unlocked, stream.token.decimals, 4)}
-            <span className="ml-2 text-base font-normal text-muted-foreground">
-              {stream.token.symbol}
-            </span>
-          </p>
+          <div className="mt-1">
+            <AccessibleUnlockAmount
+              amount={unlocked}
+              decimals={stream.token.decimals}
+              symbol={stream.token.symbol}
+              className="font-mono text-3xl font-semibold tabular-nums"
+              isCompleted={status === 'completed'}
+              isCliffReached={Number(stream.cliffTime) <= now && stream.cliffAmount > 0n}
+            />
+          </div>
         </div>
 
         {/* Progress */}
@@ -898,18 +905,18 @@ function StreamDetail({ id }: { id: string }) {
 
         {/* Countdown */}
         {(status === 'streaming' || status === 'scheduled') && (
-          <div className="flex gap-6 text-sm">
+          <div className="flex flex-wrap gap-6 text-sm">
             {status === 'scheduled' && (
               <div>
                 <p className="text-xs text-muted-foreground">Starts in</p>
-                <CountdownTimer target={stream.startTime} className="font-medium" />
+                <AccessibleCountdownTimer target={stream.startTime} className="font-medium" hideButton />
               </div>
             )}
             <div>
               <p className="text-xs text-muted-foreground">
                 {status === 'scheduled' ? 'Duration' : 'Ends in'}
               </p>
-              <CountdownTimer target={stream.endTime} className="font-medium" />
+              <AccessibleCountdownTimer target={stream.endTime} className="font-medium" />
             </div>
           </div>
         )}
@@ -935,6 +942,7 @@ function StreamDetail({ id }: { id: string }) {
                 Cancel stream
               </Button>
             )}
+            <DownloadReceiptButton stream={stream} />
             {isSender && (
               <Button
                 variant="outline"
