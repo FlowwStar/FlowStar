@@ -35,6 +35,7 @@ export const WALLET_OPTIONS: WalletOption[] = [
 
 // ─── Wallet adapter interface ─────────────────────────────────────────────────
 
+export interface WalletAdapter {
 interface WalletAdapter {
   connect(): Promise<string>;
   signTransaction(xdr: string, networkPassphrase: string): Promise<string>;
@@ -70,7 +71,6 @@ const freighterAdapter: WalletAdapter = {
 };
 
 // ─── xBull adapter ────────────────────────────────────────────────────────────
-// Uses the xBull Wallet Connect SDK (window.xBullSDK injected by extension)
 
 const xbullAdapter: WalletAdapter = {
   isAvailable: () =>
@@ -98,8 +98,121 @@ const xbullAdapter: WalletAdapter = {
 };
 
 // ─── LOBSTR adapter ───────────────────────────────────────────────────────────
-// Uses the LOBSTR extension injected as window.lobstrSDK
+// Prefers the LOBSTR browser extension (window.lobstrSDK); falls back to
+// WalletConnect v2 so mobile users can connect via the LOBSTR app.
 
+let _lobstrWcClient: any = null;
+let _lobstrWcSession: any = null;
+
+async function connectLobstrViaWalletConnect(): Promise<string> {
+  const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+  if (!projectId) {
+    throw new Error(
+      "Set NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID to enable LOBSTR on mobile. " +
+        "Get a free project ID at https://cloud.walletconnect.com",
+    );
+  }
+
+  const { SignClient } = await import("@walletconnect/sign-client");
+  const { WalletConnectModal } = await import("@walletconnect/modal");
+
+  const client = await SignClient.init({
+    projectId,
+    metadata: {
+      name: "FlowStar",
+      description: "Stellar payment streaming",
+      url: typeof window !== "undefined" ? window.location.origin : "",
+      icons: [],
+    },
+  });
+
+  const modal = new WalletConnectModal({
+    projectId,
+    chains: ["stellar:pubnet"],
+  });
+
+  return new Promise(async (resolve, reject) => {
+    try {
+      const { uri, approval } = await client.connect({
+        requiredNamespaces: {
+          stellar: {
+            methods: ["stellar_signXDR"],
+            chains: ["stellar:pubnet"],
+            events: [],
+          },
+        },
+      });
+
+      if (uri) modal.openModal({ uri });
+
+      const session = await approval();
+      modal.closeModal();
+      _lobstrWcClient = client;
+      _lobstrWcSession = session;
+
+      const account = session.namespaces.stellar?.accounts[0];
+      const address = account?.split(":")[2];
+      if (!address)
+        throw new Error(
+          "LOBSTR WalletConnect session has no Stellar accounts.",
+        );
+      resolve(address);
+    } catch (err) {
+      try {
+        modal.closeModal();
+      } catch {
+        /* ignore */
+      }
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
+async function signWithLobstrWalletConnect(
+  xdr: string,
+  networkPassphrase: string,
+): Promise<string> {
+  if (!_lobstrWcClient || !_lobstrWcSession) {
+    throw new Error(
+      "No active LOBSTR WalletConnect session. Reconnect LOBSTR.",
+    );
+  }
+  const chainId = networkPassphrase.includes("Test")
+    ? "stellar:testnet"
+    : "stellar:pubnet";
+  const result = await _lobstrWcClient.request({
+    topic: _lobstrWcSession.topic,
+    chainId,
+    request: { method: "stellar_signXDR", params: { xdr } },
+  });
+  if (!result?.signedXDR)
+    throw new Error("LOBSTR WalletConnect signing returned no signed XDR.");
+  return result.signedXDR;
+}
+
+export const lobstrAdapter: WalletAdapter = {
+  isAvailable: () => true, // WalletConnect available even without extension
+
+  async connect() {
+    if (typeof window !== "undefined" && (window as any).lobstrSDK) {
+      const sdk = (window as any).lobstrSDK;
+      const { publicKey } = await sdk.getPublicKey();
+      if (!publicKey) throw new Error("LOBSTR did not return a public key.");
+      return publicKey;
+    }
+    return connectLobstrViaWalletConnect();
+  },
+
+  async signTransaction(xdr, networkPassphrase) {
+    if (typeof window !== "undefined" && (window as any).lobstrSDK) {
+      const sdk = (window as any).lobstrSDK;
+      const { signedXdr } = await sdk.signTransaction(xdr, {
+        networkPassphrase,
+      });
+      if (!signedXdr) throw new Error("LOBSTR signing failed.");
+      return signedXdr;
+    }
+    return signWithLobstrWalletConnect(xdr, networkPassphrase);
 const lobstrAdapter: WalletAdapter = {
   isAvailable: () =>
     typeof window !== "undefined" && !!(window as any).lobstrSDK,
@@ -125,12 +238,31 @@ const lobstrAdapter: WalletAdapter = {
 };
 
 // ─── Albedo adapter ───────────────────────────────────────────────────────────
-// Uses the albedo-link JS library for intent-based signing
 
 const albedoAdapter: WalletAdapter = {
   isAvailable: () => true, // web-based — always available
 
   async connect() {
+    const albedo = (await import("@albedo-link/intent")).default;
+    try {
+      const result = await albedo.publicKey({});
+      if (!result?.pubkey)
+        throw new Error("Albedo did not return a public key.");
+      return result.pubkey;
+    } catch (err: unknown) {
+      if (err instanceof Error && /popup/i.test(err.message)) {
+        throw new Error(
+          "Albedo popup was blocked. Allow popups for this site and try again.",
+        );
+      }
+      throw err;
+    }
+  },
+
+  async signTransaction(xdr, networkPassphrase) {
+    const albedo = (await import("@albedo-link/intent")).default;
+    const network = networkPassphrase.includes("Test") ? "testnet" : "public";
+    const result = await albedo.tx({ xdr, network, submit: false });
     const albedo = (await import("albedo-link")).default;
     const result = await albedo.publicKey({});
     if (!result?.pubkey) throw new Error("Albedo did not return a public key.");
@@ -181,6 +313,7 @@ interface WalletContextValue {
 
 const WalletContext = createContext<WalletContextValue | null>(null);
 
+// ─── Freighter network helpers ────────────────────────────────────────────────
 // ─── Wallet adapters ─────────────────────────────────────────────────────────
 
 async function connectFreighter(): Promise<string> {
@@ -390,6 +523,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     async (xdr: string, customNetwork?: NetworkName): Promise<string> => {
       if (!walletId) throw new Error("No wallet connected");
       const config = getNetworkConfig(customNetwork ?? network);
+      return getAdapter(walletId).signTransaction(xdr, config.passphrase);
       switch (walletId) {
         case "freighter":
           return signWithFreighter(xdr, config.passphrase);
