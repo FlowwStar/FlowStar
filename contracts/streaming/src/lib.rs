@@ -156,6 +156,22 @@ pub struct CreateStreamParams {
     pub metadata: Option<StreamMetadata>,
 }
 
+/// Input parameters for a single stream in a batch creation call.
+///
+/// Mirrors [`CreateStreamParams`] but is a distinct type so that it can be
+/// evolved independently without affecting the single-stream API surface.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct CreateStreamInput {
+    pub recipient: Address,
+    pub token: Address,
+    pub total_amount: i128,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub cliff_time: u64,
+    pub cliff_amount: i128,
+}
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 #[contracterror]
@@ -172,6 +188,10 @@ pub enum StreamError {
     InsufficientFunds = 8,
     StreamEnded = 9,
     SameRecipient = 10,
+    /// Batch size exceeds the maximum allowed (20 streams per batch).
+    BatchSizeExceeded = 11,
+    /// Batch cannot be empty.
+    BatchEmpty = 12,
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -498,6 +518,141 @@ impl StreamingContract {
         .publish(&env);
 
         Ok(id)
+    }
+
+    // ── Write: Batch Create ──────────────────────────────────────────────────
+
+    /// Create multiple token streams in a single atomic transaction.
+    ///
+    /// # Atomicity
+    /// All streams are validated before any funds are transferred. If any stream
+    /// fails validation, the entire batch is rejected with no side-effects.
+    ///
+    /// # Token Approval
+    /// The sender must have approved this contract to spend the **sum** of all
+    /// `total_amount` values across all streams via the token's `approve()`
+    /// before calling. Streams that use different tokens require separate
+    /// approvals for each token.
+    ///
+    /// # Limits
+    /// A maximum of 20 streams per batch is enforced to stay within Soroban
+    /// resource limits. Exceeding this returns [`StreamError::BatchSizeExceeded`].
+    ///
+    /// # Returns
+    /// A [`Vec<u64>`] of newly created stream IDs in the same order as the
+    /// input `streams` vector.
+    pub fn create_streams_batch(
+        env: Env,
+        sender: Address,
+        streams: Vec<CreateStreamInput>,
+    ) -> Result<Vec<u64>, StreamError> {
+        sender.require_auth();
+        Self::require_not_paused(&env);
+
+        const MAX_BATCH_SIZE: u32 = 20;
+
+        if streams.is_empty() {
+            return Err(StreamError::BatchEmpty);
+        }
+        if streams.len() > MAX_BATCH_SIZE {
+            return Err(StreamError::BatchSizeExceeded);
+        }
+
+        // ── Phase 1: Validate all streams before touching funds ──────────────
+        // This guarantees atomicity — no partial state is created on error.
+        for input in streams.iter() {
+            if input.total_amount <= 0 {
+                return Err(StreamError::InvalidAmount);
+            }
+            if input.end_time <= input.start_time {
+                return Err(StreamError::InvalidTimeRange);
+            }
+            let duration = input.end_time - input.start_time;
+            if duration > MAX_STREAM_DURATION {
+                panic!("stream duration exceeds maximum");
+            }
+            if input.cliff_time < input.start_time || input.cliff_time > input.end_time {
+                return Err(StreamError::InvalidCliff);
+            }
+            if input.cliff_amount < 0 || input.cliff_amount > input.total_amount {
+                return Err(StreamError::InvalidCliff);
+            }
+            if input.recipient == sender {
+                return Err(StreamError::SelfStream);
+            }
+            if input.recipient == env.current_contract_address() {
+                panic!("recipient cannot be the contract itself");
+            }
+            // Validate rate would be non-zero when linear amount > 0
+            let linear_amount = input.total_amount - input.cliff_amount;
+            let duration_i128 = duration as i128;
+            let amount_per_second = if duration_i128 > 0 { linear_amount / duration_i128 } else { 0 };
+            if amount_per_second == 0 && linear_amount > 0 {
+                panic!("stream amount too small for duration — rate would be 0");
+            }
+        }
+
+        // ── Phase 2: Create each stream ──────────────────────────────────────
+        let mut created_ids: Vec<u64> = Vec::new(&env);
+
+        for input in streams.iter() {
+            let duration = input.end_time - input.start_time;
+            let duration_i128 = duration as i128;
+            let linear_amount = input.total_amount - input.cliff_amount;
+            let amount_per_second = if duration_i128 > 0 { linear_amount / duration_i128 } else { 0 };
+
+            // Pull funds from sender into contract
+            let token_client = token::Client::new(&env, &input.token);
+            token_client.transfer_from(
+                &env.current_contract_address(),
+                &sender,
+                &env.current_contract_address(),
+                &input.total_amount,
+            );
+
+            let id = Self::next_id(&env);
+
+            let stream = Stream {
+                id,
+                sender: sender.clone(),
+                recipient: input.recipient.clone(),
+                token: input.token.clone(),
+                deposited_amount: input.total_amount,
+                withdrawn_amount: 0,
+                start_time: input.start_time,
+                end_time: input.end_time,
+                cliff_time: input.cliff_time,
+                cliff_amount: input.cliff_amount,
+                amount_per_second,
+                cancelled: false,
+                linear_amount,
+                duration: duration_i128,
+                metadata: None,
+            };
+
+            env.storage().persistent().set(&DataKey::Stream(id), &stream);
+            Self::extend_stream_ttl(&env, id);
+
+            Self::push_to_index(&env, DataKey::SentBy(sender.clone()), id);
+            Self::push_to_index(&env, DataKey::ReceivedBy(input.recipient.clone()), id);
+
+            StreamCreatedEvent {
+                stream_id: id,
+                sender: sender.clone(),
+                recipient: input.recipient.clone(),
+                token: input.token.clone(),
+                deposited_amount: input.total_amount,
+                start_time: input.start_time,
+                end_time: input.end_time,
+                cliff_time: input.cliff_time,
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(&env);
+
+            created_ids.push_back(id);
+        }
+
+        Ok(created_ids)
     }
 
     // ── Write: Transfer ──────────────────────────────────────────────────────
@@ -1197,3 +1352,4 @@ impl StreamingContract {
 mod test;
 mod test_security;
 mod bench;
+mod test_batch;
