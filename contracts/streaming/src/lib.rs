@@ -1353,3 +1353,4 @@ mod test;
 mod test_security;
 mod bench;
 mod test_batch;
+mod test_integration;
