@@ -174,6 +174,29 @@ You'll sign two transactions: one `approve` on the token contract, then `create_
 
 ---
 
+## Security
+
+Please report suspected vulnerabilities privately. See [SECURITY.md](./SECURITY.md)
+for the supported scope, reporting process, response timeline, and safe harbor
+policy.
+## Architecture Decision Records
+
+Key design choices are documented in [`docs/adr/`](./docs/adr/README.md). Start there if you're wondering "why was it done this way?" before changing something fundamental.
+
+---
+
+## Security
+
+Found a vulnerability? Please read our [Security Policy](./SECURITY.md) before disclosing. We prefer private disclosure via [GitHub Security Advisories](https://github.com/FlowwStar/FlowStar/security/advisories/new).
+
+---
+
+## Contributing
+
+Want to contribute? Read our [Contributing Guide](./CONTRIBUTING.md) to get your local environment set up and learn the development workflow.
+
+---
+
 ## License
 
 MIT

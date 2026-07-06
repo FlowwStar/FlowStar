@@ -4,17 +4,35 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { withdrawFromStream } from '@/lib/contract'
 import { getWithdrawableAmount } from '@/lib/stream-utils'
 import type { StreamData } from '@/types/stream'
+import { useNetwork } from '@/components/providers/network-provider'
+
+export type WithdrawStrategy = 'time-based' | 'threshold-based' | 'gas-optimized' | 'max'
+
+interface WithdrawalHistoryEntry {
+  timestamp: number
+  amount: string
+  txHash?: string
+  error?: string
+}
 
 interface AutoWithdrawSettings {
   enabled: boolean
+  strategy: WithdrawStrategy
   intervalHours: number
   minAmountRaw: string
+  maxSafetyLimitRaw: string
+  thresholdPercentage: number
+  withdrawalHistory: WithdrawalHistoryEntry[]
 }
 
 const DEFAULT_SETTINGS: AutoWithdrawSettings = {
   enabled: false,
+  strategy: 'time-based',
   intervalHours: 24,
   minAmountRaw: '0',
+  maxSafetyLimitRaw: '0',
+  thresholdPercentage: 50,
+  withdrawalHistory: [],
 }
 
 function storageKey(streamId: string) {
@@ -36,6 +54,7 @@ function saveSettings(streamId: string, settings: AutoWithdrawSettings) {
 }
 
 export function useAutoWithdraw(stream: StreamData | null) {
+  const { network } = useNetwork()
   const [settings, setSettings] = useState<AutoWithdrawSettings>(DEFAULT_SETTINGS)
   const [lastAutoWithdraw, setLastAutoWithdraw] = useState<number | null>(null)
   const [autoWithdrawPending, setAutoWithdrawPending] = useState(false)
@@ -55,6 +74,73 @@ export function useAutoWithdraw(stream: StreamData | null) {
     [stream, settings],
   )
 
+  const addWithdrawalHistory = useCallback(
+    (entry: WithdrawalHistoryEntry) => {
+      if (!stream) return
+      setSettings((prev) => ({
+        ...prev,
+        withdrawalHistory: [
+          entry,
+          ...prev.withdrawalHistory.slice(0, 99),
+        ],
+      }))
+      saveSettings(stream.id, {
+        ...settings,
+        withdrawalHistory: [
+          entry,
+          ...settings.withdrawalHistory.slice(0, 99),
+        ],
+      })
+    },
+    [stream, settings],
+  )
+
+  const calculateWithdrawAmount = useCallback(
+    (withdrawable: bigint, stream: StreamData): bigint => {
+      const minAmount = BigInt(settings.minAmountRaw || '0')
+      const maxLimit = BigInt(settings.maxSafetyLimitRaw || '0')
+
+      if (withdrawable <= 0n) return 0n
+      if (minAmount > 0n && withdrawable < minAmount) return 0n
+
+      let amount = withdrawable
+
+      switch (settings.strategy) {
+        case 'threshold-based': {
+          const threshold = (stream.depositedAmount * BigInt(settings.thresholdPercentage)) / 100n
+          if (withdrawable < threshold) return 0n
+          amount = withdrawable
+          break
+        }
+        case 'gas-optimized': {
+          const lastWithdraw = settings.withdrawalHistory[0]
+          const daysSinceLastWithdraw = lastWithdraw
+            ? (Date.now() - lastWithdraw.timestamp) / (1000 * 60 * 60 * 24)
+            : Infinity
+          if (daysSinceLastWithdraw < 1) return 0n
+          amount = withdrawable
+          break
+        }
+        case 'max': {
+          amount = withdrawable
+          break
+        }
+        case 'time-based':
+        default: {
+          amount = withdrawable
+          break
+        }
+      }
+
+      if (maxLimit > 0n && amount > maxLimit) {
+        amount = maxLimit
+      }
+
+      return amount
+    },
+    [settings],
+  )
+
   useEffect(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
@@ -64,22 +150,30 @@ export function useAutoWithdraw(stream: StreamData | null) {
     if (!settings.enabled || !stream || stream.cancelled) return
 
     const intervalMs = settings.intervalHours * 60 * 60 * 1000
-    const minAmount = BigInt(settings.minAmountRaw || '0')
 
     async function tryWithdraw() {
       if (!stream || autoWithdrawPending) return
       const now = Math.floor(Date.now() / 1000)
       const withdrawable = getWithdrawableAmount(stream, now)
+      const amount = calculateWithdrawAmount(withdrawable, stream)
 
-      if (withdrawable <= 0n) return
-      if (minAmount > 0n && withdrawable < minAmount) return
+      if (amount <= 0n) return
 
       setAutoWithdrawPending(true)
       try {
-        await withdrawFromStream(stream.id, withdrawable)
+        const txHash = await withdrawFromStream(stream.id, amount, network)
         setLastAutoWithdraw(Date.now())
-      } catch {
-        // Silently fail — wallet may not be connected or user may reject
+        addWithdrawalHistory({
+          timestamp: Date.now(),
+          amount: amount.toString(),
+          txHash,
+        })
+      } catch (error) {
+        addWithdrawalHistory({
+          timestamp: Date.now(),
+          amount: amount.toString(),
+          error: String(error),
+        })
       } finally {
         setAutoWithdrawPending(false)
       }
@@ -90,12 +184,14 @@ export function useAutoWithdraw(stream: StreamData | null) {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
-  }, [settings.enabled, settings.intervalHours, settings.minAmountRaw, stream, autoWithdrawPending])
+  }, [settings.enabled, settings.intervalHours, settings.strategy, settings.minAmountRaw, settings.maxSafetyLimitRaw, settings.thresholdPercentage, stream, autoWithdrawPending, calculateWithdrawAmount, addWithdrawalHistory, network])
 
   return {
     settings,
     updateSettings,
     lastAutoWithdraw,
     autoWithdrawPending,
+    withdrawalHistory: settings.withdrawalHistory,
+    addWithdrawalHistory,
   }
 }

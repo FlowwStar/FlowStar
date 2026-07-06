@@ -12,16 +12,24 @@ import {
   ExternalLink,
   Timer,
   AlertTriangle,
+  Link as LinkIcon,
+  Wallet,
+  Share2,
+  MessageCircle,
+  Send,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { RequireWallet } from '@/components/layout/require-wallet'
+import { ConnectWalletButton } from '@/components/layout/connect-wallet-button'
 import { StreamStatusBadge } from '@/components/streams/stream-status-badge'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { TokenAmount } from '@/components/ui/token-amount'
 import { CountdownTimer } from '@/components/ui/countdown-timer'
+import { AccessibleCountdownTimer } from '@/components/ui/accessible-countdown-timer'
+import { AccessibleUnlockAmount } from '@/components/ui/accessible-unlock-amount'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { FeeEstimateDialog } from '@/components/ui/fee-estimate-dialog'
 import {
   Dialog,
   DialogContent,
@@ -29,6 +37,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
+import { calculateFeeBreakdown, TYPICAL_FEES, isHighFee } from '@/lib/fee-utils'
 import { useStream } from '@/hooks/use-streams'
 import { useContract } from '@/hooks/use-contract'
 import { useWallet } from '@/hooks/use-wallet'
@@ -44,9 +53,12 @@ import {
   shortenAddress,
   formatRate,
 } from '@/lib/stream-utils'
-import { NETWORK, explorerUrl } from '@/lib/stellar'
+import { explorerUrl } from '@/lib/stellar'
+import { useNetwork } from '@/components/providers/network-provider'
 import { useAutoWithdraw } from '@/hooks/use-auto-withdraw'
 import { UnlockChart } from '@/components/streams/unlock-chart'
+import { StreamTimeline } from '@/components/streams/stream-timeline'
+import { DownloadReceiptButton } from '@/components/streams/download-receipt-button'
 import { bumpStreamTtl } from '@/lib/contract'
 
 // ─── Address copy button ────────────────────────────────────────────────────
@@ -113,11 +125,18 @@ function WithdrawDialog({
   token: { symbol: string; decimals: number; address: string }
 }) {
   const { withdraw, pending, error } = useContract()
+  const { network } = useNetwork()
   const [inputAmount, setInputAmount] = useState('')
+  const [showFeeEstimate, setShowFeeEstimate] = useState(false)
 
   const max = formatTokenAmount(withdrawable, token.decimals, token.decimals)
   const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
   const invalid = parsed <= 0n || parsed > withdrawable
+
+  // Calculate estimated fees
+  const estimatedFee = TYPICAL_FEES.withdraw.typical
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee)
+  const withdrawFeeHigh = isHighFee(estimatedFee, TYPICAL_FEES.withdraw.typical)
 
   async function handleWithdraw() {
     try {
@@ -127,7 +146,7 @@ function WithdrawDialog({
         ...(hash && {
           action: {
             label: 'View transaction',
-            onClick: () => window.open(explorerUrl('tx', hash), '_blank'),
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
           },
         }),
       })
@@ -139,54 +158,81 @@ function WithdrawDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Withdraw funds</DialogTitle>
-          <DialogDescription>
-            Enter how much to withdraw. Max:{' '}
-            <span className="font-mono font-medium text-foreground">
-              {max} {token.symbol}
-            </span>
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-4 pt-1">
-          <div className="space-y-1.5">
-            <Label htmlFor="withdraw-amount">Amount ({token.symbol})</Label>
-            <div className="flex gap-2">
-              <Input
-                id="withdraw-amount"
-                type="number"
-                min="0"
-                step="any"
-                placeholder="0.00"
-                value={inputAmount}
-                onChange={(e) => setInputAmount(e.target.value)}
-                aria-invalid={!!inputAmount && invalid}
-              />
+    <>
+      <Dialog open={open && !showFeeEstimate} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Withdraw funds</DialogTitle>
+            <DialogDescription>
+              Enter how much to withdraw. Max:{' '}
+              <span className="font-mono font-medium text-foreground">
+                {max} {token.symbol}
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="withdraw-amount">Amount ({token.symbol})</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="withdraw-amount"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder="0.00"
+                  value={inputAmount}
+                  onChange={(e) => setInputAmount(e.target.value)}
+                  aria-invalid={!!inputAmount && invalid}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setInputAmount(max)}
+                >
+                  Max
+                </Button>
+              </div>
+              {inputAmount && invalid && (
+                <p className="text-xs text-destructive">Amount exceeds withdrawable balance</p>
+              )}
+            </div>
+
+            {/* Fee info */}
+            <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                Estimated network fee: <span className="font-mono text-foreground">{(estimatedFee / 1e7).toFixed(7)} XLM</span>
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Fee will be shown again before wallet confirmation.
+              </p>
+            </div>
+
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={onClose} disabled={pending}>Cancel</Button>
               <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setInputAmount(max)}
+                onClick={() => setShowFeeEstimate(true)}
+                disabled={pending || invalid || !inputAmount}
               >
-                Max
+                {pending ? 'Withdrawing…' : 'Review fees'}
               </Button>
             </div>
-            {inputAmount && invalid && (
-              <p className="text-xs text-destructive">Amount exceeds withdrawable balance</p>
-            )}
           </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={pending}>Cancel</Button>
-            <Button onClick={handleWithdraw} disabled={pending || invalid || !inputAmount}>
-              {pending ? 'Withdrawing…' : 'Withdraw'}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      <FeeEstimateDialog
+        open={showFeeEstimate}
+        onConfirm={handleWithdraw}
+        onCancel={() => setShowFeeEstimate(false)}
+        fees={feeBreakdown}
+        action="withdrawal"
+        averageFee={TYPICAL_FEES.withdraw.typical}
+        isHighFee={withdrawFeeHigh}
+        loading={pending}
+      />
+    </>
   )
 }
 
@@ -202,7 +248,13 @@ function CancelDialog({
   streamId: string
 }) {
   const { cancel, pending, error } = useContract()
+  const { network } = useNetwork()
   const router = useRouter()
+  const [showFeeEstimate, setShowFeeEstimate] = useState(false)
+
+  const estimatedFee = TYPICAL_FEES.cancel.typical
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee)
+  const cancelFeeHigh = isHighFee(estimatedFee, TYPICAL_FEES.cancel.typical)
 
   async function handleCancel() {
     try {
@@ -212,7 +264,7 @@ function CancelDialog({
         ...(hash && {
           action: {
             label: 'View transaction',
-            onClick: () => window.open(explorerUrl('tx', hash), '_blank'),
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
           },
         }),
       })
@@ -224,24 +276,49 @@ function CancelDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Cancel stream</DialogTitle>
-          <DialogDescription>
-            Unlocked funds will be sent to the recipient. Any remaining locked
-            tokens will be returned to your wallet. This cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose} disabled={pending}>Keep stream</Button>
-          <Button variant="destructive" onClick={handleCancel} disabled={pending}>
-            {pending ? 'Cancelling…' : 'Cancel stream'}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog open={open && !showFeeEstimate} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Cancel stream</DialogTitle>
+            <DialogDescription>
+              Unlocked funds will be sent to the recipient. Any remaining locked
+              tokens will be returned to your wallet. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Fee info */}
+          <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Estimated network fee: <span className="font-mono text-foreground">{(estimatedFee / 1e7).toFixed(7)} XLM</span>
+            </p>
+          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={onClose} disabled={pending}>Keep stream</Button>
+            <Button
+              variant="destructive"
+              onClick={() => setShowFeeEstimate(true)}
+              disabled={pending}
+            >
+              {pending ? 'Cancelling…' : 'Review & cancel'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <FeeEstimateDialog
+        open={showFeeEstimate}
+        onConfirm={handleCancel}
+        onCancel={() => setShowFeeEstimate(false)}
+        fees={feeBreakdown}
+        action="stream cancellation"
+        averageFee={TYPICAL_FEES.cancel.typical}
+        isHighFee={cancelFeeHigh}
+        loading={pending}
+      />
+    </>
   )
 }
 
@@ -259,8 +336,17 @@ function AutoWithdrawSection({
 }: {
   stream: import('@/types/stream').StreamData
 }) {
-  const { settings, updateSettings, lastAutoWithdraw, autoWithdrawPending } = useAutoWithdraw(stream)
+  const { settings, updateSettings, lastAutoWithdraw, autoWithdrawPending, withdrawalHistory } = useAutoWithdraw(stream)
   const [minDisplay, setMinDisplay] = useState('')
+  const [maxDisplay, setMaxDisplay] = useState('')
+  const [showHistory, setShowHistory] = useState(false)
+
+  const STRATEGY_OPTIONS: Array<{ value: import('@/hooks/use-auto-withdraw').WithdrawStrategy; label: string; description: string }> = [
+    { value: 'time-based', label: 'Time-based', description: 'Withdraw on fixed intervals' },
+    { value: 'threshold-based', label: 'Threshold-based', description: 'Withdraw when amount reaches threshold' },
+    { value: 'gas-optimized', label: 'Gas-optimized', description: 'Limit frequency to reduce gas costs' },
+    { value: 'max', label: 'Max amount', description: 'Always withdraw maximum available' },
+  ]
 
   return (
     <div className="rounded-2xl border border-border bg-card p-6 space-y-4">
@@ -284,31 +370,72 @@ function AutoWithdrawSection({
       </div>
 
       {settings.enabled && (
-        <div className="space-y-3 pt-1">
+        <div className="space-y-4 pt-1">
           <p className="text-xs text-muted-foreground">
-            Automatically withdraw available funds on an interval. The app must be open and your wallet connected.
+            Automatically withdraw funds using your chosen strategy. The app must be open and your wallet connected.
           </p>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Frequency</Label>
-            <div className="flex flex-wrap gap-2">
-              {INTERVAL_OPTIONS.map((opt) => (
+            <Label className="text-xs">Strategy</Label>
+            <div className="space-y-2">
+              {STRATEGY_OPTIONS.map((opt) => (
                 <button
-                  key={opt.hours}
+                  key={opt.value}
                   type="button"
-                  onClick={() => updateSettings({ intervalHours: opt.hours })}
+                  onClick={() => updateSettings({ strategy: opt.value })}
                   className={
-                    'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
-                    (settings.intervalHours === opt.hours
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border text-muted-foreground hover:border-primary hover:text-primary')
+                    'w-full text-left p-3 rounded-lg border transition-colors ' +
+                    (settings.strategy === opt.value
+                      ? 'border-primary bg-primary/10'
+                      : 'border-border hover:border-primary/50')
                   }
                 >
-                  {opt.label}
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="text-xs text-muted-foreground">{opt.description}</p>
                 </button>
               ))}
             </div>
           </div>
+
+          {settings.strategy === 'time-based' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Frequency</Label>
+              <div className="flex flex-wrap gap-2">
+                {INTERVAL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.hours}
+                    type="button"
+                    onClick={() => updateSettings({ intervalHours: opt.hours })}
+                    className={
+                      'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
+                      (settings.intervalHours === opt.hours
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border text-muted-foreground hover:border-primary hover:text-primary')
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {settings.strategy === 'threshold-based' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="threshold" className="text-xs">
+                Threshold (% of total deposited)
+              </Label>
+              <Input
+                id="threshold"
+                type="number"
+                min="1"
+                max="100"
+                value={settings.thresholdPercentage}
+                onChange={(e) => updateSettings({ thresholdPercentage: parseInt(e.target.value) || 50 })}
+                className="max-w-48"
+              />
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="min-amount" className="text-xs">
@@ -335,6 +462,31 @@ function AutoWithdrawSection({
             </p>
           </div>
 
+          <div className="space-y-1.5">
+            <Label htmlFor="max-limit" className="text-xs">
+              Maximum safety limit ({stream.token.symbol})
+            </Label>
+            <Input
+              id="max-limit"
+              type="number"
+              min="0"
+              step="any"
+              placeholder="0 (no limit)"
+              value={maxDisplay}
+              onChange={(e) => {
+                setMaxDisplay(e.target.value)
+                const raw = e.target.value
+                  ? parseTokenAmount(e.target.value, stream.token.decimals).toString()
+                  : '0'
+                updateSettings({ maxSafetyLimitRaw: raw })
+              }}
+              className="max-w-48"
+            />
+            <p className="text-xs text-muted-foreground">
+              Never withdraw more than this amount per transaction.
+            </p>
+          </div>
+
           {autoWithdrawPending && (
             <p className="text-xs text-primary">Auto-withdrawing...</p>
           )}
@@ -342,6 +494,29 @@ function AutoWithdrawSection({
             <p className="text-xs text-muted-foreground">
               Last auto-withdrawal: {new Date(lastAutoWithdraw).toLocaleTimeString()}
             </p>
+          )}
+
+          {withdrawalHistory.length > 0 && (
+            <div className="space-y-1.5 pt-2 border-t border-border">
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="text-xs text-primary hover:underline"
+              >
+                {showHistory ? 'Hide' : 'Show'} withdrawal history ({withdrawalHistory.length})
+              </button>
+              {showHistory && (
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {withdrawalHistory.map((entry, idx) => (
+                    <div key={idx} className="text-xs text-muted-foreground font-mono p-1.5 bg-secondary rounded">
+                      <p>{new Date(entry.timestamp).toLocaleTimeString()}</p>
+                      <p className={entry.error ? 'text-destructive' : 'text-primary'}>
+                        {entry.error ? `Error: ${entry.error}` : `Withdrew: ${entry.amount}`}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -366,6 +541,7 @@ function estimateDaysSinceLastWrite(stream: import('@/types/stream').StreamData,
 
 function TtlWarning({ stream, nowSeconds }: { stream: import('@/types/stream').StreamData; nowSeconds: number }) {
   const { address } = useWallet()
+  const { network } = useNetwork()
   const [bumping, setBumping] = useState(false)
   const [bumped, setBumped] = useState(false)
 
@@ -378,7 +554,7 @@ function TtlWarning({ stream, nowSeconds }: { stream: import('@/types/stream').S
     if (!address) return
     setBumping(true)
     try {
-      await bumpStreamTtl(stream.id, address)
+      await bumpStreamTtl(network, stream.id, address)
       setBumped(true)
       toast.success('Storage TTL extended by 30 days')
     } catch {
@@ -442,21 +618,150 @@ function RateDisplay({ stream }: { stream: import('@/types/stream').StreamData }
   )
 }
 
+// ─── Stream detail skeleton ──────────────────────────────────────────────────
+
+function StreamDetailSkeleton() {
+  return (
+    <div className="mx-auto max-w-2xl space-y-6 animate-pulse">
+      {/* Back bar */}
+      <div className="flex items-center justify-between">
+        <div className="h-4 w-24 rounded bg-muted" />
+        <div className="h-4 w-12 rounded bg-muted" />
+      </div>
+      {/* Header card */}
+      <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-xl bg-muted" />
+            <div className="space-y-1.5">
+              <div className="h-4 w-36 rounded bg-muted" />
+              <div className="h-3 w-20 rounded bg-muted" />
+            </div>
+          </div>
+          <div className="h-5 w-16 rounded-full bg-muted" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-3 w-24 rounded bg-muted" />
+          <div className="h-9 w-48 rounded bg-muted" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-2 w-full rounded-full bg-muted" />
+          <div className="flex justify-between">
+            <div className="h-3 w-20 rounded bg-muted" />
+            <div className="h-3 w-32 rounded bg-muted" />
+          </div>
+        </div>
+      </div>
+      {/* Details card */}
+      <div className="rounded-2xl border border-border bg-card p-6 space-y-3">
+        <div className="h-3.5 w-16 rounded bg-muted" />
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="flex justify-between py-2 border-b border-border last:border-0">
+            <div className="h-3.5 w-20 rounded bg-muted" />
+            <div className="h-3.5 w-32 rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main page ───────────────────────────────────────────────────────────────
+
+function ShareButtons({ streamId }: { streamId: string }) {
+  const [copied, setCopied] = useState(false)
+  const [showShare, setShowShare] = useState(false)
+
+  const streamUrl = typeof window !== 'undefined' ? window.location.href : `https://flowstar.app/app/stream/${streamId}`
+  const shareText = `Check out this token stream on FlowStar - Stream #${streamId}`
+
+  function copyLink() {
+    navigator.clipboard.writeText(streamUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+    toast.success('Link copied to clipboard')
+  }
+
+  function shareToTwitter() {
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(streamUrl)}`
+    window.open(url, '_blank', 'width=550,height=420')
+  }
+
+  function shareToTelegram() {
+    const url = `https://t.me/share/url?url=${encodeURIComponent(streamUrl)}&text=${encodeURIComponent(shareText)}`
+    window.open(url, '_blank', 'width=550,height=420')
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowShare(!showShare)}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        aria-label="Share stream"
+      >
+        <Share2 className="size-4" />
+        Share
+      </button>
+
+      {showShare && (
+        <div className="absolute right-0 mt-2 bg-card border border-border rounded-lg shadow-lg z-50">
+          <div className="flex flex-col gap-1 p-2 min-w-max">
+            <button
+              onClick={copyLink}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              aria-label="Copy link"
+            >
+              {copied ? <Check className="size-4" /> : <LinkIcon className="size-4" />}
+              {copied ? 'Copied!' : 'Copy link'}
+            </button>
+            <button
+              onClick={shareToTwitter}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              aria-label="Share on Twitter"
+            >
+              <svg className="size-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2s9 5 20 5a9.5 9.5 0 00-9-5.5c4.75 2.25 7-7 7-7" />
+              </svg>
+              Twitter
+            </button>
+            <button
+              onClick={shareToTelegram}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              aria-label="Share on Telegram"
+            >
+              <MessageCircle className="size-4" />
+              Telegram
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ConnectPrompt() {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
+      <Wallet className="size-5 shrink-0 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground flex-1">
+        Connect your wallet to withdraw, cancel, or interact with this stream.
+      </p>
+      <ConnectWalletButton />
+    </div>
+  )
+}
 
 function StreamDetail({ id }: { id: string }) {
   const { stream, loading } = useStream(id)
-  const { address } = useWallet()
+  const { address, isConnected } = useWallet()
+  const { network, config } = useNetwork()
+  const router = useRouter()
   const now = useNow(1000)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
 
   if (loading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground text-sm">
-        Loading stream…
-      </div>
-    )
+    return <StreamDetailSkeleton />
   }
 
   if (!stream) {
@@ -487,16 +792,42 @@ function StreamDetail({ id }: { id: string }) {
   const canWithdraw = isRecipient && !stream.cancelled && withdrawable > 0n
   const canCancel = isSender && !stream.cancelled && status !== 'completed'
 
+  function handleDuplicate() {
+    const durationSecs = Number(stream.endTime - stream.startTime)
+    const cliffSecs = Number(stream.cliffTime - stream.startTime)
+    const hasCliff = stream.cliffTime > stream.startTime
+    const params = new URLSearchParams({
+      clone: stream.id,
+      recipient: stream.recipient,
+      token: stream.token.address,
+      amount: (Number(stream.depositedAmount) / Math.pow(10, stream.token.decimals)).toString(),
+      duration: durationSecs.toString(),
+    })
+    if (hasCliff) {
+      params.set('cliff', cliffSecs.toString())
+      if (stream.cliffAmount > 0n) {
+        params.set('cliffAmount', (Number(stream.cliffAmount) / Math.pow(10, stream.token.decimals)).toString())
+      }
+    }
+    router.push(`/app/create?${params.toString()}`)
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      {/* Back */}
-      <Link
-        href="/app"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" />
-        Dashboard
-      </Link>
+      {/* Back + Share */}
+      <div className="flex items-center justify-between">
+        <Link
+          href="/app"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" />
+          Dashboard
+        </Link>
+        <ShareButtons streamId={stream.id} />
+      </div>
+
+      {/* Connect prompt for unauthenticated visitors */}
+      {!isConnected && <ConnectPrompt />}
 
       {/* Header card */}
       <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
@@ -534,12 +865,16 @@ function StreamDetail({ id }: { id: string }) {
           <p className="text-xs text-muted-foreground uppercase tracking-wide">
             Unlocked so far
           </p>
-          <p className="mt-1 font-mono text-3xl font-semibold tabular-nums">
-            {formatTokenAmount(unlocked, stream.token.decimals, 4)}
-            <span className="ml-2 text-base font-normal text-muted-foreground">
-              {stream.token.symbol}
-            </span>
-          </p>
+          <div className="mt-1">
+            <AccessibleUnlockAmount
+              amount={unlocked}
+              decimals={stream.token.decimals}
+              symbol={stream.token.symbol}
+              className="font-mono text-3xl font-semibold tabular-nums"
+              isCompleted={status === 'completed'}
+              isCliffReached={Number(stream.cliffTime) <= now && stream.cliffAmount > 0n}
+            />
+          </div>
         </div>
 
         {/* Progress */}
@@ -570,24 +905,24 @@ function StreamDetail({ id }: { id: string }) {
 
         {/* Countdown */}
         {(status === 'streaming' || status === 'scheduled') && (
-          <div className="flex gap-6 text-sm">
+          <div className="flex flex-wrap gap-6 text-sm">
             {status === 'scheduled' && (
               <div>
                 <p className="text-xs text-muted-foreground">Starts in</p>
-                <CountdownTimer target={stream.startTime} className="font-medium" />
+                <AccessibleCountdownTimer target={stream.startTime} className="font-medium" hideButton />
               </div>
             )}
             <div>
               <p className="text-xs text-muted-foreground">
                 {status === 'scheduled' ? 'Duration' : 'Ends in'}
               </p>
-              <CountdownTimer target={stream.endTime} className="font-medium" />
+              <AccessibleCountdownTimer target={stream.endTime} className="font-medium" />
             </div>
           </div>
         )}
 
         {/* Actions */}
-        {(canWithdraw || canCancel) && (
+        {(canWithdraw || canCancel || isSender) && (
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
             {canWithdraw && (
               <Button onClick={() => setWithdrawOpen(true)} className="gap-1.5">
@@ -605,6 +940,17 @@ function StreamDetail({ id }: { id: string }) {
                 onClick={() => setCancelOpen(true)}
               >
                 Cancel stream
+              </Button>
+            )}
+            <DownloadReceiptButton stream={stream} />
+            {isSender && (
+              <Button
+                variant="outline"
+                onClick={handleDuplicate}
+                className="gap-1.5"
+              >
+                <Copy className="size-4" />
+                Duplicate stream
               </Button>
             )}
           </div>
@@ -627,25 +973,28 @@ function StreamDetail({ id }: { id: string }) {
           Details
         </h2>
         <DetailRow label="Sender">
-          <CopyableAddress address={stream.sender} href={explorerUrl('account', stream.sender)} />
+          <CopyableAddress address={stream.sender} href={explorerUrl(network, 'account', stream.sender)} />
         </DetailRow>
         <DetailRow label="Recipient">
-          <CopyableAddress address={stream.recipient} href={explorerUrl('account', stream.recipient)} />
+          <CopyableAddress address={stream.recipient} href={explorerUrl(network, 'account', stream.recipient)} />
         </DetailRow>
         <DetailRow label="Token">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="font-mono">{stream.token.symbol}</span>
-            <a
-              href={explorerUrl('contract', stream.token.address)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-primary transition-colors"
-              aria-label="View token contract on Stellar Expert"
-            >
-              <ExternalLink className="size-3.5" />
-            </a>
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-medium">{stream.token.symbol}</span>
+            <CopyableAddress
+              address={stream.token.address}
+              href={explorerUrl(network, 'contract', stream.token.address)}
+            />
+          </div>
         </DetailRow>
+        {config.streamContractId && (
+          <DetailRow label="Stream Contract">
+            <CopyableAddress
+              address={config.streamContractId}
+              href={explorerUrl(network, 'contract', config.streamContractId)}
+            />
+          </DetailRow>
+        )}
         <DetailRow label="Total deposited">
           <TokenAmount amount={stream.depositedAmount} token={stream.token} maxFractionDigits={4} />
         </DetailRow>
@@ -661,7 +1010,12 @@ function StreamDetail({ id }: { id: string }) {
           <RateDisplay stream={stream} />
         </DetailRow>
         <DetailRow label="Start">
-          {formatDateTime(stream.startTime)}
+          <span>
+            {formatDateTime(stream.startTime)}
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              ({new Date(Number(stream.startTime) * 1000).toUTCString().replace(' GMT', ' UTC')})
+            </span>
+          </span>
         </DetailRow>
         {stream.cliffTime > stream.startTime && (
           <DetailRow label="Cliff">
@@ -674,12 +1028,20 @@ function StreamDetail({ id }: { id: string }) {
           </DetailRow>
         )}
         <DetailRow label="End">
-          {formatDateTime(stream.endTime)}
+          <span>
+            {formatDateTime(stream.endTime)}
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              ({new Date(Number(stream.endTime) * 1000).toUTCString().replace(' GMT', ' UTC')})
+            </span>
+          </span>
         </DetailRow>
         <DetailRow label="Network">
-          <span className="capitalize">{NETWORK.name}</span>
+          <span className="capitalize">{network}</span>
         </DetailRow>
       </div>
+
+      {/* Transaction history timeline */}
+      <StreamTimeline streamId={stream.id} />
 
       {/* Auto-withdraw (recipients only, active streams) */}
       {isRecipient && !stream.cancelled && status !== 'completed' && (
@@ -709,9 +1071,5 @@ export default function StreamPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = use(params)
-  return (
-    <RequireWallet>
-      <StreamDetail id={id} />
-    </RequireWallet>
-  )
+  return <StreamDetail id={id} />
 }

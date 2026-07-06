@@ -1,0 +1,35 @@
+name: Contract CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contract-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contract-ci.yml'
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Change this from 1.84 to 'stable' to support Edition 2024
+          toolchain: stable
+          targets: wasm32v1-none
+
+      - name: Build Contracts
+        run: cargo build --target wasm32v1-none --release
+
+      - name: Test
+        run: cargo test
