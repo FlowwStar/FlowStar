@@ -42,6 +42,8 @@
 
 #![no_std]
 
+use core::fmt::Error;
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, Env, Vec,
     contract, contractimpl, contracttype, token, Address, BytesN, Env, Vec,
@@ -799,23 +801,12 @@ impl StreamingContract {
     ///
     /// Only the recipient or their delegate can call this. Pass the exact amount to withdraw
     /// (must be ≤ withdrawable amount). Use `get_withdrawable` to query first.
-    pub fn withdraw(env: Env, stream_id: u64, amount: i128) {
-        let mut stream = Self::load_stream(&env, stream_id);
-        let caller = env.invoker();
-
-        // Check if caller is recipient or authorized delegate
-        let is_recipient = caller == stream.recipient;
-        let is_delegate = match Self::get_delegate(&env, stream_id) {
-            Some(delegate) => caller == delegate,
-            None => false,
-        };
-
-        if !is_recipient && !is_delegate {
-            panic!("only recipient or delegate can withdraw");
-        }
     pub fn withdraw(env: Env, stream_id: u64, amount: i128) -> Result<(), StreamError> {
-        let mut stream = Self::load_stream(&env, stream_id)?;
-
+        // let mut stream = Self::load_stream(&env, stream_id);
+        let mut stream = match Self::load_stream(&env, stream_id) {
+            Ok(stream) => stream,
+            Err(e) => return Err(e)
+        }
         // Require auth from the actual recipient, not the delegate
         stream.recipient.require_auth();
         Self::require_not_paused(&env);
@@ -885,13 +876,17 @@ impl StreamingContract {
     /// Unlocked funds (as of now) go to the recipient.
     /// Remaining locked funds are returned to the sender.
     pub fn cancel(env: Env, stream_id: u64) -> Result<(), StreamError> {
-        let mut stream = Self::load_stream(&env, stream_id)?;
+        // let mut stream = Self::load_stream(&env, stream_id);
+        let mut stream = match Self::load_stream(&env, stream_id) {
+            Ok(stream) => stream,
+            Err(e) => return Err(e)
+        };
 
         stream.sender.require_auth();
         Self::require_not_paused(&env);
 
         if stream.cancelled {
-            return Err(StreamError::StreamCancelled);
+            return Err(StreamError::StreamCancelled)
         }
 
         let now = env.ledger().timestamp();
@@ -962,12 +957,21 @@ impl StreamingContract {
 
     /// Get a stream by ID.
     pub fn get_stream(env: Env, stream_id: u64) -> Result<Stream, StreamError> {
-        Self::load_stream(&env, stream_id)
+        // Self::load_stream(&env, stream_id)
+        let stream = match Self::load_stream(&env, stream_id) {
+            Ok(stream) => stream,
+            Err(e) => return Err(e)
+        };
+        Ok(stream)
     }
 
     /// Get the withdrawable amount for a stream at current ledger time.
     pub fn get_withdrawable(env: Env, stream_id: u64) -> Result<i128, StreamError> {
-        let stream = Self::load_stream(&env, stream_id)?;
+        // let stream = Self::load_stream(&env, stream_id);
+        let stream = match Self::load_stream(&env, stream_id) {
+            Ok(stream) => stream,
+            Err(e) => return Err(e)
+        };
         let now = env.ledger().timestamp();
         Ok(Self::withdrawable_amount(&stream, now))
     }
@@ -1121,8 +1125,8 @@ impl StreamingContract {
 
     /// Extend the TTL of a stream's persistent storage without modifying data.
     /// Anyone can call this to keep a long-running stream alive.
-    pub fn bump_stream(env: Env, stream_id: u64) -> Result<(), StreamError> {
-        Self::load_stream(&env, stream_id)?;
+    pub fn bump_stream(env: Env, stream_id: u64) {
+        let _ = Self::load_stream(&env, stream_id);
         Self::extend_stream_ttl(&env, stream_id);
         Ok(())
 
@@ -1235,7 +1239,7 @@ impl StreamingContract {
         env.storage()
             .persistent()
             .get(&DataKey::Stream(id))
-            .ok_or(StreamError::StreamNotFound)
+            .unwrap_or_else(|| return Err(StreamError::StreamNotFound))
     }
 
     /// Compute total unlocked amount at `now` (UNIX seconds).

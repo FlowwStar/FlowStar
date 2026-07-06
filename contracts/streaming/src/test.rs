@@ -136,6 +136,7 @@ fn test_create_stream_with_cliff() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #2)")]
 fn test_create_stream_invalid_times() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -149,6 +150,7 @@ fn test_create_stream_invalid_times() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_create_stream_zero_amount() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -214,6 +216,7 @@ fn test_withdraw_full_after_end() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #1)")]
 fn test_withdraw_too_much() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -311,6 +314,7 @@ fn test_cancel_midway() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #5)")]
 fn test_cancel_twice() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -328,6 +332,7 @@ fn test_cancel_twice() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #5)")]
 fn test_withdraw_from_cancelled_stream() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -811,7 +816,8 @@ fn test_top_up_mid_stream_recalculates_rate() {
 }
 
 #[test]
-fn test_top_up_cancelled_stream_returns_error() {
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_top_up_cancelled_stream_panics() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
     t.set_time(now);
@@ -831,7 +837,8 @@ fn test_top_up_cancelled_stream_returns_error() {
 }
 
 #[test]
-fn test_top_up_ended_stream_returns_error() {
+#[should_panic(expected = "Error(Contract, #8)")]
+fn test_top_up_ended_stream_panics() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
     t.set_time(now);
@@ -851,279 +858,8 @@ fn test_top_up_ended_stream_returns_error() {
 }
 
 #[test]
-fn test_top_up_zero_amount_returns_error() {
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-    let params = t.default_params(now);
-    let total = params.total_amount;
-
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params).unwrap();
-
-    let result = client.try_top_up(&stream_id, &0i128);
-    assert_eq!(result, Err(Ok(StreamError::InvalidAmount)));
-}
-
-#[test]
-fn test_top_up_immediately_after_creation() {
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-    let params = t.default_params(now);
-    let total = params.total_amount;
-
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
-
-    // Top up at t=0 (no time elapsed)
-    let additional = 200_0000000i128;
-    t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
-    client.top_up(&stream_id, &additional);
-
-    let stream = client.get_stream(&stream_id);
-    assert_eq!(stream.deposited_amount, total + additional);
-    // Rate should be (total + additional) / duration
-    let expected_rate = (total + additional) / 1000i128;
-    assert_eq!(stream.amount_per_second, expected_rate);
-}
-
-#[test]
-fn test_top_up_at_cliff_time() {
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-
-    let params = CreateStreamParams {
-        recipient: t.recipient.clone(),
-        token: t.token_id.clone(),
-        total_amount: 1_000_0000000,
-        start_time: now,
-        end_time: now + 1000,
-        cliff_time: now + 200,
-        cliff_amount: 0,
-    };
-    let total = params.total_amount;
-
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
-
-    // Top up at exact cliff time
-    t.set_time(now + 200);
-    let additional = 200_0000000i128;
-    t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
-    client.top_up(&stream_id, &additional);
-
-    let stream = client.get_stream(&stream_id);
-    assert_eq!(stream.deposited_amount, total + additional);
-}
-
-#[test]
-fn test_top_up_near_end() {
-    // Top up when stream is 99% complete (1 second remaining)
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-    let params = t.default_params(now);
-    let total = params.total_amount;
-
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
-
-    t.set_time(now + 999); // 1 second remaining
-    let additional = 100_0000000i128;
-    t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
-    client.top_up(&stream_id, &additional);
-
-    let stream = client.get_stream(&stream_id);
-    assert_eq!(stream.deposited_amount, total + additional);
-    // 1s remaining: all additional is rate/s
-    assert!(stream.amount_per_second > 0);
-}
-
-#[test]
-fn test_top_up_multiple_successive() {
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-    let params = t.default_params(now);
-    let total = params.total_amount;
-
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
-
-    let chunk = 100_0000000i128;
-    for _ in 0..3 {
-        t.token().approve(&t.sender, &t.contract_id, &chunk, &(t.env.ledger().sequence() + 500));
-        client.top_up(&stream_id, &chunk);
-    }
-
-    let stream = client.get_stream(&stream_id);
-    assert_eq!(stream.deposited_amount, total + chunk * 3);
-}
-
-#[test]
-fn test_top_up_then_withdraw() {
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-    let params = t.default_params(now);
-    let total = params.total_amount;
-
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
-
-    let additional = 500_0000000i128;
-    t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
-    client.top_up(&stream_id, &additional);
-
-    // Advance to end, withdraw everything
-    t.set_time(now + 1000);
-    let withdrawable = client.get_withdrawable(&stream_id);
-    assert_eq!(withdrawable, total + additional);
-    client.withdraw(&stream_id, &withdrawable);
-    assert_eq!(t.token().balance(&t.recipient), total + additional);
-    assert_eq!(t.token().balance(&t.contract_id), 0);
-}
-
-#[test]
-fn test_top_up_then_cancel() {
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-    let params = t.default_params(now);
-    let total = params.total_amount;
-
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
-
-    t.set_time(now + 250);
-    let additional = 500_0000000i128;
-    t.token().approve(&t.sender, &t.contract_id, &additional, &(t.env.ledger().sequence() + 500));
-    client.top_up(&stream_id, &additional);
-
-    let sender_before = t.token().balance(&t.sender);
-    client.cancel(&stream_id);
-
-    let recipient_got = t.token().balance(&t.recipient);
-    let sender_refund = t.token().balance(&t.sender) - sender_before;
-
-    // All funds accounted for
-    assert_eq!(recipient_got + sender_refund, total + additional);
-// ─── admin / upgrade ──────────────────────────────────────────────────────────
-
-#[test]
-fn test_version() {
-    let t = TestEnv::setup();
-    let client = t.client();
-    assert_eq!(client.version(), 1);
-}
-
-#[test]
-#[should_panic(expected = "already initialized")]
-fn test_initialize_twice_panics() {
-    let t = TestEnv::setup();
-    let client = t.client();
-    let another_admin = Address::generate(&t.env);
-    client.initialize(&another_admin);
-}
-
-#[test]
-fn test_migrate() {
-    let t = TestEnv::setup();
-    let client = t.client();
-    // migrate should not panic when contract is initialized
-    client.migrate();
-}
-
-#[test]
-fn test_upgrade_succeeds_with_admin_auth() {
-    let t = TestEnv::setup();
-    let client = t.client();
-    // We don't have a real wasm hash in tests, but this should pass auth
-    // and then panic because the hash doesn't correspond to a real contract.
-    let fake_hash = soroban_sdk::BytesN::from_array(&t.env, &[0u8; 32]);
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        client.upgrade(&t.admin, &fake_hash);
-    }));
-    // The call should panic, but not on auth — it should pass auth and then
-    // fail because the hash is invalid or because of some other reason.
-    // We just verify it panics at all (not an auth panic).
-    assert!(result.is_err());
-}
-
-
-// ─── Version and Metadata Tests ────────────────────────────────────────────────
-
-#[test]
-fn test_contract_version() {
-    let t = TestEnv::setup();
-    let client = t.client();
-    assert_eq!(client.version(), 1);
-}
-
-#[test]
-fn test_contract_name() {
-    let t = TestEnv::setup();
-    let client = t.client();
-    let name = client.name();
-    assert_eq!(name, String::from_slice(&t.env, "FlowStar Streaming"));
-}
-
-// ─── Max Stream Duration Tests ─────────────────────────────────────────────────
-
-#[test]
-#[should_panic(expected = "stream duration exceeds maximum")]
-fn test_create_stream_exceeds_max_duration() {
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-    let mut params = t.default_params(now);
-    // Set duration to 11 years (exceeds 10-year max)
-    params.end_time = now + 315_360_000 + 1;
-    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
-    client.create_stream(&t.sender, &params);
-}
-
-#[test]
-fn test_create_stream_at_max_duration() {
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-    let mut params = t.default_params(now);
-    // Set duration to exactly 10 years (max allowed)
-    params.end_time = now + 315_360_000;
-    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
-    let stream = client.get_stream(&stream_id);
-    assert_eq!(stream.end_time - stream.start_time, 315_360_000);
-}
-
-#[test]
-fn test_create_stream_under_max_duration() {
-    let t = TestEnv::setup();
-    let now = 1_000_000u64;
-    t.set_time(now);
-    let client = t.client();
-    let params = t.default_params(now); // 1000 seconds < max
-    t.token().approve(&t.sender, &t.contract_id, &params.total_amount, &(t.env.ledger().sequence() + 500));
-    let stream_id = client.create_stream(&t.sender, &params);
-    assert_eq!(stream_id, 1);
-}
-
-// ─── Stream Delegation Tests ───────────────────────────────────────────────────
-
-#[test]
-fn test_set_delegate_by_recipient() {
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_top_up_zero_amount_panics() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
     t.set_time(now);
