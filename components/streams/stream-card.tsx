@@ -1,62 +1,72 @@
-'use client'
+"use client";
 
-import { memo } from 'react'
-import Link from 'next/link'
-import { ArrowDownLeft, ArrowUpRight } from 'lucide-react'
-import { useNow } from '@/hooks/use-now'
-import { useWallet } from '@/hooks/use-wallet'
-import { useTokenPrice, formatUsd } from '@/hooks/use-token-price'
-import { useShowUsd } from '@/hooks/use-show-usd'
+import { memo } from "react";
+import Link from "next/link";
+import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { useNow } from "@/hooks/use-now";
+import { useWallet } from "@/hooks/use-wallet";
+import { useTokenPrice, formatUsd } from "@/hooks/use-token-price";
+import { useShowUsd } from "@/hooks/use-show-usd";
 import {
   getStreamProgress,
   getStreamStatus,
   formatTokenAmount,
   shortenAddress,
   formatRate,
-} from '@/lib/stream-utils'
-import { ProgressBar } from '@/components/ui/progress-bar'
-import { TokenAmount } from '@/components/ui/token-amount'
-import { CountdownTimer } from '@/components/ui/countdown-timer'
-import { AccessibleCountdownTimer } from '@/components/ui/accessible-countdown-timer'
-import { StreamStatusBadge } from '@/components/streams/stream-status-badge'
-import type { StreamData } from '@/types/stream'
+} from "@/lib/stream-utils";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { TokenAmount } from "@/components/ui/token-amount";
+import { CountdownTimer } from "@/components/ui/countdown-timer";
+import { AccessibleCountdownTimer } from "@/components/ui/accessible-countdown-timer";
+import { StreamStatusBadge } from "@/components/streams/stream-status-badge";
+import type { StreamData } from "@/types/stream";
 
 // Pick update interval based on a quick pre-check of stream state.
 // completed/cancelled streams never change — no interval needed.
 // scheduled streams only need minute-level updates for the countdown.
 // streaming streams need per-second updates for the live counter.
 function getInterval(stream: StreamData): number | null {
-  const nowSec = Math.floor(Date.now() / 1000)
-  if (stream.cancelled) return null
-  if (nowSec >= Number(stream.endTime)) return null   // completed
-  if (nowSec < Number(stream.startTime)) return 60000 // scheduled: 1 min
-  return 1000                                          // streaming: 1 sec
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (stream.cancelled) return null;
+  if (nowSec >= Number(stream.endTime)) return null; // completed
+  if (nowSec < Number(stream.startTime)) return 60000; // scheduled: 1 min
+  return 1000; // streaming: 1 sec
 }
 
 function StreamCardInner({ stream }: { stream: StreamData }) {
-  const interval = getInterval(stream)
-  const now = useNow(interval)
-  const { address } = useWallet()
-  const { usdPrice } = useTokenPrice(stream.token.symbol)
-  const [showUsd] = useShowUsd()
-  const status = getStreamStatus(stream, now)
-  const progress = getStreamProgress(stream, now)
+  const interval = getInterval(stream);
+  const now = useNow(interval);
+  const { address } = useWallet();
+  const { usdPrice } = useTokenPrice(stream.token.symbol);
+  const [showUsd] = useShowUsd();
+  const status = getStreamStatus(stream, now);
+  const progress = getStreamProgress(stream, now);
   const withdrawnFrac =
     stream.depositedAmount > 0n
-      ? Number((stream.withdrawnAmount * 10000n) / stream.depositedAmount) / 10000
-      : 0
+      ? Number((stream.withdrawnAmount * 10000n) / stream.depositedAmount) /
+        10000
+      : 0;
 
-  const rate = formatRate(stream.amountPerSecond, stream.token.decimals, stream.token.symbol)
-  const isOutgoing = address === stream.sender
-  const counterparty = isOutgoing ? stream.recipient : stream.sender
-  const direction = isOutgoing ? 'Sending' : 'Receiving'
-  const displayAmount = formatTokenAmount(stream.depositedAmount, stream.token.decimals, 2)
-  const ariaLabel = `${direction} ${displayAmount} ${stream.token.symbol}, ${status}, ${(progress * 100).toFixed(0)}% unlocked`
+  const rate = formatRate(
+    stream.amountPerSecond,
+    stream.token.decimals,
+    stream.token.symbol,
+  );
+  const isOutgoing = address === stream.sender;
+  const counterparty = isOutgoing ? stream.recipient : stream.sender;
+  const direction = isOutgoing ? "Sending" : "Receiving";
+  const displayAmount = formatTokenAmount(
+    stream.depositedAmount,
+    stream.token.decimals,
+    2,
+  );
+  const ariaLabel = `${direction} ${displayAmount} ${stream.token.symbol}, ${status}, ${(progress * 100).toFixed(0)}% unlocked`;
 
   const usdValue =
     showUsd && usdPrice !== null
-      ? (Number(stream.depositedAmount) / Math.pow(10, stream.token.decimals)) * usdPrice
-      : null
+      ? (Number(stream.depositedAmount) / Math.pow(10, stream.token.decimals)) *
+        usdPrice
+      : null;
 
   return (
     <Link
@@ -68,10 +78,10 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
         <div className="flex items-center gap-3">
           <span
             className={
-              'flex size-9 items-center justify-center rounded-lg ' +
+              "flex size-9 items-center justify-center rounded-lg " +
               (isOutgoing
-                ? 'bg-secondary text-muted-foreground'
-                : 'bg-primary/10 text-primary')
+                ? "bg-secondary text-muted-foreground"
+                : "bg-primary/10 text-primary")
             }
           >
             {isOutgoing ? (
@@ -82,7 +92,8 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
           </span>
           <div>
             <p className="text-sm font-medium">
-              {stream.metadata?.name ?? (isOutgoing ? 'Sending to' : 'Receiving from')}
+              {stream.metadata?.name ??
+                (isOutgoing ? "Sending to" : "Receiving from")}
             </p>
             <p className="font-mono text-xs text-muted-foreground">
               {shortenAddress(counterparty, 5)}
@@ -102,38 +113,42 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
             maxFractionDigits={2}
           />
           {usdValue !== null && (
-            <p className="text-xs text-muted-foreground">{formatUsd(usdValue)}</p>
+            <p className="text-xs text-muted-foreground">
+              {formatUsd(usdValue)}
+            </p>
           )}
         </div>
         <div className="text-right">
           <p className="text-xs text-muted-foreground">
-            {status === 'scheduled'
-              ? 'Starts in'
-              : status === 'completed' || status === 'cancelled'
-                ? 'Ended'
-                : 'Ends in'}
+            {status === "scheduled"
+              ? "Starts in"
+              : status === "completed" || status === "cancelled"
+                ? "Ended"
+                : "Ends in"}
           </p>
-          <p className="text-sm font-medium">
-            {status === 'scheduled' ? (
+          <div className="text-sm font-medium">
+            {status === "scheduled" ? (
               <AccessibleCountdownTimer target={stream.startTime} hideButton />
-            ) : status === 'completed' || status === 'cancelled' ? (
+            ) : status === "completed" || status === "cancelled" ? (
               <span className="text-muted-foreground">—</span>
             ) : (
               <AccessibleCountdownTimer target={stream.endTime} hideButton />
             )}
-          </p>
+          </div>
         </div>
       </div>
 
-      {(status === 'streaming' || status === 'scheduled') && (
-        <p className="mt-3 text-xs font-mono text-muted-foreground">{rate.best}</p>
+      {(status === "streaming" || status === "scheduled") && (
+        <p className="mt-3 text-xs font-mono text-muted-foreground">
+          {rate.best}
+        </p>
       )}
 
       <div className="mt-4">
         <ProgressBar
           value={progress}
           marker={withdrawnFrac}
-          indeterminateShimmer={status === 'streaming'}
+          indeterminateShimmer={status === "streaming"}
         />
         <div className="mt-2 flex justify-between text-xs text-muted-foreground">
           <span>{(progress * 100).toFixed(1)}% unlocked</span>
@@ -143,16 +158,16 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
               token={stream.token}
               showSymbol={false}
               maxFractionDigits={2}
-            />{' '}
+            />{" "}
             withdrawn
           </span>
         </div>
       </div>
     </Link>
-  )
+  );
 }
 
-export const StreamCard = memo(StreamCardInner)
+export const StreamCard = memo(StreamCardInner);
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
 
@@ -187,5 +202,5 @@ export function StreamCardSkeleton() {
         </div>
       </div>
     </div>
-  )
+  );
 }

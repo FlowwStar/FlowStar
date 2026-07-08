@@ -34,7 +34,6 @@ struct TestEnv {
     token_id: Address,
     sender: Address,
     recipient: Address,
-    admin: Address,
 }
 
 impl TestEnv {
@@ -58,14 +57,20 @@ impl TestEnv {
         let client = StreamingContractClient::new(&env, &contract_id);
         client.initialize(&admin);
 
-        TestEnv { env, contract_id, token_id, sender, recipient, admin }
+        TestEnv {
+            env,
+            contract_id,
+            token_id,
+            sender,
+            recipient,
+        }
     }
 
-    fn client(&self) -> StreamingContractClient {
+    fn client(&self) -> StreamingContractClient<'_> {
         StreamingContractClient::new(&self.env, &self.contract_id)
     }
 
-    fn token(&self) -> TokenClient {
+    fn token(&self) -> TokenClient<'_> {
         TokenClient::new(&self.env, &self.token_id)
     }
 
@@ -93,21 +98,18 @@ impl TestEnv {
     ) -> u64 {
         let now = self.env.ledger().timestamp();
         self.approve(total_amount);
-        self.client()
-            .create_stream(
-                &self.sender,
-                &CreateStreamParams {
-                    recipient: self.recipient.clone(),
-                    token: self.token_id.clone(),
-                    total_amount,
-                    start_time: now,
-                    end_time: now + duration_secs,
-                    cliff_time: now + cliff_delay_secs,
-                    cliff_amount,
-                    metadata: None,
-                },
-            )
-            .unwrap()
+        self.client().create_stream(
+            &self.sender,
+            &CreateStreamParams {
+                recipient: self.recipient.clone(),
+                token: self.token_id.clone(),
+                total_amount,
+                start_time: now,
+                end_time: now + duration_secs,
+                cliff_time: now + cliff_delay_secs,
+                cliff_amount,
+            },
+        )
     }
 }
 
@@ -134,7 +136,7 @@ fn test_scenario1_happy_path_full_lifecycle() {
     let cliff_delay = 10u64;
     let stream_id = t.create(total, duration, cliff_delay, 0);
 
-    let stream = t.client().get_stream(&stream_id).unwrap();
+    let stream = t.client().get_stream(&stream_id);
     assert_eq!(stream.deposited_amount, total);
     assert_eq!(stream.withdrawn_amount, 0);
     assert_eq!(stream.start_time, t0);
@@ -143,11 +145,11 @@ fn test_scenario1_happy_path_full_lifecycle() {
 
     // ── Before cliff: nothing withdrawable ───────────────────────────────────
     t.set_time(t0 + 5);
-    assert_eq!(t.client().get_withdrawable(&stream_id).unwrap(), 0);
+    assert_eq!(t.client().get_withdrawable(&stream_id), 0);
 
     // ── Past cliff: linear unlock has started ─────────────────────────────────
     t.set_time(t0 + cliff_delay);
-    let withdrawable_at_cliff = t.client().get_withdrawable(&stream_id).unwrap();
+    let withdrawable_at_cliff = t.client().get_withdrawable(&stream_id);
     assert!(
         withdrawable_at_cliff >= 0,
         "should have some amount available at cliff"
@@ -155,7 +157,7 @@ fn test_scenario1_happy_path_full_lifecycle() {
 
     // ── Advance to 20% through the stream; withdraw 200 tokens ───────────────
     t.set_time(t0 + 20);
-    let withdrawable_at_20 = t.client().get_withdrawable(&stream_id).unwrap();
+    let withdrawable_at_20 = t.client().get_withdrawable(&stream_id);
     assert!(withdrawable_at_20 > 0);
 
     // Withdraw exactly 200 tokens (within what's unlocked at t0+20)
@@ -166,21 +168,21 @@ fn test_scenario1_happy_path_full_lifecycle() {
     );
 
     let recipient_balance_before = t.token().balance(&t.recipient);
-    t.client().withdraw(&stream_id, &withdraw_amount).unwrap();
+    t.client().withdraw(&stream_id, &withdraw_amount);
 
     assert_eq!(
         t.token().balance(&t.recipient),
         recipient_balance_before + withdraw_amount
     );
-    let stream = t.client().get_stream(&stream_id).unwrap();
+    let stream = t.client().get_stream(&stream_id);
     assert_eq!(stream.withdrawn_amount, withdraw_amount);
 
     // ── Top up 500 more tokens ────────────────────────────────────────────────
     let top_up_amount = 500_0000000i128;
     t.approve(top_up_amount);
-    t.client().top_up(&stream_id, &top_up_amount).unwrap();
+    t.client().top_up(&stream_id, &top_up_amount);
 
-    let stream_after_topup = t.client().get_stream(&stream_id).unwrap();
+    let stream_after_topup = t.client().get_stream(&stream_id);
     assert_eq!(stream_after_topup.deposited_amount, total + top_up_amount);
     // Rate must be recalculated over remaining duration
     assert!(
@@ -190,31 +192,32 @@ fn test_scenario1_happy_path_full_lifecycle() {
 
     // ── Transfer stream to new_recipient ──────────────────────────────────────
     let new_recipient = Address::generate(&t.env);
-    t.client()
-        .transfer_stream(&stream_id, &new_recipient)
-        .unwrap();
+    t.client().transfer_stream(&stream_id, &new_recipient);
 
     // old recipient no longer in active index for this stream
     let old_received = t.client().get_received_streams(&t.recipient, &0, &100);
     assert!(
-        !old_received.contains(&stream_id),
+        !old_received.contains(stream_id),
         "old recipient should no longer be in active index"
     );
     let new_received = t.client().get_received_streams(&new_recipient, &0, &100);
     assert!(
-        new_received.contains(&stream_id),
+        new_received.contains(stream_id),
         "new recipient should appear in active index"
     );
 
-    let stream = t.client().get_stream(&stream_id).unwrap();
+    let stream = t.client().get_stream(&stream_id);
     assert_eq!(stream.recipient, new_recipient);
 
     // ── Advance to end; new_recipient drains the stream ───────────────────────
     t.set_time(t0 + duration + 1); // past end_time
-    let remaining = t.client().get_withdrawable(&stream_id).unwrap();
-    assert!(remaining > 0, "new recipient should have tokens to withdraw");
+    let remaining = t.client().get_withdrawable(&stream_id);
+    assert!(
+        remaining > 0,
+        "new recipient should have tokens to withdraw"
+    );
 
-    t.client().withdraw(&stream_id, &remaining).unwrap();
+    t.client().withdraw(&stream_id, &remaining);
 
     // Contract balance should be zero (all funds distributed)
     assert_eq!(
@@ -254,7 +257,7 @@ fn test_scenario2_cancel_after_topup_before_cliff() {
 
     let stream_id = t.create(total, duration, cliff_delay, 0);
 
-    let stream = t.client().get_stream(&stream_id).unwrap();
+    let stream = t.client().get_stream(&stream_id);
     assert_eq!(stream.deposited_amount, total);
     assert_eq!(stream.cliff_time, t0 + cliff_delay);
 
@@ -262,9 +265,9 @@ fn test_scenario2_cancel_after_topup_before_cliff() {
     t.set_time(t0 + 20);
     let top_up = 300_0000000i128;
     t.approve(top_up);
-    t.client().top_up(&stream_id, &top_up).unwrap();
+    t.client().top_up(&stream_id, &top_up);
 
-    let stream = t.client().get_stream(&stream_id).unwrap();
+    let stream = t.client().get_stream(&stream_id);
     assert_eq!(
         stream.deposited_amount,
         total + top_up,
@@ -273,7 +276,7 @@ fn test_scenario2_cancel_after_topup_before_cliff() {
 
     // Nothing unlocked yet (before cliff)
     assert_eq!(
-        t.client().get_withdrawable(&stream_id).unwrap(),
+        t.client().get_withdrawable(&stream_id),
         0,
         "nothing should be withdrawable before cliff"
     );
@@ -283,9 +286,9 @@ fn test_scenario2_cancel_after_topup_before_cliff() {
     let sender_balance_before = t.token().balance(&t.sender);
     let recipient_balance_before = t.token().balance(&t.recipient);
 
-    t.client().cancel(&stream_id).unwrap();
+    t.client().cancel(&stream_id);
 
-    let stream = t.client().get_stream(&stream_id).unwrap();
+    let stream = t.client().get_stream(&stream_id);
     assert!(stream.cancelled);
 
     // Sender gets back everything (no tokens vested before cliff)
@@ -305,14 +308,12 @@ fn test_scenario2_cancel_after_topup_before_cliff() {
     // Stream moves to archived index, not active
     let active_sent = t.client().get_sent_streams(&t.sender, &0, &100);
     assert!(
-        !active_sent.contains(&stream_id),
+        !active_sent.contains(stream_id),
         "cancelled stream must leave active sent index"
     );
-    let archived_sent = t
-        .client()
-        .get_archived_sent_streams(&t.sender, &0, &100);
+    let archived_sent = t.client().get_archived_sent_streams(&t.sender, &0, &100);
     assert!(
-        archived_sent.contains(&stream_id),
+        archived_sent.contains(stream_id),
         "cancelled stream must enter archived sent index"
     );
 }
@@ -339,31 +340,29 @@ fn test_scenario3_transfer_then_withdraw_race() {
 
     // ── Advance to 40s; record unlocked ──────────────────────────────────────
     t.set_time(t0 + 40);
-    let unlocked_at_transfer = t.client().get_withdrawable(&stream_id).unwrap();
+    let unlocked_at_transfer = t.client().get_withdrawable(&stream_id);
     assert!(unlocked_at_transfer > 0);
 
     // ── Transfer to new_recipient ─────────────────────────────────────────────
     let new_recipient = Address::generate(&t.env);
-    t.client()
-        .transfer_stream(&stream_id, &new_recipient)
-        .unwrap();
+    t.client().transfer_stream(&stream_id, &new_recipient);
 
     // Verify old recipient's index is cleared
     let old_received = t.client().get_received_streams(&t.recipient, &0, &100);
     assert!(
-        !old_received.contains(&stream_id),
+        !old_received.contains(stream_id),
         "old recipient's active index must not contain the transferred stream"
     );
 
     // Verify new recipient's index contains the stream
     let new_received = t.client().get_received_streams(&new_recipient, &0, &100);
     assert!(
-        new_received.contains(&stream_id),
+        new_received.contains(stream_id),
         "new recipient must appear in active index after transfer"
     );
 
     // ── new_recipient withdraws unlocked portion immediately after transfer ───
-    let withdrawable_after_transfer = t.client().get_withdrawable(&stream_id).unwrap();
+    let withdrawable_after_transfer = t.client().get_withdrawable(&stream_id);
     // Should be the same as before transfer (no time has passed)
     assert_eq!(
         withdrawable_after_transfer, unlocked_at_transfer,
@@ -371,8 +370,7 @@ fn test_scenario3_transfer_then_withdraw_race() {
     );
 
     t.client()
-        .withdraw(&stream_id, &withdrawable_after_transfer)
-        .unwrap();
+        .withdraw(&stream_id, &withdrawable_after_transfer);
     assert_eq!(
         t.token().balance(&new_recipient),
         withdrawable_after_transfer
@@ -387,10 +385,10 @@ fn test_scenario3_transfer_then_withdraw_race() {
 
     // ── Advance to end; new_recipient drains remainder ────────────────────────
     t.set_time(t0 + duration + 1);
-    let remainder = t.client().get_withdrawable(&stream_id).unwrap();
+    let remainder = t.client().get_withdrawable(&stream_id);
     assert!(remainder > 0);
 
-    t.client().withdraw(&stream_id, &remainder).unwrap();
+    t.client().withdraw(&stream_id, &remainder);
 
     // Token conservation
     assert_eq!(
@@ -434,25 +432,25 @@ fn test_scenario4_multiple_streams_same_parties_index_integrity() {
     // Sender index has all 3
     let sent = t.client().get_sent_streams(&t.sender, &0, &100);
     assert_eq!(sent.len(), 3);
-    assert!(sent.contains(&stream_a));
-    assert!(sent.contains(&stream_b));
-    assert!(sent.contains(&stream_c));
+    assert!(sent.contains(stream_a));
+    assert!(sent.contains(stream_b));
+    assert!(sent.contains(stream_c));
 
     // Recipient index has all 3
     let received = t.client().get_received_streams(&t.recipient, &0, &100);
     assert_eq!(received.len(), 3);
-    assert!(received.contains(&stream_a));
-    assert!(received.contains(&stream_b));
-    assert!(received.contains(&stream_c));
+    assert!(received.contains(stream_a));
+    assert!(received.contains(stream_b));
+    assert!(received.contains(stream_c));
 
     // ── Operation A: Cancel stream_a at t0+40 ────────────────────────────────
     t.set_time(t0 + 40);
     let sender_before_cancel = t.token().balance(&t.sender);
     let recipient_before_cancel = t.token().balance(&t.recipient);
 
-    t.client().cancel(&stream_a).unwrap();
+    t.client().cancel(&stream_a);
 
-    let stream_a_state = t.client().get_stream(&stream_a).unwrap();
+    let stream_a_state = t.client().get_stream(&stream_a);
     assert!(stream_a_state.cancelled);
 
     // Some tokens should go to recipient (40% unlocked), rest back to sender
@@ -475,7 +473,7 @@ fn test_scenario4_multiple_streams_same_parties_index_integrity() {
 
     // stream_a must leave sender's active index
     let sent_after_cancel = t.client().get_sent_streams(&t.sender, &0, &100);
-    assert!(!sent_after_cancel.contains(&stream_a));
+    assert!(!sent_after_cancel.contains(stream_a));
     assert_eq!(
         sent_after_cancel.len(),
         2,
@@ -484,69 +482,65 @@ fn test_scenario4_multiple_streams_same_parties_index_integrity() {
 
     // stream_a must leave recipient's active index
     let received_after_cancel = t.client().get_received_streams(&t.recipient, &0, &100);
-    assert!(!received_after_cancel.contains(&stream_a));
+    assert!(!received_after_cancel.contains(stream_a));
     assert_eq!(received_after_cancel.len(), 2);
 
     // stream_a must enter archived indexes
     assert!(t
         .client()
         .get_archived_sent_streams(&t.sender, &0, &100)
-        .contains(&stream_a));
+        .contains(stream_a));
     assert!(t
         .client()
         .get_archived_received_streams(&t.recipient, &0, &100)
-        .contains(&stream_a));
+        .contains(stream_a));
 
     // ── Operation B: Complete stream_b (recipient withdraws in full) ──────────
     t.set_time(t0 + duration + 1); // past end_time
-    let full_amount = t.client().get_withdrawable(&stream_b).unwrap();
+    let full_amount = t.client().get_withdrawable(&stream_b);
     assert_eq!(
         full_amount, total,
         "after end_time the full deposited amount should be withdrawable"
     );
 
-    t.client().withdraw(&stream_b, &full_amount).unwrap();
+    t.client().withdraw(&stream_b, &full_amount);
 
-    let stream_b_state = t.client().get_stream(&stream_b).unwrap();
+    let stream_b_state = t.client().get_stream(&stream_b);
     assert_eq!(stream_b_state.withdrawn_amount, total);
 
     // A fully drained stream moves to archive
     let sent_after_complete = t.client().get_sent_streams(&t.sender, &0, &100);
-    assert!(!sent_after_complete.contains(&stream_b));
+    assert!(!sent_after_complete.contains(stream_b));
     assert_eq!(
         sent_after_complete.len(),
         1,
         "sender active index should have only stream_c"
     );
-    assert!(sent_after_complete.contains(&stream_c));
+    assert!(sent_after_complete.contains(stream_c));
 
-    let received_after_complete = t
-        .client()
-        .get_received_streams(&t.recipient, &0, &100);
-    assert!(!received_after_complete.contains(&stream_b));
+    let received_after_complete = t.client().get_received_streams(&t.recipient, &0, &100);
+    assert!(!received_after_complete.contains(stream_b));
     assert_eq!(received_after_complete.len(), 1);
-    assert!(received_after_complete.contains(&stream_c));
+    assert!(received_after_complete.contains(stream_c));
 
     // stream_b in archived indexes
     assert!(t
         .client()
         .get_archived_sent_streams(&t.sender, &0, &100)
-        .contains(&stream_b));
+        .contains(stream_b));
     assert!(t
         .client()
         .get_archived_received_streams(&t.recipient, &0, &100)
-        .contains(&stream_b));
+        .contains(stream_b));
 
     // ── Operation C: Transfer stream_c to third_recipient ────────────────────
     let third_recipient = Address::generate(&t.env);
-    t.client()
-        .transfer_stream(&stream_c, &third_recipient)
-        .unwrap();
+    t.client().transfer_stream(&stream_c, &third_recipient);
 
     // stream_c stays in sender's active index
     let sent_final = t.client().get_sent_streams(&t.sender, &0, &100);
     assert!(
-        sent_final.contains(&stream_c),
+        sent_final.contains(stream_c),
         "sender active index must still contain stream_c after transfer"
     );
     assert_eq!(sent_final.len(), 1);
@@ -554,7 +548,7 @@ fn test_scenario4_multiple_streams_same_parties_index_integrity() {
     // stream_c must leave recipient's active index
     let received_final = t.client().get_received_streams(&t.recipient, &0, &100);
     assert!(
-        !received_final.contains(&stream_c),
+        !received_final.contains(stream_c),
         "stream_c must leave recipient active index after transfer"
     );
     assert_eq!(
@@ -564,11 +558,9 @@ fn test_scenario4_multiple_streams_same_parties_index_integrity() {
     );
 
     // stream_c must enter third_recipient's active index
-    let third_received = t
-        .client()
-        .get_received_streams(&third_recipient, &0, &100);
+    let third_received = t.client().get_received_streams(&third_recipient, &0, &100);
     assert!(
-        third_received.contains(&stream_c),
+        third_received.contains(stream_c),
         "third_recipient active index must contain stream_c"
     );
     assert_eq!(third_received.len(), 1);
@@ -577,7 +569,7 @@ fn test_scenario4_multiple_streams_same_parties_index_integrity() {
     // stream_a: distributed to sender/recipient at cancel
     // stream_b: fully withdrawn by recipient
     // stream_c: still in contract (not withdrawn yet)
-    let stream_c_state = t.client().get_stream(&stream_c).unwrap();
+    let stream_c_state = t.client().get_stream(&stream_c);
     assert_eq!(stream_c_state.recipient, third_recipient);
     assert_eq!(
         t.token().balance(&t.contract_id),
@@ -586,7 +578,7 @@ fn test_scenario4_multiple_streams_same_parties_index_integrity() {
     );
 
     // ── third_recipient can withdraw from stream_c ────────────────────────────
-    let withdrawable_c = t.client().get_withdrawable(&stream_c).unwrap();
+    let withdrawable_c = t.client().get_withdrawable(&stream_c);
     assert!(
         withdrawable_c > 0,
         "third_recipient should be able to withdraw from transferred stream"
@@ -614,9 +606,7 @@ fn test_scenario4b_old_recipient_cannot_withdraw_after_transfer() {
 
     // Transfer to new_recipient
     let new_recipient = Address::generate(&t.env);
-    t.client()
-        .transfer_stream(&stream_id, &new_recipient)
-        .unwrap();
+    t.client().transfer_stream(&stream_id, &new_recipient);
 
     // Old recipient is no longer in index
     let old_received = t.client().get_received_streams(&t.recipient, &0, &100);
@@ -627,7 +617,7 @@ fn test_scenario4b_old_recipient_cannot_withdraw_after_transfer() {
     );
 
     // Verify stream now points to new_recipient
-    let stream = t.client().get_stream(&stream_id).unwrap();
+    let stream = t.client().get_stream(&stream_id);
     assert_eq!(
         stream.recipient, new_recipient,
         "stream.recipient must be new_recipient after transfer"
@@ -639,5 +629,5 @@ fn test_scenario4b_old_recipient_cannot_withdraw_after_transfer() {
 
     // New recipient's index updated
     let new_received = t.client().get_received_streams(&new_recipient, &0, &100);
-    assert!(new_received.contains(&stream_id));
+    assert!(new_received.contains(stream_id));
 }

@@ -1,15 +1,15 @@
-'use client'
+"use client";
 
-import { useState, useEffect } from 'react'
-import { AlertCircle, Loader2, Check, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { useWallet } from '@/hooks/use-wallet'
-import { useNetwork } from '@/components/providers/network-provider'
-import { getXlmBalance } from '@/lib/stellar'
-import { toast } from 'sonner'
+import { useState, useEffect } from "react";
+import { AlertCircle, Loader2, Check, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useWallet } from "@/hooks/use-wallet";
+import { useNetwork } from "@/components/providers/network-provider";
+import { getXlmBalance } from "@/lib/stellar";
+import { toast } from "sonner";
 
 interface TestnetFaucetBannerProps {
-  onClose?: () => void
+  onClose?: () => void;
 }
 
 /**
@@ -18,92 +18,98 @@ interface TestnetFaucetBannerProps {
  * account via Friendbot.
  */
 export function TestnetFaucetBanner({ onClose }: TestnetFaucetBannerProps) {
-  const { address, isConnected } = useWallet()
-  const { network } = useNetwork()
+  const { address, isConnected } = useWallet();
+  const { network } = useNetwork();
 
-  const [xlmBalance, setXlmBalance] = useState<bigint | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [funding, setFunding] = useState(false)
-  const [fundingStatus, setFundingStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [errorMessage, setErrorMessage] = useState('')
-  const [dismissed, setDismissed] = useState(false)
+  const [xlmBalance, setXlmBalance] = useState<bigint | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [funding, setFunding] = useState(false);
+  const [fundingStatus, setFundingStatus] = useState<
+    "idle" | "success" | "error"
+  >("idle");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [dismissed, setDismissed] = useState(false);
 
   // Only show on testnet
-  const isTestnet = network === 'testnet'
+  const isTestnet = network === "testnet";
 
   // Fetch balance when address changes
   useEffect(() => {
     if (!address || !isConnected || !isTestnet) {
-      setLoading(false)
-      return
+      setLoading(false);
+      return;
     }
 
-    setLoading(true)
-    getXlmBalance(address, 'testnet')
+    setLoading(true);
+    getXlmBalance(address, "testnet")
       .then((balance) => {
-        setXlmBalance(balance)
-        setLoading(false)
+        setXlmBalance(balance);
+        setLoading(false);
       })
       .catch(() => {
-        setLoading(false)
-      })
-  }, [address, isConnected, isTestnet])
+        setLoading(false);
+      });
+  }, [address, isConnected, isTestnet]);
 
   // Hide if not applicable
   if (dismissed || !isTestnet || !isConnected || !address || loading) {
-    return null
+    return null;
   }
 
   // Hide if balance is not zero
-  const isZeroBalance = xlmBalance === null || xlmBalance === 0n
+  const isZeroBalance = xlmBalance === null || xlmBalance === 0n;
   if (!isZeroBalance) {
-    return null
+    return null;
   }
 
   async function fundWithFriendbot() {
-    setFunding(true)
-    setFundingStatus('idle')
-    setErrorMessage('')
+    if (!address) return;
+    setFunding(true);
+    setFundingStatus("idle");
+    setErrorMessage("");
 
     try {
       // Call Friendbot
-      const friendbotUrl = `https://friendbot.stellar.org?addr=${encodeURIComponent(address)}`
-      const response = await fetch(friendbotUrl)
+      const friendbotUrl = `https://friendbot.stellar.org?addr=${encodeURIComponent(address)}`;
+      const response = await fetch(friendbotUrl);
 
       if (!response.ok) {
-        const errorData = await response.text()
-        throw new Error(errorData || 'Friendbot funding failed')
+        const errorData = await response.text();
+        throw new Error(errorData || "Friendbot funding failed");
       }
 
       // Wait a moment for the transaction to be confirmed
-      await new Promise((resolve) => setTimeout(resolve, 3000))
+      await new Promise((resolve) => setTimeout(resolve, 3000));
 
       // Refresh balance
-      const newBalance = await getXlmBalance(address, 'testnet')
-      setXlmBalance(newBalance)
-      setFundingStatus('success')
+      const newBalance = await getXlmBalance(address, "testnet");
+      setXlmBalance(newBalance);
+      setFundingStatus("success");
 
-      toast.success('Account funded!', {
-        description: 'Your testnet account has been funded with test XLM from Friendbot.',
-      })
+      toast.success("Account funded!", {
+        description:
+          "Your testnet account has been funded with test XLM from Friendbot.",
+      });
 
       // Auto-dismiss after success
       setTimeout(() => {
-        setDismissed(true)
-        onClose?.()
-      }, 5000)
+        setDismissed(true);
+        onClose?.();
+      }, 5000);
     } catch (error) {
-      console.error('Friendbot funding error:', error)
-      setFundingStatus('error')
+      console.error("Friendbot funding error:", error);
+      setFundingStatus("error");
       const message =
-        error instanceof Error ? error.message : 'Failed to fund account. Please try again.'
-      setErrorMessage(message)
+        error instanceof Error
+          ? error.message
+          : "Failed to fund account. Please try again.";
+      setErrorMessage(message);
 
-      toast.error('Funding failed', {
+      toast.error("Funding failed", {
         description: message,
-      })
+      });
     } finally {
-      setFunding(false)
+      setFunding(false);
     }
   }
 
@@ -116,17 +122,18 @@ export function TestnetFaucetBanner({ onClose }: TestnetFaucetBannerProps) {
             Your testnet account needs funding
           </p>
           <p className="text-sm text-amber-600 dark:text-amber-400 mt-1">
-            Fund your account with test XLM using Friendbot to start creating streams.
+            Fund your account with test XLM using Friendbot to start creating
+            streams.
           </p>
 
-          {fundingStatus === 'success' && (
+          {fundingStatus === "success" && (
             <p className="text-sm text-green-600 dark:text-green-400 mt-2 flex items-center gap-1">
               <Check className="size-4" />
               Account funded successfully! Reloading...
             </p>
           )}
 
-          {fundingStatus === 'error' && (
+          {fundingStatus === "error" && (
             <p className="text-sm text-destructive mt-2 flex items-center gap-1">
               <X className="size-4" />
               {errorMessage}
@@ -143,7 +150,7 @@ export function TestnetFaucetBanner({ onClose }: TestnetFaucetBannerProps) {
           className="gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
         >
           {funding && <Loader2 className="size-4 animate-spin" />}
-          {funding ? 'Funding...' : 'Fund with Friendbot'}
+          {funding ? "Funding..." : "Fund with Friendbot"}
         </Button>
         <Button
           size="sm"
@@ -157,10 +164,10 @@ export function TestnetFaucetBanner({ onClose }: TestnetFaucetBannerProps) {
       </div>
 
       <p className="text-xs text-amber-600 dark:text-amber-400/70">
-        {' '}
-        Friendbot may be rate-limited if you fund multiple accounts. If funding fails, wait a few
-        minutes and try again.
+        {" "}
+        Friendbot may be rate-limited if you fund multiple accounts. If funding
+        fails, wait a few minutes and try again.
       </p>
     </div>
-  )
+  );
 }

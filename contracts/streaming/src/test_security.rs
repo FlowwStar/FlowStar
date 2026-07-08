@@ -18,7 +18,6 @@ struct Ctx {
     sender: Address,
     recipient: Address,
     attacker: Address,
-    admin: Address,
 }
 
 impl Ctx {
@@ -31,12 +30,21 @@ impl Ctx {
         let attacker = Address::generate(&env);
         let admin = Address::generate(&env);
         let token_admin = Address::generate(&env);
-        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
         let asset = StellarAssetClient::new(&env, &token_id);
-        asset.mint(&sender,   &10_000_000_0000000);
+        asset.mint(&sender, &10_000_000_0000000);
         asset.mint(&attacker, &10_000_000_0000000);
         StreamingContractClient::new(&env, &contract_id).initialize(&admin);
-        Ctx { env, contract_id, token_id, sender, recipient, attacker, admin }
+        Ctx {
+            env,
+            contract_id,
+            token_id,
+            sender,
+            recipient,
+            attacker,
+        }
     }
 
     fn client(&self) -> StreamingContractClient<'_> {
@@ -54,7 +62,9 @@ impl Ctx {
     fn create_basic_stream(&self, now: u64) -> u64 {
         let total = 1_000_0000000i128;
         self.token().approve(
-            &self.sender, &self.contract_id, &total,
+            &self.sender,
+            &self.contract_id,
+            &total,
             &(self.env.ledger().sequence() + 500),
         );
         self.client().create_stream(
@@ -68,7 +78,7 @@ impl Ctx {
                 cliff_time: now,
                 cliff_amount: 0,
             },
-        ).unwrap()
+        )
     }
 }
 
@@ -94,7 +104,7 @@ fn test_auth_attacker_cannot_withdraw() {
             sub_invokes: &[],
         },
     }]);
-    ctx.client().withdraw(&id, &1_0000000).unwrap();
+    ctx.client().withdraw(&id, &1_0000000);
 }
 
 /// Attacker cannot cancel a stream they did not create.
@@ -114,7 +124,7 @@ fn test_auth_attacker_cannot_cancel() {
             sub_invokes: &[],
         },
     }]);
-    ctx.client().cancel(&id).unwrap();
+    ctx.client().cancel(&id);
 }
 
 /// Recipient cannot cancel their own incoming stream.
@@ -134,7 +144,7 @@ fn test_auth_recipient_cannot_cancel() {
             sub_invokes: &[],
         },
     }]);
-    ctx.client().cancel(&id).unwrap();
+    ctx.client().cancel(&id);
 }
 
 /// Non-admin cannot upgrade the contract.
@@ -173,7 +183,7 @@ fn test_auth_sender_cannot_withdraw() {
             sub_invokes: &[],
         },
     }]);
-    ctx.client().withdraw(&id, &1_0000000).unwrap();
+    ctx.client().withdraw(&id, &1_0000000);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -218,16 +228,16 @@ fn test_no_overdraw_multiple_partial_withdrawals() {
 
     for i in 1..=10u64 {
         ctx.set_time(now + i * 100);
-        let w = ctx.client().get_withdrawable(&id).unwrap();
+        let w = ctx.client().get_withdrawable(&id);
         if w > 0 {
-            ctx.client().withdraw(&id, &w).unwrap();
+            ctx.client().withdraw(&id, &w);
             total_withdrawn += w;
         }
     }
     ctx.set_time(now + 2000);
-    let final_w = ctx.client().get_withdrawable(&id).unwrap();
+    let final_w = ctx.client().get_withdrawable(&id);
     if final_w > 0 {
-        ctx.client().withdraw(&id, &final_w).unwrap();
+        ctx.client().withdraw(&id, &final_w);
         total_withdrawn += final_w;
     }
 
@@ -243,7 +253,7 @@ fn test_withdraw_more_than_withdrawable() {
     ctx.set_time(now);
     let id = ctx.create_basic_stream(now);
     ctx.set_time(now + 500);
-    let withdrawable = ctx.client().get_withdrawable(&id).unwrap();
+    let withdrawable = ctx.client().get_withdrawable(&id);
     let result = ctx.client().try_withdraw(&id, &(withdrawable + 1));
     assert_eq!(result, Err(Ok(StreamError::InsufficientFunds)));
 }
@@ -283,14 +293,14 @@ fn test_cancel_conservation_with_prior_withdrawal() {
     let total = 1_000_0000000i128;
 
     ctx.set_time(now + 300);
-    let w = ctx.client().get_withdrawable(&id).unwrap();
-    ctx.client().withdraw(&id, &w).unwrap();
+    let w = ctx.client().get_withdrawable(&id);
+    ctx.client().withdraw(&id, &w);
 
     let recipient_before = ctx.token().balance(&ctx.recipient);
     let sender_before = ctx.token().balance(&ctx.sender);
 
     ctx.set_time(now + 500);
-    ctx.client().cancel(&id).unwrap();
+    ctx.client().cancel(&id);
 
     let recipient_got = ctx.token().balance(&ctx.recipient) - recipient_before;
     let sender_got = ctx.token().balance(&ctx.sender) - sender_before;
@@ -309,10 +319,10 @@ fn test_cancel_after_full_withdrawal() {
     let total = 1_000_0000000i128;
 
     ctx.set_time(now + 2000);
-    ctx.client().withdraw(&id, &total).unwrap();
-    ctx.client().cancel(&id).unwrap();
+    ctx.client().withdraw(&id, &total);
+    ctx.client().cancel(&id);
 
-    assert!(ctx.client().get_stream(&id).unwrap().cancelled);
+    assert!(ctx.client().get_stream(&id).cancelled);
     assert_eq!(ctx.token().balance(&ctx.contract_id), 0);
 }
 
@@ -323,7 +333,12 @@ fn test_cancel_before_start_full_refund() {
     ctx.set_time(now);
     let total = 1_000_0000000i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -335,10 +350,10 @@ fn test_cancel_before_start_full_refund() {
             cliff_time: now + 500,
             cliff_amount: 0,
         },
-    ).unwrap();
+    );
 
     let sender_before = ctx.token().balance(&ctx.sender);
-    ctx.client().cancel(&id).unwrap();
+    ctx.client().cancel(&id);
 
     assert_eq!(ctx.token().balance(&ctx.sender) - sender_before, total);
     assert_eq!(ctx.token().balance(&ctx.recipient), 0);
@@ -355,7 +370,7 @@ fn test_cancel_at_end_time() {
 
     ctx.set_time(now + 1000);
     let sender_before = ctx.token().balance(&ctx.sender);
-    ctx.client().cancel(&id).unwrap();
+    ctx.client().cancel(&id);
 
     assert_eq!(ctx.token().balance(&ctx.sender), sender_before);
     assert_eq!(ctx.token().balance(&ctx.recipient), total);
@@ -373,7 +388,12 @@ fn test_cliff_amount_equals_total() {
     ctx.set_time(now);
     let total = 1_000_0000000i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -385,16 +405,16 @@ fn test_cliff_amount_equals_total() {
             cliff_time: now + 200,
             cliff_amount: total,
         },
-    ).unwrap();
+    );
 
     ctx.set_time(now + 199);
-    assert_eq!(ctx.client().get_withdrawable(&id).unwrap(), 0);
+    assert_eq!(ctx.client().get_withdrawable(&id), 0);
 
     ctx.set_time(now + 200);
-    assert_eq!(ctx.client().get_withdrawable(&id).unwrap(), total);
+    assert_eq!(ctx.client().get_withdrawable(&id), total);
 
     ctx.set_time(now + 800);
-    assert_eq!(ctx.client().get_withdrawable(&id).unwrap(), total);
+    assert_eq!(ctx.client().get_withdrawable(&id), total);
 }
 
 #[test]
@@ -404,7 +424,12 @@ fn test_cliff_time_equals_end_time() {
     ctx.set_time(now);
     let total = 1_000_0000000i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -416,13 +441,13 @@ fn test_cliff_time_equals_end_time() {
             cliff_time: now + 1000,
             cliff_amount: 500_0000000,
         },
-    ).unwrap();
+    );
 
     ctx.set_time(now + 999);
-    assert_eq!(ctx.client().get_withdrawable(&id).unwrap(), 0);
+    assert_eq!(ctx.client().get_withdrawable(&id), 0);
 
     ctx.set_time(now + 1000);
-    assert_eq!(ctx.client().get_withdrawable(&id).unwrap(), total);
+    assert_eq!(ctx.client().get_withdrawable(&id), total);
 }
 
 #[test]
@@ -433,7 +458,12 @@ fn test_withdraw_exactly_at_cliff() {
     let total = 1_000_0000000i128;
     let cliff_amt = 200_0000000i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -445,12 +475,12 @@ fn test_withdraw_exactly_at_cliff() {
             cliff_time: now + 200,
             cliff_amount: cliff_amt,
         },
-    ).unwrap();
+    );
 
     ctx.set_time(now + 200);
-    let w = ctx.client().get_withdrawable(&id).unwrap();
+    let w = ctx.client().get_withdrawable(&id);
     assert!(w > 0);
-    ctx.client().withdraw(&id, &w).unwrap();
+    ctx.client().withdraw(&id, &w);
     assert_eq!(ctx.token().balance(&ctx.recipient), w);
 }
 
@@ -461,7 +491,12 @@ fn test_nothing_withdrawable_before_cliff() {
     ctx.set_time(now);
     let total = 1_000_0000000i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -473,10 +508,10 @@ fn test_nothing_withdrawable_before_cliff() {
             cliff_time: now + 500,
             cliff_amount: 0,
         },
-    ).unwrap();
+    );
 
     ctx.set_time(now + 499);
-    assert_eq!(ctx.client().get_withdrawable(&id).unwrap(), 0);
+    assert_eq!(ctx.client().get_withdrawable(&id), 0);
 }
 
 #[test]
@@ -486,7 +521,12 @@ fn test_withdraw_before_cliff_returns_error() {
     ctx.set_time(now);
     let total = 1_000_0000000i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -498,7 +538,7 @@ fn test_withdraw_before_cliff_returns_error() {
             cliff_time: now + 500,
             cliff_amount: 0,
         },
-    ).unwrap();
+    );
 
     ctx.set_time(now + 100);
     let result = ctx.client().try_withdraw(&id, &1_0000000);
@@ -516,7 +556,12 @@ fn test_rounding_dust_stays_in_contract() {
     ctx.set_time(now);
     let total = 1_000_000_0000001i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -528,12 +573,12 @@ fn test_rounding_dust_stays_in_contract() {
             cliff_time: now,
             cliff_amount: 0,
         },
-    ).unwrap();
+    );
 
     ctx.set_time(now + 1000);
-    let w = ctx.client().get_withdrawable(&id).unwrap();
+    let w = ctx.client().get_withdrawable(&id);
     assert_eq!(w, total);
-    ctx.client().withdraw(&id, &w).unwrap();
+    ctx.client().withdraw(&id, &w);
     assert_eq!(ctx.token().balance(&ctx.recipient), total);
     assert_eq!(ctx.token().balance(&ctx.contract_id), 0);
 }
@@ -548,7 +593,12 @@ fn test_large_amounts_no_overflow() {
     let asset = StellarAssetClient::new(&ctx.env, &ctx.token_id);
     asset.mint(&ctx.sender, &large_total);
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &large_total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &large_total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -560,15 +610,15 @@ fn test_large_amounts_no_overflow() {
             cliff_time: now,
             cliff_amount: 0,
         },
-    ).unwrap();
+    );
 
     ctx.set_time(now + 15_768_000);
-    let w = ctx.client().get_withdrawable(&id).unwrap();
+    let w = ctx.client().get_withdrawable(&id);
     assert!(w > 0);
     assert!(w < large_total);
 
     ctx.set_time(now + 31_536_001);
-    assert_eq!(ctx.client().get_withdrawable(&id).unwrap(), large_total);
+    assert_eq!(ctx.client().get_withdrawable(&id), large_total);
 }
 
 #[test]
@@ -578,7 +628,12 @@ fn test_minimum_duration_stream() {
     ctx.set_time(now);
     let total = 1_000_0000000i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -590,11 +645,11 @@ fn test_minimum_duration_stream() {
             cliff_time: now,
             cliff_amount: 0,
         },
-    ).unwrap();
+    );
 
     ctx.set_time(now + 1);
-    assert_eq!(ctx.client().get_withdrawable(&id).unwrap(), total);
-    ctx.client().withdraw(&id, &total).unwrap();
+    assert_eq!(ctx.client().get_withdrawable(&id), total);
+    ctx.client().withdraw(&id, &total);
     assert_eq!(ctx.token().balance(&ctx.recipient), total);
 }
 
@@ -602,6 +657,10 @@ fn test_minimum_duration_stream() {
 // 7. SELF-STREAM (sender == recipient)
 // ═══════════════════════════════════════════════════════════════════
 
+// Self-streams (sender == recipient) are rejected outright at creation
+// (see test_create_stream_self_rejected in test.rs), so there is no
+// cancel/withdraw fund-accounting path to exercise for them — creation
+// itself must fail first.
 #[test]
 fn test_self_stream_cancel_no_double_pay() {
     let ctx = Ctx::new();
@@ -609,8 +668,13 @@ fn test_self_stream_cancel_no_double_pay() {
     ctx.set_time(now);
     let total = 1_000_0000000i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
-    let id = ctx.client().create_stream(
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
+    let result = ctx.client().try_create_stream(
         &ctx.sender,
         &CreateStreamParams {
             recipient: ctx.sender.clone(),
@@ -621,17 +685,9 @@ fn test_self_stream_cancel_no_double_pay() {
             cliff_time: now,
             cliff_amount: 0,
         },
-    ).unwrap();
+    );
 
-    let balance_before = ctx.token().balance(&ctx.sender);
-    ctx.set_time(now + 500);
-    ctx.client().cancel(&id).unwrap();
-
-    let balance_after = ctx.token().balance(&ctx.sender);
-    let contract_balance = ctx.token().balance(&ctx.contract_id);
-
-    assert_eq!(balance_after - balance_before + contract_balance, total);
-    assert!(contract_balance < 1000);
+    assert_eq!(result, Err(Ok(StreamError::SelfStream)));
 }
 
 #[test]
@@ -641,8 +697,13 @@ fn test_self_stream_withdraw() {
     ctx.set_time(now);
     let total = 1_000_0000000i128;
 
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
-    let id = ctx.client().create_stream(
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
+    let result = ctx.client().try_create_stream(
         &ctx.sender,
         &CreateStreamParams {
             recipient: ctx.sender.clone(),
@@ -653,13 +714,10 @@ fn test_self_stream_withdraw() {
             cliff_time: now,
             cliff_amount: 0,
         },
-    ).unwrap();
+    );
 
-    ctx.set_time(now + 2000);
-    ctx.client().withdraw(&id, &total).unwrap();
-    assert_eq!(ctx.token().balance(&ctx.contract_id), 0);
+    assert_eq!(result, Err(Ok(StreamError::SelfStream)));
 }
-
 
 // ═══════════════════════════════════════════════════════════════════
 // 8. CREATE PARAM VALIDATION
@@ -671,7 +729,12 @@ fn test_cliff_before_start_time() {
     let now = 1_000_000u64;
     ctx.set_time(now);
     let total = 1_000_0000000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let result = ctx.client().try_create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -693,7 +756,12 @@ fn test_cliff_after_end_time() {
     let now = 1_000_000u64;
     ctx.set_time(now);
     let total = 1_000_0000000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let result = ctx.client().try_create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -715,7 +783,12 @@ fn test_cliff_amount_exceeds_total() {
     let now = 1_000_000u64;
     ctx.set_time(now);
     let total = 1_000_0000000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let result = ctx.client().try_create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -737,7 +810,12 @@ fn test_negative_cliff_amount() {
     let now = 1_000_000u64;
     ctx.set_time(now);
     let total = 1_000_0000000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let result = ctx.client().try_create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -779,7 +857,12 @@ fn test_end_time_equals_start_time() {
     let now = 1_000_000u64;
     ctx.set_time(now);
     let total = 1_000_0000000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let result = ctx.client().try_create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -801,14 +884,19 @@ fn test_end_time_equals_start_time() {
 
 /// Reject dust stream: very small amount over long duration results in zero rate.
 #[test]
-#[should_panic(expected = "stream amount too small for duration — rate would be 0")]
+#[should_panic(expected = "stream amount too small for duration")]
 fn test_dust_stream_rejected() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
     ctx.set_time(now);
     // 100 stroops over 1 year (31,536,000 seconds) = 0 per second due to integer division
     let total = 100i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -825,14 +913,19 @@ fn test_dust_stream_rejected() {
 
 /// Reject dust stream with cliff: linear amount too small for duration.
 #[test]
-#[should_panic(expected = "stream amount too small for duration — rate would be 0")]
+#[should_panic(expected = "stream amount too small for duration")]
 fn test_dust_stream_with_cliff_rejected() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
     ctx.set_time(now);
     // Total 1000, but cliff takes 999, leaving only 1 for linear over 1 year
     let total = 1000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -854,7 +947,12 @@ fn test_all_cliff_stream_accepted() {
     let now = 1_000_000u64;
     ctx.set_time(now);
     let total = 1_000_0000000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -871,15 +969,23 @@ fn test_all_cliff_stream_accepted() {
     assert!(id > 0);
 }
 
-/// Top-up that would result in zero rate should be rejected.
+/// A tiny top-up with only a moment of the stream left must still succeed:
+/// `top_up` re-anchors its vesting math off `unlocked_amount` (the same
+/// function withdraw/cancel use), which guarantees `remaining >=
+/// remaining_seconds` given `create_stream`'s own rate>=1 invariant, so a
+/// legitimate top-up can never actually produce a zero rate here.
 #[test]
-#[should_panic(expected = "stream amount too small for remaining duration — rate would be 0")]
-fn test_top_up_dust_stream_rejected() {
+fn test_top_up_near_end_succeeds() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;
     ctx.set_time(now);
     let total = 1_000_0000000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -896,10 +1002,83 @@ fn test_top_up_dust_stream_rejected() {
     // Advance to near end
     ctx.set_time(now + 999);
 
-    // Try to add tiny amount that would result in zero rate
     let tiny_addition = 1i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &tiny_addition, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &tiny_addition,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     ctx.client().top_up(&id, &tiny_addition);
+
+    let stream = ctx.client().get_stream(&id);
+    assert_eq!(stream.deposited_amount, total + tiny_addition);
+    assert!(stream.amount_per_second > 0);
+}
+
+/// Regression test for a real bug: `top_up` used to recompute vesting via a
+/// separate formula (`amount_per_second * elapsed-since-cliff`) that
+/// diverged from `unlocked_amount` (what withdraw/cancel actually use).
+/// After a rate increase, that separate formula retroactively re-applied
+/// the new (higher) rate across the *entire* elapsed time instead of just
+/// the time since the last top-up, overstating how much had vested. Two
+/// top-ups in a row could make it think the stream was almost fully vested
+/// when it wasn't, spuriously rejecting a perfectly reasonable follow-up
+/// top-up as "dust". This also meant, more broadly, that funds added via
+/// top-up did not actually stream out progressively before the fix — they
+/// were invisible to `unlocked_amount` until `end_time`.
+#[test]
+fn test_top_up_twice_then_withdraw_mid_stream() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let total = 1000i128;
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
+    let id = ctx.client().create_stream(
+        &ctx.sender,
+        &CreateStreamParams {
+            recipient: ctx.recipient.clone(),
+            token: ctx.token_id.clone(),
+            total_amount: total,
+            start_time: now,
+            end_time: now + 1000,
+            cliff_time: now,
+            cliff_amount: 0,
+        },
+    );
+
+    // First top-up, 990 tokens deposited: pulls the rate up sharply.
+    ctx.set_time(now + 990);
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &990i128,
+        &(ctx.env.ledger().sequence() + 500),
+    );
+    ctx.client().top_up(&id, &990i128);
+
+    // Second top-up a second later must not panic, and must not think the
+    // stream is already almost fully vested.
+    ctx.set_time(now + 991);
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &1i128,
+        &(ctx.env.ledger().sequence() + 500),
+    );
+    ctx.client().top_up(&id, &1i128);
+
+    // With 9 seconds still remaining, funds must be streaming out
+    // progressively rather than sitting locked until end_time.
+    ctx.set_time(now + 995);
+    let withdrawable = ctx.client().get_withdrawable(&id);
+    assert!(withdrawable > 0);
+    assert!(withdrawable < ctx.client().get_stream(&id).deposited_amount);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -914,7 +1093,12 @@ fn test_recipient_is_contract_rejected() {
     let now = 1_000_000u64;
     ctx.set_time(now);
     let total = 1_000_0000000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {
@@ -936,7 +1120,12 @@ fn test_valid_recipient_accepted() {
     let now = 1_000_000u64;
     ctx.set_time(now);
     let total = 1_000_0000000i128;
-    ctx.token().approve(&ctx.sender, &ctx.contract_id, &total, &(ctx.env.ledger().sequence() + 500));
+    ctx.token().approve(
+        &ctx.sender,
+        &ctx.contract_id,
+        &total,
+        &(ctx.env.ledger().sequence() + 500),
+    );
     let id = ctx.client().create_stream(
         &ctx.sender,
         &CreateStreamParams {

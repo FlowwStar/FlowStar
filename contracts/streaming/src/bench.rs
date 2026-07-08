@@ -20,14 +20,11 @@ use soroban_sdk::{
 
 /// Resets budget, runs `f`, then prints CPU + memory costs.
 fn measure(env: &Env, label: &str, f: impl FnOnce()) {
-    env.budget().reset_default();
+    env.cost_estimate().budget().reset_default();
     f();
-    let cpu = env.budget().cpu_instruction_cost();
-    let mem = env.budget().memory_bytes_cost();
-    std::println!(
-        "[BENCH] {:<50} cpu={:>12} mem={:>10}",
-        label, cpu, mem
-    );
+    let cpu = env.cost_estimate().budget().cpu_instruction_cost();
+    let mem = env.cost_estimate().budget().memory_bytes_cost();
+    std::println!("[BENCH] {:<50} cpu={:>12} mem={:>10}", label, cpu, mem);
 
     // Flag operations that approach the Soroban limit (100M cpu instructions)
     if cpu > 50_000_000 {
@@ -59,17 +56,25 @@ impl BenchEnv {
         let recipient = Address::generate(&env);
 
         let token_admin = Address::generate(&env);
-        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
         StellarAssetClient::new(&env, &token_id).mint(&sender, &1_000_000_000_0000000);
 
-        BenchEnv { env, contract_id, token_id, sender, recipient }
+        BenchEnv {
+            env,
+            contract_id,
+            token_id,
+            sender,
+            recipient,
+        }
     }
 
-    fn client(&self) -> StreamingContractClient {
+    fn client(&self) -> StreamingContractClient<'_> {
         StreamingContractClient::new(&self.env, &self.contract_id)
     }
 
-    fn token(&self) -> TokenClient {
+    fn token(&self) -> TokenClient<'_> {
         TokenClient::new(&self.env, &self.token_id)
     }
 
@@ -250,9 +255,13 @@ fn bench_get_sent_streams_pagination() {
     measure(&b.env, "get_sent_streams (100 streams, full page)", || {
         b.client().get_sent_streams(&b.sender, &0, &100);
     });
-    measure(&b.env, "get_sent_streams (100 streams, page offset 50)", || {
-        b.client().get_sent_streams(&b.sender, &50, &50);
-    });
+    measure(
+        &b.env,
+        "get_sent_streams (100 streams, page offset 50)",
+        || {
+            b.client().get_sent_streams(&b.sender, &50, &50);
+        },
+    );
 }
 
 #[test]
@@ -265,20 +274,32 @@ fn bench_get_received_streams_pagination() {
     for _ in 0..10 {
         b.create_default(now);
     }
-    measure(&b.env, "get_received_streams (10 streams, full page)", || {
-        b.client().get_received_streams(&b.recipient, &0, &100);
-    });
+    measure(
+        &b.env,
+        "get_received_streams (10 streams, full page)",
+        || {
+            b.client().get_received_streams(&b.recipient, &0, &100);
+        },
+    );
 
     // Create 90 more for 100 total
     for _ in 0..90 {
         b.create_default(now);
     }
-    measure(&b.env, "get_received_streams (100 streams, full page)", || {
-        b.client().get_received_streams(&b.recipient, &0, &100);
-    });
-    measure(&b.env, "get_received_streams (100 streams, page offset 50)", || {
-        b.client().get_received_streams(&b.recipient, &50, &50);
-    });
+    measure(
+        &b.env,
+        "get_received_streams (100 streams, full page)",
+        || {
+            b.client().get_received_streams(&b.recipient, &0, &100);
+        },
+    );
+    measure(
+        &b.env,
+        "get_received_streams (100 streams, page offset 50)",
+        || {
+            b.client().get_received_streams(&b.recipient, &50, &50);
+        },
+    );
 }
 
 #[test]

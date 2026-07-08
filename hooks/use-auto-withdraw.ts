@@ -1,190 +1,200 @@
-'use client'
+"use client";
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { withdrawFromStream } from '@/lib/contract'
-import { getWithdrawableAmount } from '@/lib/stream-utils'
-import type { StreamData } from '@/types/stream'
-import { useNetwork } from '@/components/providers/network-provider'
+import { useState, useEffect, useCallback, useRef } from "react";
+import { withdrawFromStream } from "@/lib/contract";
+import { getWithdrawableAmount } from "@/lib/stream-utils";
+import type { StreamData } from "@/types/stream";
+import { useNetwork } from "@/components/providers/network-provider";
 
-export type WithdrawStrategy = 'time-based' | 'threshold-based' | 'gas-optimized' | 'max'
+export type WithdrawStrategy =
+  "time-based" | "threshold-based" | "gas-optimized" | "max";
 
 interface WithdrawalHistoryEntry {
-  timestamp: number
-  amount: string
-  txHash?: string
-  error?: string
+  timestamp: number;
+  amount: string;
+  txHash?: string;
+  error?: string;
 }
 
 interface AutoWithdrawSettings {
-  enabled: boolean
-  strategy: WithdrawStrategy
-  intervalHours: number
-  minAmountRaw: string
-  maxSafetyLimitRaw: string
-  thresholdPercentage: number
-  withdrawalHistory: WithdrawalHistoryEntry[]
+  enabled: boolean;
+  strategy: WithdrawStrategy;
+  intervalHours: number;
+  minAmountRaw: string;
+  maxSafetyLimitRaw: string;
+  thresholdPercentage: number;
+  withdrawalHistory: WithdrawalHistoryEntry[];
 }
 
 const DEFAULT_SETTINGS: AutoWithdrawSettings = {
   enabled: false,
-  strategy: 'time-based',
+  strategy: "time-based",
   intervalHours: 24,
-  minAmountRaw: '0',
-  maxSafetyLimitRaw: '0',
+  minAmountRaw: "0",
+  maxSafetyLimitRaw: "0",
   thresholdPercentage: 50,
   withdrawalHistory: [],
-}
+};
 
 function storageKey(streamId: string) {
-  return `flowstar:auto-withdraw:${streamId}`
+  return `flowstar:auto-withdraw:${streamId}`;
 }
 
 function loadSettings(streamId: string): AutoWithdrawSettings {
   try {
-    const stored = localStorage.getItem(storageKey(streamId))
-    if (!stored) return DEFAULT_SETTINGS
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) }
+    const stored = localStorage.getItem(storageKey(streamId));
+    if (!stored) return DEFAULT_SETTINGS;
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
   } catch {
-    return DEFAULT_SETTINGS
+    return DEFAULT_SETTINGS;
   }
 }
 
 function saveSettings(streamId: string, settings: AutoWithdrawSettings) {
-  localStorage.setItem(storageKey(streamId), JSON.stringify(settings))
+  localStorage.setItem(storageKey(streamId), JSON.stringify(settings));
 }
 
 export function useAutoWithdraw(stream: StreamData | null) {
-  const { network } = useNetwork()
-  const [settings, setSettings] = useState<AutoWithdrawSettings>(DEFAULT_SETTINGS)
-  const [lastAutoWithdraw, setLastAutoWithdraw] = useState<number | null>(null)
-  const [autoWithdrawPending, setAutoWithdrawPending] = useState(false)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const { network } = useNetwork();
+  const [settings, setSettings] =
+    useState<AutoWithdrawSettings>(DEFAULT_SETTINGS);
+  const [lastAutoWithdraw, setLastAutoWithdraw] = useState<number | null>(null);
+  const [autoWithdrawPending, setAutoWithdrawPending] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (stream) setSettings(loadSettings(stream.id))
-  }, [stream?.id])
+    if (stream) setSettings(loadSettings(stream.id));
+  }, [stream?.id]);
 
   const updateSettings = useCallback(
     (update: Partial<AutoWithdrawSettings>) => {
-      if (!stream) return
-      const next = { ...settings, ...update }
-      setSettings(next)
-      saveSettings(stream.id, next)
+      if (!stream) return;
+      const next = { ...settings, ...update };
+      setSettings(next);
+      saveSettings(stream.id, next);
     },
     [stream, settings],
-  )
+  );
 
   const addWithdrawalHistory = useCallback(
     (entry: WithdrawalHistoryEntry) => {
-      if (!stream) return
+      if (!stream) return;
       setSettings((prev) => ({
         ...prev,
-        withdrawalHistory: [
-          entry,
-          ...prev.withdrawalHistory.slice(0, 99),
-        ],
-      }))
+        withdrawalHistory: [entry, ...prev.withdrawalHistory.slice(0, 99)],
+      }));
       saveSettings(stream.id, {
         ...settings,
-        withdrawalHistory: [
-          entry,
-          ...settings.withdrawalHistory.slice(0, 99),
-        ],
-      })
+        withdrawalHistory: [entry, ...settings.withdrawalHistory.slice(0, 99)],
+      });
     },
     [stream, settings],
-  )
+  );
 
   const calculateWithdrawAmount = useCallback(
     (withdrawable: bigint, stream: StreamData): bigint => {
-      const minAmount = BigInt(settings.minAmountRaw || '0')
-      const maxLimit = BigInt(settings.maxSafetyLimitRaw || '0')
+      const minAmount = BigInt(settings.minAmountRaw || "0");
+      const maxLimit = BigInt(settings.maxSafetyLimitRaw || "0");
 
-      if (withdrawable <= 0n) return 0n
-      if (minAmount > 0n && withdrawable < minAmount) return 0n
+      if (withdrawable <= 0n) return 0n;
+      if (minAmount > 0n && withdrawable < minAmount) return 0n;
 
-      let amount = withdrawable
+      let amount = withdrawable;
 
       switch (settings.strategy) {
-        case 'threshold-based': {
-          const threshold = (stream.depositedAmount * BigInt(settings.thresholdPercentage)) / 100n
-          if (withdrawable < threshold) return 0n
-          amount = withdrawable
-          break
+        case "threshold-based": {
+          const threshold =
+            (stream.depositedAmount * BigInt(settings.thresholdPercentage)) /
+            100n;
+          if (withdrawable < threshold) return 0n;
+          amount = withdrawable;
+          break;
         }
-        case 'gas-optimized': {
-          const lastWithdraw = settings.withdrawalHistory[0]
+        case "gas-optimized": {
+          const lastWithdraw = settings.withdrawalHistory[0];
           const daysSinceLastWithdraw = lastWithdraw
             ? (Date.now() - lastWithdraw.timestamp) / (1000 * 60 * 60 * 24)
-            : Infinity
-          if (daysSinceLastWithdraw < 1) return 0n
-          amount = withdrawable
-          break
+            : Infinity;
+          if (daysSinceLastWithdraw < 1) return 0n;
+          amount = withdrawable;
+          break;
         }
-        case 'max': {
-          amount = withdrawable
-          break
+        case "max": {
+          amount = withdrawable;
+          break;
         }
-        case 'time-based':
+        case "time-based":
         default: {
-          amount = withdrawable
-          break
+          amount = withdrawable;
+          break;
         }
       }
 
       if (maxLimit > 0n && amount > maxLimit) {
-        amount = maxLimit
+        amount = maxLimit;
       }
 
-      return amount
+      return amount;
     },
     [settings],
-  )
+  );
 
   useEffect(() => {
     if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-      intervalRef.current = null
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
 
-    if (!settings.enabled || !stream || stream.cancelled) return
+    if (!settings.enabled || !stream || stream.cancelled) return;
 
-    const intervalMs = settings.intervalHours * 60 * 60 * 1000
+    const intervalMs = settings.intervalHours * 60 * 60 * 1000;
 
     async function tryWithdraw() {
-      if (!stream || autoWithdrawPending) return
-      const now = Math.floor(Date.now() / 1000)
-      const withdrawable = getWithdrawableAmount(stream, now)
-      const amount = calculateWithdrawAmount(withdrawable, stream)
+      if (!stream || autoWithdrawPending) return;
+      const now = Math.floor(Date.now() / 1000);
+      const withdrawable = getWithdrawableAmount(stream, now);
+      const amount = calculateWithdrawAmount(withdrawable, stream);
 
-      if (amount <= 0n) return
+      if (amount <= 0n) return;
 
-      setAutoWithdrawPending(true)
+      setAutoWithdrawPending(true);
       try {
-        const txHash = await withdrawFromStream(stream.id, amount, network)
-        setLastAutoWithdraw(Date.now())
+        const txHash = await withdrawFromStream(stream.id, amount, network);
+        setLastAutoWithdraw(Date.now());
         addWithdrawalHistory({
           timestamp: Date.now(),
           amount: amount.toString(),
-          txHash,
-        })
+          txHash: txHash ?? undefined,
+        });
       } catch (error) {
         addWithdrawalHistory({
           timestamp: Date.now(),
           amount: amount.toString(),
           error: String(error),
-        })
+        });
       } finally {
-        setAutoWithdrawPending(false)
+        setAutoWithdrawPending(false);
       }
     }
 
-    intervalRef.current = setInterval(tryWithdraw, intervalMs)
+    intervalRef.current = setInterval(tryWithdraw, intervalMs);
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
-    }
-  }, [settings.enabled, settings.intervalHours, settings.strategy, settings.minAmountRaw, settings.maxSafetyLimitRaw, settings.thresholdPercentage, stream, autoWithdrawPending, calculateWithdrawAmount, addWithdrawalHistory, network])
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [
+    settings.enabled,
+    settings.intervalHours,
+    settings.strategy,
+    settings.minAmountRaw,
+    settings.maxSafetyLimitRaw,
+    settings.thresholdPercentage,
+    stream,
+    autoWithdrawPending,
+    calculateWithdrawAmount,
+    addWithdrawalHistory,
+    network,
+  ]);
 
   return {
     settings,
@@ -193,5 +203,5 @@ export function useAutoWithdraw(stream: StreamData | null) {
     autoWithdrawPending,
     withdrawalHistory: settings.withdrawalHistory,
     addWithdrawalHistory,
-  }
+  };
 }

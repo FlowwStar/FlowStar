@@ -1,11 +1,7 @@
 import { withSentryConfig } from '@sentry/nextjs'
 
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-}
+const nextConfig = {}
 
 // Bundle analyzer — run with: ANALYZE=true npm run build
 async function withBundleAnalyzer(config) {

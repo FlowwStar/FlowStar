@@ -27,7 +27,6 @@ struct TestEnv {
     token_id: Address,
     sender: Address,
     recipient: Address,
-    admin: Address,
 }
 
 impl TestEnv {
@@ -52,14 +51,20 @@ impl TestEnv {
         let client = StreamingContractClient::new(&env, &contract_id);
         client.initialize(&admin);
 
-        TestEnv { env, contract_id, token_id, sender, recipient, admin }
+        TestEnv {
+            env,
+            contract_id,
+            token_id,
+            sender,
+            recipient,
+        }
     }
 
-    fn client(&self) -> StreamingContractClient {
+    fn client(&self) -> StreamingContractClient<'_> {
         StreamingContractClient::new(&self.env, &self.contract_id)
     }
 
-    fn token(&self) -> TokenClient {
+    fn token(&self) -> TokenClient<'_> {
         TokenClient::new(&self.env, &self.token_id)
     }
 
@@ -113,7 +118,7 @@ fn test_batch_create_happy_path() {
     inputs.push_back(t.make_input(&r3, now));
 
     let client = t.client();
-    let ids = client.create_streams_batch(&t.sender, &inputs).unwrap();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
 
     // Three IDs returned in order
     assert_eq!(ids.len(), 3);
@@ -124,7 +129,7 @@ fn test_batch_create_happy_path() {
     // Each stream has the correct state
     for (i, recipient) in [&r1, &r2, &r3].iter().enumerate() {
         let id = ids.get(i as u32).unwrap();
-        let stream = client.get_stream(&id).unwrap();
+        let stream = client.get_stream(&id);
         assert_eq!(stream.sender, t.sender);
         assert_eq!(&stream.recipient, *recipient);
         assert_eq!(stream.deposited_amount, per_stream);
@@ -159,9 +164,8 @@ fn test_batch_create_returns_ids_in_order() {
         end_time: now + 1000,
         cliff_time: now,
         cliff_amount: 0,
-        metadata: None,
     };
-    client.create_stream(&t.sender, &params).unwrap();
+    client.create_stream(&t.sender, &params);
 
     // Batch of 2 → IDs should be 2 and 3
     let r1 = Address::generate(&t.env);
@@ -172,7 +176,7 @@ fn test_batch_create_returns_ids_in_order() {
     inputs.push_back(t.make_input(&r1, now));
     inputs.push_back(t.make_input(&r2, now));
 
-    let ids = client.create_streams_batch(&t.sender, &inputs).unwrap();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
     assert_eq!(ids.len(), 2);
     assert_eq!(ids.get(0).unwrap(), 2u64);
     assert_eq!(ids.get(1).unwrap(), 3u64);
@@ -196,14 +200,14 @@ fn test_batch_sender_index_updated() {
     }
 
     let client = t.client();
-    let ids = client.create_streams_batch(&t.sender, &inputs).unwrap();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
 
     let sent = client.get_sent_streams(&t.sender, &0, &100);
     assert_eq!(sent.len(), 5);
 
     for i in 0..5u32 {
         let id = ids.get(i).unwrap();
-        assert!(sent.contains(&id));
+        assert!(sent.contains(id));
     }
 }
 
@@ -226,18 +230,18 @@ fn test_batch_recipient_indexes_updated() {
     inputs.push_back(t.make_input(&r_other, now));
 
     let client = t.client();
-    let ids = client.create_streams_batch(&t.sender, &inputs).unwrap();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
 
     // r_shared should have 2 streams
     let shared_received = client.get_received_streams(&r_shared, &0, &100);
     assert_eq!(shared_received.len(), 2);
-    assert!(shared_received.contains(&ids.get(0).unwrap()));
-    assert!(shared_received.contains(&ids.get(1).unwrap()));
+    assert!(shared_received.contains(ids.get(0).unwrap()));
+    assert!(shared_received.contains(ids.get(1).unwrap()));
 
     // r_other should have 1 stream
     let other_received = client.get_received_streams(&r_other, &0, &100);
     assert_eq!(other_received.len(), 1);
-    assert!(other_received.contains(&ids.get(2).unwrap()));
+    assert!(other_received.contains(ids.get(2).unwrap()));
 }
 
 // ─── Validation failures ──────────────────────────────────────────────────────
@@ -257,7 +261,7 @@ fn test_batch_partial_failure_rejected_atomically() {
 
     let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
     inputs.push_back(t.make_input(&r1, now)); // valid
-    // Invalid: zero amount
+                                              // Invalid: zero amount
     inputs.push_back(CreateStreamInput {
         recipient: r2.clone(),
         token: t.token_id.clone(),
@@ -372,7 +376,7 @@ fn test_batch_max_size_exactly_20_succeeds() {
     }
 
     let client = t.client();
-    let ids = client.create_streams_batch(&t.sender, &inputs).unwrap();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
     assert_eq!(ids.len(), 20);
 }
 
@@ -422,10 +426,10 @@ fn test_batch_single_stream_works() {
     inputs.push_back(t.make_input(&r, now));
 
     let client = t.client();
-    let ids = client.create_streams_batch(&t.sender, &inputs).unwrap();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
     assert_eq!(ids.len(), 1);
 
-    let stream = client.get_stream(&ids.get(0).unwrap()).unwrap();
+    let stream = client.get_stream(&ids.get(0).unwrap());
     assert_eq!(stream.deposited_amount, amount);
 }
 
@@ -454,20 +458,20 @@ fn test_batch_supports_cliff() {
     });
 
     let client = t.client();
-    let ids = client.create_streams_batch(&t.sender, &inputs).unwrap();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
     let id = ids.get(0).unwrap();
 
-    let stream = client.get_stream(&id).unwrap();
+    let stream = client.get_stream(&id);
     assert_eq!(stream.cliff_amount, cliff_amount);
     assert_eq!(stream.cliff_time, now + 200);
 
     // Before cliff — nothing withdrawable
     t.set_time(now + 100);
-    assert_eq!(client.get_withdrawable(&id).unwrap(), 0);
+    assert_eq!(client.get_withdrawable(&id), 0);
 
     // After cliff — cliff amount available
     t.set_time(now + 200);
-    assert!(client.get_withdrawable(&id).unwrap() >= cliff_amount);
+    assert!(client.get_withdrawable(&id) >= cliff_amount);
 }
 
 // ─── Batch streams are individually withdrawable ──────────────────────────────
@@ -488,19 +492,19 @@ fn test_batch_streams_are_independently_withdrawable() {
     inputs.push_back(t.make_input(&r2, now));
 
     let client = t.client();
-    let ids = client.create_streams_batch(&t.sender, &inputs).unwrap();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
 
     // Advance halfway
     t.set_time(now + 500);
 
-    let w1 = client.get_withdrawable(&ids.get(0).unwrap()).unwrap();
-    let w2 = client.get_withdrawable(&ids.get(1).unwrap()).unwrap();
+    let w1 = client.get_withdrawable(&ids.get(0).unwrap());
+    let w2 = client.get_withdrawable(&ids.get(1).unwrap());
 
     assert!(w1 > 0);
     assert!(w2 > 0);
 
     // Withdraw from stream 1 only
-    client.withdraw(&ids.get(0).unwrap(), &w1).unwrap();
+    client.withdraw(&ids.get(0).unwrap(), &w1);
     assert_eq!(t.token().balance(&r1), w1);
     assert_eq!(t.token().balance(&r2), 0); // stream 2 untouched
 }
@@ -523,13 +527,13 @@ fn test_batch_streams_are_independently_cancellable() {
     inputs.push_back(t.make_input(&r2, now));
 
     let client = t.client();
-    let ids = client.create_streams_batch(&t.sender, &inputs).unwrap();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
 
     // Cancel stream 1 only
-    client.cancel(&ids.get(0).unwrap()).unwrap();
+    client.cancel(&ids.get(0).unwrap());
 
-    let s1 = client.get_stream(&ids.get(0).unwrap()).unwrap();
-    let s2 = client.get_stream(&ids.get(1).unwrap()).unwrap();
+    let s1 = client.get_stream(&ids.get(0).unwrap());
+    let s2 = client.get_stream(&ids.get(1).unwrap());
     assert!(s1.cancelled);
     assert!(!s2.cancelled);
 }

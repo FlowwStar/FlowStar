@@ -1,15 +1,15 @@
-'use client'
+"use client";
 
-import { useNow } from '@/hooks/use-now'
-import { usePortfolioValue, formatUsd } from '@/hooks/use-token-price'
-import { useShowUsd } from '@/hooks/use-show-usd'
-import { getStreamStatus, getWithdrawableAmount } from '@/lib/stream-utils'
-import { TokenAmount } from '@/components/ui/token-amount'
-import type { StreamData } from '@/types/stream'
+import { useNow } from "@/hooks/use-now";
+import { usePortfolioValue, formatUsd } from "@/hooks/use-token-price";
+import { useShowUsd } from "@/hooks/use-show-usd";
+import { getStreamStatus, getWithdrawableAmount } from "@/lib/stream-utils";
+import { TokenAmount } from "@/components/ui/token-amount";
+import type { StreamData } from "@/types/stream";
 
 interface DashboardStatsProps {
-  sent: StreamData[]
-  received: StreamData[]
+  sent: StreamData[];
+  received: StreamData[];
 }
 
 /**
@@ -19,59 +19,79 @@ interface DashboardStatsProps {
  */
 export function DashboardStats({ sent, received }: DashboardStatsProps) {
   const hasActiveStreams =
-    sent.some((s) => !s.cancelled && Math.floor(Date.now() / 1000) < Number(s.endTime) && Math.floor(Date.now() / 1000) >= Number(s.startTime)) ||
-    received.some((s) => !s.cancelled && Math.floor(Date.now() / 1000) < Number(s.endTime) && Math.floor(Date.now() / 1000) >= Number(s.startTime))
+    sent.some(
+      (s) =>
+        !s.cancelled &&
+        Math.floor(Date.now() / 1000) < Number(s.endTime) &&
+        Math.floor(Date.now() / 1000) >= Number(s.startTime),
+    ) ||
+    received.some(
+      (s) =>
+        !s.cancelled &&
+        Math.floor(Date.now() / 1000) < Number(s.endTime) &&
+        Math.floor(Date.now() / 1000) >= Number(s.startTime),
+    );
 
-  const now = useNow(hasActiveStreams ? 1000 : 60000)
-  const [showUsd] = useShowUsd()
-  const { totalUsd, loading: priceLoading, stale } = usePortfolioValue([...sent, ...received])
+  const now = useNow(hasActiveStreams ? 1000 : 60000);
+  const [showUsd] = useShowUsd();
+  const {
+    totalUsd,
+    loading: priceLoading,
+    stale,
+  } = usePortfolioValue([...sent, ...received]);
 
   const activeReceiving = received.filter(
-    (s) => getStreamStatus(s, now) === 'streaming',
-  ).length
+    (s) => getStreamStatus(s, now) === "streaming",
+  ).length;
   const activeSending = sent.filter(
-    (s) => getStreamStatus(s, now) === 'streaming',
-  ).length
+    (s) => getStreamStatus(s, now) === "streaming",
+  ).length;
 
   const withdrawableByToken = new Map<
     string,
-    { amount: bigint; token: StreamData['token'] }
-  >()
+    { amount: bigint; token: StreamData["token"] }
+  >();
   for (const s of received) {
-    const amt = getWithdrawableAmount(s, now)
-    const existing = withdrawableByToken.get(s.token.symbol)
-    if (existing) existing.amount += amt
-    else withdrawableByToken.set(s.token.symbol, { amount: amt, token: s.token })
+    const amt = getWithdrawableAmount(s, now);
+    const existing = withdrawableByToken.get(s.token.symbol);
+    if (existing) existing.amount += amt;
+    else
+      withdrawableByToken.set(s.token.symbol, { amount: amt, token: s.token });
   }
   const topWithdrawable = [...withdrawableByToken.values()].sort((a, b) =>
     a.amount > b.amount ? -1 : 1,
-  )[0]
+  )[0];
 
-  const usdValue = showUsd ? (
   const usdDisplay = showUsd ? (
     priceLoading ? (
       <span className="inline-block h-6 w-20 animate-pulse rounded bg-muted" />
     ) : totalUsd !== null ? (
       <span>
         {formatUsd(totalUsd)}
-        {stale && <span className="ml-1 text-base" title="Price may be outdated">⚠️</span>}
+        {stale && (
+          <span className="ml-1 text-base" title="Price may be outdated">
+            ⚠️
+          </span>
+        )}
       </span>
     ) : (
       <span className="text-muted-foreground">—</span>
     )
   ) : (
     <span className="text-muted-foreground">—</span>
-  )
+  );
 
   const stats = [
     {
-      label: 'Total streaming value',
-      value: usdValue,
+      label: "Total streaming value",
       value: usdDisplay,
-      hint: showUsd && totalUsd !== null ? 'locked across all streams' : 'enable USD in settings',
+      hint:
+        showUsd && totalUsd !== null
+          ? "locked across all streams"
+          : "enable USD in settings",
     },
     {
-      label: 'Available to withdraw',
+      label: "Available to withdraw",
       value: topWithdrawable ? (
         <TokenAmount
           amount={topWithdrawable.amount}
@@ -83,25 +103,28 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
       ),
       hint:
         withdrawableByToken.size > 1
-          ? `+${withdrawableByToken.size - 1} more token${withdrawableByToken.size > 2 ? 's' : ''}`
-          : 'across received streams',
+          ? `+${withdrawableByToken.size - 1} more token${withdrawableByToken.size > 2 ? "s" : ""}`
+          : "across received streams",
     },
     {
-      label: 'Receiving',
+      label: "Receiving",
       value: <span>{received.length}</span>,
       hint: `${activeReceiving} streaming now`,
     },
     {
-      label: 'Sending',
+      label: "Sending",
       value: <span>{sent.length}</span>,
       hint: `${activeSending} streaming now`,
     },
-  ]
+  ];
 
   return (
     <div className="grid gap-4 sm:grid-cols-4">
       {stats.map((stat) => (
-        <div key={stat.label} className="rounded-2xl border border-border bg-card p-5">
+        <div
+          key={stat.label}
+          className="rounded-2xl border border-border bg-card p-5"
+        >
           <p className="text-sm text-muted-foreground">{stat.label}</p>
           <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">
             {stat.value}
@@ -110,7 +133,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
@@ -119,12 +142,15 @@ export function DashboardStatsSkeleton() {
   return (
     <div className="grid gap-4 sm:grid-cols-4">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="rounded-2xl border border-border bg-card p-5 animate-pulse">
+        <div
+          key={i}
+          className="rounded-2xl border border-border bg-card p-5 animate-pulse"
+        >
           <div className="h-3.5 w-32 rounded bg-muted" />
           <div className="mt-2 h-8 w-24 rounded bg-muted" />
           <div className="mt-1 h-3 w-28 rounded bg-muted" />
         </div>
       ))}
     </div>
-  )
+  );
 }
