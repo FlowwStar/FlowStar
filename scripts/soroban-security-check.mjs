@@ -57,9 +57,9 @@ const rules = [
     check(src) {
       const findings = []
       // Collect all pub fn bodies; check that require_auth appears before any storage write.
-      const fnRegex = /pub fn (\w+)\s*\(env:\s*Env[^)]*\)/g
+      const fnRegex = /pub fn (\w+)\s*\(_?env:\s*Env[^)]*\)/g
       // Read-only patterns — skip them
-      const readOnly = /^(get_|bump_stream|load_stream)/
+      const readOnly = /^(get_|bump_stream$|load_stream$|name$|version$)/
       let match
       while ((match = fnRegex.exec(src)) !== null) {
         const name = match[1]

@@ -155,11 +155,6 @@ export function CreateForm() {
   const [recurrenceCadence, setRecurrenceCadence] =
     useState<RecurrenceCadence>("none");
 
-  // Issue #166: stream metadata
-  const [metaName, setMetaName] = useState("");
-  const [metaCategory, setMetaCategory] = useState("");
-  const [metaMemo, setMetaMemo] = useState("");
-
   // Issue #29: balance state
   const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
@@ -420,10 +415,6 @@ export function CreateForm() {
       form.hasCliff && form.cliffAmount
         ? parseTokenAmount(form.cliffAmount, selectedToken.decimals)
         : 0n;
-    const metadata =
-      metaName || metaCategory || metaMemo
-        ? { name: metaName, category: metaCategory, memo: metaMemo }
-        : undefined;
     return {
       recipient: form.recipient.trim(),
       token: selectedToken,
@@ -432,9 +423,8 @@ export function CreateForm() {
       endTime,
       cliffTime,
       cliffAmount,
-      metadata,
     };
-  }, [form, selectedToken, metaName, metaCategory, metaMemo]);
+  }, [form, selectedToken]);
 
   async function handleEstimateFee() {
     if (!validate()) return;
@@ -1131,74 +1121,6 @@ export function CreateForm() {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* Optional metadata */}
-          <div className="space-y-4 rounded-lg border border-border bg-muted/30 p-4">
-            <p className="text-sm font-medium">
-              Stream metadata{" "}
-              <span className="font-normal text-muted-foreground text-xs">
-                (optional)
-              </span>
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label
-                  htmlFor="meta-name"
-                  className="text-xs text-muted-foreground"
-                >
-                  Name{" "}
-                  <span className="text-muted-foreground/60">max 64 chars</span>
-                </Label>
-                <Input
-                  id="meta-name"
-                  placeholder="e.g. Q3 Salary — Alice"
-                  value={metaName}
-                  onChange={(e) => setMetaName(e.target.value.slice(0, 64))}
-                  maxLength={64}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label
-                  htmlFor="meta-category"
-                  className="text-xs text-muted-foreground"
-                >
-                  Category
-                </Label>
-                <Select
-                  value={metaCategory}
-                  onValueChange={(v) => v !== null && setMetaCategory(v)}
-                >
-                  <SelectTrigger id="meta-category" className="w-full">
-                    <SelectValue placeholder="Select category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">None</SelectItem>
-                    <SelectItem value="payroll">Payroll</SelectItem>
-                    <SelectItem value="vesting">Vesting</SelectItem>
-                    <SelectItem value="grant">Grant</SelectItem>
-                    <SelectItem value="airdrop">Airdrop</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label
-                htmlFor="meta-memo"
-                className="text-xs text-muted-foreground"
-              >
-                Memo{" "}
-                <span className="text-muted-foreground/60">max 256 chars</span>
-              </Label>
-              <Input
-                id="meta-memo"
-                placeholder="e.g. Grant tranche 2 — accounting ref #4892"
-                value={metaMemo}
-                onChange={(e) => setMetaMemo(e.target.value.slice(0, 256))}
-                maxLength={256}
-              />
-            </div>
           </div>
 
           {network === "mainnet" && (
