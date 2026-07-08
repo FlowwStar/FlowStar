@@ -1,40 +1,54 @@
-import { Metadata } from 'next'
-import { getStream } from '@/lib/contract'
+import { Metadata } from "next";
+import { fetchStream } from "@/lib/contract";
+import { NETWORK } from "@/lib/stellar";
 
 export async function generateMetadata({
   params,
 }: {
-  params: Promise<{ id: string }>
+  params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   try {
-    const { id } = await params
-    const stream = await getStream(id)
+    const { id } = await params;
+    const stream = await fetchStream(NETWORK, id);
 
     if (!stream) {
       return {
-        title: 'Stream not found | FlowStar',
-        description: 'This stream may not exist or may have expired.',
-      }
+        title: "Stream not found | FlowStar",
+        description: "This stream may not exist or may have expired.",
+      };
     }
 
-    const ogImageUrl = new URL('/api/og', 'https://flowstar.app')
-    ogImageUrl.searchParams.append('amount', (stream.depositedAmount / 10n ** BigInt(stream.token.decimals)).toString())
-    ogImageUrl.searchParams.append('symbol', stream.token.symbol)
-    ogImageUrl.searchParams.append('recipient', stream.recipient)
-    ogImageUrl.searchParams.append('sender', stream.sender)
-    ogImageUrl.searchParams.append('status', stream.cancelled ? 'cancelled' : 'active')
+    const ogImageUrl = new URL("/api/og", "https://flowstar.app");
+    ogImageUrl.searchParams.append(
+      "amount",
+      (
+        stream.depositedAmount /
+        10n ** BigInt(stream.token.decimals)
+      ).toString(),
+    );
+    ogImageUrl.searchParams.append("symbol", stream.token.symbol);
+    ogImageUrl.searchParams.append("recipient", stream.recipient);
+    ogImageUrl.searchParams.append("sender", stream.sender);
+    ogImageUrl.searchParams.append(
+      "status",
+      stream.cancelled ? "cancelled" : "active",
+    );
 
-    const shortenAddress = (addr: string) => addr.slice(0, 6) + '...' + addr.slice(-4)
-    const amount = (stream.depositedAmount / 10n ** BigInt(stream.token.decimals)).toString()
-    const description = `${amount} ${stream.token.symbol} streaming to ${shortenAddress(stream.recipient)}`
+    const shortenAddress = (addr: string) =>
+      addr.slice(0, 6) + "..." + addr.slice(-4);
+    const amount = (
+      stream.depositedAmount /
+      10n ** BigInt(stream.token.decimals)
+    ).toString();
+    const description = `${amount} ${stream.token.symbol} streaming to ${shortenAddress(stream.recipient)}`;
 
     return {
       title: `Stream #${stream.id} | FlowStar`,
       description,
-      metadataBase: new URL('https://flowstar.app'),
+      metadataBase: new URL("https://flowstar.app"),
       openGraph: {
-        type: 'website',
-        siteName: 'FlowStar',
+        type: "website",
+        siteName: "FlowStar",
         title: `Stream #${stream.id} | FlowStar`,
         description,
         images: [
@@ -47,17 +61,17 @@ export async function generateMetadata({
         ],
       },
       twitter: {
-        card: 'summary_large_image',
+        card: "summary_large_image",
         title: `Stream #${stream.id} | FlowStar`,
         description,
         images: [ogImageUrl.toString()],
       },
-    }
+    };
   } catch (error) {
-    console.error('Failed to generate metadata:', error)
+    console.error("Failed to generate metadata:", error);
     return {
-      title: 'Stream | FlowStar',
-      description: 'Stream tokens by the second on Stellar',
-    }
+      title: "Stream | FlowStar",
+      description: "Stream tokens by the second on Stellar",
+    };
   }
 }

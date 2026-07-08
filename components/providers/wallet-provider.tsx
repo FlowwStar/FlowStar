@@ -36,7 +36,6 @@ export const WALLET_OPTIONS: WalletOption[] = [
 // ─── Wallet adapter interface ─────────────────────────────────────────────────
 
 export interface WalletAdapter {
-interface WalletAdapter {
   connect(): Promise<string>;
   signTransaction(xdr: string, networkPassphrase: string): Promise<string>;
   isAvailable(): boolean;
@@ -213,27 +212,6 @@ export const lobstrAdapter: WalletAdapter = {
       return signedXdr;
     }
     return signWithLobstrWalletConnect(xdr, networkPassphrase);
-const lobstrAdapter: WalletAdapter = {
-  isAvailable: () =>
-    typeof window !== "undefined" && !!(window as any).lobstrSDK,
-
-  async connect() {
-    const sdk = (window as any).lobstrSDK;
-    if (!sdk)
-      throw new Error(
-        "LOBSTR extension is not installed. Install it and refresh.",
-      );
-    const { publicKey } = await sdk.getPublicKey();
-    if (!publicKey) throw new Error("LOBSTR did not return a public key.");
-    return publicKey;
-  },
-
-  async signTransaction(xdr, networkPassphrase) {
-    const sdk = (window as any).lobstrSDK;
-    if (!sdk) throw new Error("LOBSTR extension is not installed.");
-    const { signedXdr } = await sdk.signTransaction(xdr, { networkPassphrase });
-    if (!signedXdr) throw new Error("LOBSTR signing failed.");
-    return signedXdr;
   },
 };
 
@@ -263,19 +241,6 @@ const albedoAdapter: WalletAdapter = {
     const albedo = (await import("@albedo-link/intent")).default;
     const network = networkPassphrase.includes("Test") ? "testnet" : "public";
     const result = await albedo.tx({ xdr, network, submit: false });
-    const albedo = (await import("albedo-link")).default;
-    const result = await albedo.publicKey({});
-    if (!result?.pubkey) throw new Error("Albedo did not return a public key.");
-    return result.pubkey;
-  },
-
-  async signTransaction(xdr, networkPassphrase) {
-    const albedo = (await import("albedo-link")).default;
-    const result = await albedo.tx({
-      xdr,
-      network: networkPassphrase,
-      submit: false,
-    });
     if (!result?.signed_envelope_xdr) throw new Error("Albedo signing failed.");
     return result.signed_envelope_xdr;
   },
@@ -314,22 +279,6 @@ interface WalletContextValue {
 const WalletContext = createContext<WalletContextValue | null>(null);
 
 // ─── Freighter network helpers ────────────────────────────────────────────────
-// ─── Wallet adapters ─────────────────────────────────────────────────────────
-
-async function connectFreighter(): Promise<string> {
-  const { isConnected, getAddress, requestAccess } =
-    await import("@stellar/freighter-api");
-  const connected = await isConnected();
-  if (!connected.isConnected) {
-    throw new Error(
-      "Freighter is not installed. Please install the Freighter extension.",
-    );
-  }
-  await requestAccess();
-  const result = await getAddress();
-  if (result.error) throw new Error(result.error);
-  return result.address;
-}
 
 async function getFreighterNetwork(): Promise<string | null> {
   try {
@@ -339,97 +288,6 @@ async function getFreighterNetwork(): Promise<string | null> {
     return result.network ?? null;
   } catch {
     return null;
-  }
-}
-
-async function signWithFreighter(
-  xdr: string,
-  networkPassphrase: string,
-): Promise<string> {
-  const { signTransaction } = await import("@stellar/freighter-api");
-  const result = await signTransaction(xdr, { networkPassphrase });
-  if (result.error) throw new Error(result.error);
-  return result.signedTxXdr;
-}
-
-function passphraseToAlbedoNetwork(passphrase: string): "testnet" | "public" {
-  if (passphrase.includes("Test")) return "testnet";
-  return "public";
-}
-
-async function connectAlbedo(): Promise<string> {
-  const albedo = await import("@albedo-link/intent");
-  try {
-    const result = await albedo.default.publicKey({});
-    return result.pubkey;
-  } catch (err: unknown) {
-    if (err instanceof Error && /popup/i.test(err.message)) {
-      throw new Error(
-        "Albedo popup was blocked. Please allow popups for this site and try again.",
-      );
-    }
-    throw err;
-  }
-}
-
-async function signWithAlbedo(
-  xdr: string,
-  networkPassphrase: string,
-): Promise<string> {
-  const albedo = await import("@albedo-link/intent");
-  const result = await albedo.default.tx({
-    xdr,
-    network: passphraseToAlbedoNetwork(networkPassphrase),
-    submit: false,
-  });
-  return result.signed_envelope_xdr;
-}
-
-async function connectXBull(): Promise<string> {
-  if (typeof window === "undefined" || !(window as any).xBullSDK) {
-    throw new Error(
-      "xBull is not installed. Install the xBull extension from https://xbull.app and refresh.",
-    );
-  }
-  const sdk = (window as any).xBullSDK;
-  const result = await sdk.connect();
-  if (!result?.publicKey) throw new Error("xBull did not return a public key.");
-  return result.publicKey;
-}
-
-async function signWithXBull(
-  xdr: string,
-  networkPassphrase: string,
-): Promise<string> {
-  if (typeof window === "undefined" || !(window as any).xBullSDK) {
-    throw new Error("xBull is not installed.");
-  }
-  const sdk = (window as any).xBullSDK;
-  const result = await sdk.signXDR(xdr, { networkPassphrase });
-  if (!result?.signedXDR)
-    throw new Error("xBull signing failed or was rejected.");
-  return result.signedXDR;
-}
-
-// Stubs for wallets that need a dedicated SDK — shows a helpful message
-async function connectStub(name: string): Promise<string> {
-  throw new Error(
-    `${name} connection requires the ${name} browser extension. Install it and refresh.`,
-  );
-}
-
-async function connectWallet(id: string): Promise<string> {
-  switch (id) {
-    case "freighter":
-      return connectFreighter();
-    case "xbull":
-      return connectXBull();
-    case "lobstr":
-      return connectStub("LOBSTR");
-    case "albedo":
-      return connectAlbedo();
-    default:
-      throw new Error(`Unknown wallet: ${id}`);
   }
 }
 
@@ -524,16 +382,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (!walletId) throw new Error("No wallet connected");
       const config = getNetworkConfig(customNetwork ?? network);
       return getAdapter(walletId).signTransaction(xdr, config.passphrase);
-      switch (walletId) {
-        case "freighter":
-          return signWithFreighter(xdr, config.passphrase);
-        case "xbull":
-          return signWithXBull(xdr, config.passphrase);
-        case "albedo":
-          return signWithAlbedo(xdr, config.passphrase);
-        default:
-          throw new Error(`Signing not implemented for ${walletId}`);
-      }
     },
     [walletId, network],
   );
