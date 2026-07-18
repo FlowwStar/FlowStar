@@ -122,10 +122,14 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ```bash
 # .env.local
-NEXT_PUBLIC_STREAM_CONTRACT_ID=CBNDCZTRFNTDAPQLPK2ESOKO4XFMSC4PX37QE75BBYFOYIEWIPMHAKFV
+NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET=CBNDCZTRFNTDAPQLPK2ESOKO4XFMSC4PX37QE75BBYFOYIEWIPMHAKFV
+# NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET=<your mainnet contract id>
 ```
 
-The contract is already deployed to testnet. For mainnet, deploy your own and update this value.
+The contract is already deployed to testnet — use the value above as-is. The app reads
+`NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` (or `_MAINNET`) depending on
+`NEXT_PUBLIC_STELLAR_NETWORK`. If the variable is absent the app runs in **mock mode**
+automatically (no wallet or testnet funds required); see [Architecture notes](#architecture-notes).
 
 ### Deploy the contract yourself
 
@@ -167,7 +171,7 @@ You'll sign two transactions: one `approve` on the token contract, then `create_
 
 ## Architecture notes
 
-- `lib/contract.ts` is the single integration boundary — swap mock ↔ real by changing `USE_MOCK`
+- `lib/contract.ts` is the single integration boundary — mock mode is automatic: `isMockMode = !config.streamContractId`. Set `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` (or `_MAINNET`) to connect to the real contract; omit it to run on mock data with no wallet needed
 - Stream unlock math runs client-side in `lib/stream-utils.ts` for live UI counters without polling
 - The contract uses `Persistent` storage with TTL extensions on every write (~30 days per stream)
 - All token amounts use `bigint` (i128/u64) to match Soroban types exactly — no precision loss
