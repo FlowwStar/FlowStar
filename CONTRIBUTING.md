@@ -76,10 +76,11 @@ cp .env.local.example .env.local   # if an example exists, otherwise create it
 Create `.env.local` with:
 
 ```bash
-NEXT_PUBLIC_STREAM_CONTRACT_ID=CBNDCZTRFNTDAPQLPK2ESOKO4XFMSC4PX37QE75BBYFOYIEWIPMHAKFV
+NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET=CBNDCZTRFNTDAPQLPK2ESOKO4XFMSC4PX37QE75BBYFOYIEWIPMHAKFV
+# NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET=<your mainnet contract id>
 ```
 
-The contract is already deployed to testnet — use this value as-is for local development.
+The contract is already deployed to testnet — use this value as-is for local development. The app reads `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` (or `_MAINNET`) based on `NEXT_PUBLIC_STELLAR_NETWORK`.
 
 ### 3. Start the dev server
 
@@ -93,14 +94,14 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Mock mode (no wallet needed)
 
-Set `USE_MOCK = true` in `lib/contract.ts` to run the app with local mock data instead of talking to the blockchain. This is the fastest way to work on UI changes without a Freighter wallet or testnet funds.
+Mock mode is automatic — no code change required. When `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET`
+(or `_MAINNET`) is absent from your `.env.local`, `lib/contract.ts` detects
+`isMockMode = !config.streamContractId` and falls back to local mock data automatically.
+This is the fastest way to work on UI changes without a Freighter wallet or testnet funds.
 
-```ts
-// lib/contract.ts
-const USE_MOCK = true  // ← flip this
-```
-
-Mock streams are defined in `lib/mock-data.ts`. The app behaves identically — streams unlock in real time using client-side math.
+Mock streams are defined in `lib/mock-data.ts`. The app behaves identically — streams unlock
+in real time using client-side math. To connect to the real contract, add the env var and
+restart the dev server.
 
 ---
 
@@ -177,13 +178,10 @@ cargo test
 
 ## Mock Mode
 
-To develop UI without a wallet or testnet connection, enable mock mode in `lib/contract.ts`:
-
-```ts
-const USE_MOCK = true;
-```
-
-Mock mode uses the in-memory store in `lib/mock-data.ts` and bypasses all Freighter and RPC calls. Set `USE_MOCK = false` to switch back to the real contract.
+To develop UI without a wallet or testnet connection, simply omit `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET`
+from your `.env.local` (or leave it unset). The app detects `isMockMode = !config.streamContractId`
+automatically and uses the in-memory store in `lib/mock-data.ts`, bypassing all Freighter and RPC calls.
+To switch back to the real contract, set the env var and restart the dev server.
 
 ---
 
@@ -293,7 +291,7 @@ stellar contract deploy \
   --network testnet
 ```
 
-Copy the contract ID returned and update `NEXT_PUBLIC_STREAM_CONTRACT_ID` in `.env.local`.
+Copy the contract ID returned and update `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` in `.env.local`.
 
 ---
 
@@ -347,7 +345,7 @@ If hooks aren't running after a fresh clone: `npm run prepare`.
 - Run `npm run prepare` manually to re-install hooks
 - If on CI, set `HUSKY=0` environment variable to skip hook installation
 
-Copy the returned contract ID into your `.env.local` as `NEXT_PUBLIC_STREAM_CONTRACT_ID`.
+Copy the returned contract ID into your `.env.local` as `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET`.
 
 ---
 
@@ -389,9 +387,9 @@ cargo clippy
 - If the WASM upload fails, try rebuilding: `stellar contract build` then redeploy.
 - `Error: account not found` usually means the key isn't funded yet.
 
-**`USE_MOCK = false` but seeing mock data**
+**App running in mock mode unexpectedly**
 - Hard-refresh the browser (`Ctrl+Shift+R`) to clear any cached module state.
-- Confirm the env var `NEXT_PUBLIC_STREAM_CONTRACT_ID` is set in `.env.local` and the dev server was restarted after the change.
+- Confirm that `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` (or `_MAINNET`) is set in `.env.local` with a valid contract ID, and that the dev server was restarted after the change. Mock mode activates automatically whenever `isMockMode = !config.streamContractId` is true (i.e. the env var is missing or empty).
 
 ---
 
