@@ -48,19 +48,33 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
   const [streams, setStreams] = useState<StreamData[]>([])
   const [loading, setLoading] = useState(false)
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const requestIdRef = useRef(0)
 
   const { enablePolling = true, pollInterval = 30000 } = options ?? {}
 
   const fetch = useCallback(async () => {
-    if (!address) { setStreams([]); return }
+    // bump request generation to ignore previous in-flight responses
+    requestIdRef.current += 1
+    const req = requestIdRef.current
+
+    if (!address) {
+      // invalidate any previous responses and clear list
+      setStreams([])
+      // only clear loading for the current request
+      if (req === requestIdRef.current) setLoading(false)
+      return
+    }
+
     setLoading(true)
     try {
       const data = await fetchStreamsForAddress(network, address)
+      if (req !== requestIdRef.current) return
       setStreams(data)
     } catch (e) {
+      if (req !== requestIdRef.current) return
       console.error('useStreams fetch error:', e)
     } finally {
-      setLoading(false)
+      if (req === requestIdRef.current) setLoading(false)
     }
   }, [address, network])
 
@@ -101,17 +115,28 @@ export function useStream(id: string): { stream: StreamData | null; loading: boo
   const { network } = useNetwork()
   const [stream, setStream] = useState<StreamData | null>(null)
   const [loading, setLoading] = useState(false)
+  const requestIdRef = useRef(0)
 
   const fetch = useCallback(async () => {
-    if (!id) return
+    // bump request generation to ignore previous in-flight responses
+    requestIdRef.current += 1
+    const req = requestIdRef.current
+
+    if (!id) {
+      if (req === requestIdRef.current) setLoading(false)
+      return
+    }
+
     setLoading(true)
     try {
       const data = await fetchStream(network, id)
+      if (req !== requestIdRef.current) return
       setStream(data)
     } catch (e) {
+      if (req !== requestIdRef.current) return
       console.error('useStream fetch error:', e)
     } finally {
-      setLoading(false)
+      if (req === requestIdRef.current) setLoading(false)
     }
   }, [id, network])
 
