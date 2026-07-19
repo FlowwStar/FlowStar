@@ -27,9 +27,16 @@ jobs:
           # Change this from 1.84 to 'stable' to support Edition 2024
           toolchain: stable
           targets: wasm32v1-none
+          components: clippy, rustfmt
 
       - name: Build Contracts
         run: cargo build --target wasm32v1-none --release
 
       - name: Test
         run: cargo test
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Format check
+        run: cargo fmt --all -- --check
