@@ -79,16 +79,16 @@ export function useAutoWithdraw(stream: StreamData | null) {
   const addWithdrawalHistory = useCallback(
     (entry: WithdrawalHistoryEntry) => {
       if (!stream) return;
-      setSettings((prev) => ({
-        ...prev,
-        withdrawalHistory: [entry, ...prev.withdrawalHistory.slice(0, 99)],
-      }));
-      saveSettings(stream.id, {
-        ...settings,
-        withdrawalHistory: [entry, ...settings.withdrawalHistory.slice(0, 99)],
+      setSettings((prev) => {
+        const next = {
+          ...prev,
+          withdrawalHistory: [entry, ...prev.withdrawalHistory.slice(0, 99)],
+        } as AutoWithdrawSettings;
+        saveSettings(stream.id, next);
+        return next;
       });
     },
-    [stream, settings],
+    [stream],
   );
 
   const calculateWithdrawAmount = useCallback(
