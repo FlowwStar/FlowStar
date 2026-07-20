@@ -108,8 +108,18 @@ async function fetchContractEvents(
   startLedger: number,
   rpcUrl: string,
   contractId: string,
-): Promise<{ events: ContractEvent[]; latestLedger: number }> {
-  if (!contractId) return { events: [], latestLedger: startLedger };
+): Promise<{
+  events: ContractEvent[];
+  latestLedger: number;
+  retentionError: boolean;
+}> {
+  if (!contractId) {
+    return {
+      events: [],
+      latestLedger: startLedger,
+      retentionError: false,
+    };
+  }
 
   try {
     const body: Record<string, unknown> = {
@@ -139,14 +149,63 @@ async function fetchContractEvents(
         events?: ContractEvent[];
         latestLedger?: number;
       };
+      error?: {
+        code?: number;
+        message?: string;
+      };
     };
+
+    const errorMessage = json.error?.message?.toLowerCase() ?? "";
+
+    if (
+      errorMessage.includes("oldest ledger") ||
+      errorMessage.includes("retention") ||
+      errorMessage.includes("before oldest ledger")
+    ) {
+      return {
+        events: [],
+        latestLedger: startLedger,
+        retentionError: true,
+      };
+    }
 
     return {
       events: json.result?.events ?? [],
       latestLedger: json.result?.latestLedger ?? startLedger,
+      retentionError: false,
     };
   } catch {
-    return { events: [], latestLedger: startLedger };
+    return {
+      events: [],
+      latestLedger: startLedger,
+      retentionError: false,
+    };
+  }
+}
+
+async function fetchOldestLedger(rpcUrl: string): Promise<number | null> {
+  try {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getHealth",
+      }),
+    });
+
+    const json = (await res.json()) as {
+      result?: {
+        oldestLedger?: number;
+      };
+    };
+
+    return json.result?.oldestLedger ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -225,11 +284,18 @@ export function useNotifications(walletAddress: string | null) {
         }
       }
 
-      const { events, latestLedger } = await fetchContractEvents(
-        startLedger + 1,
-        rpcUrl,
-        contractId,
-      );
+      const { events, latestLedger, retentionError } =
+        await fetchContractEvents(startLedger + 1, rpcUrl, contractId);
+
+      if (retentionError) {
+        const oldestLedger = await fetchOldestLedger(rpcUrl);
+
+        if (oldestLedger !== null) {
+          setLastSeenLedger(oldestLedger);
+        }
+
+        return;
+      }
 
       if (events.length > 0) {
         // Scope events to this wallet: the contract emits one shared event
