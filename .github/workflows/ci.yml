@@ -23,3 +23,40 @@ jobs:
       - run: npm test
 
       - run: npm run build
+
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm install --legacy-peer-deps
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox
+
+      - name: Build app in mock mode
+        run: npm run build
+        env:
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ''
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET: ''
+
+      - name: Run Playwright tests
+        run: npx playwright test
+        env:
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ''
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET: ''
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
