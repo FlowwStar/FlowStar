@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { buildReceiptData, generateReceiptCSV, generateReceiptHTML, downloadFile } from '@/lib/receipt-utils'
+import {
+  buildReceiptData,
+  generateReceiptCSV,
+  generateReceiptHTML,
+  downloadFile,
+} from '@/lib/receipt-utils'
 import type { StreamData } from '@/types/stream'
 import type { ReceiptData } from '@/lib/receipt-utils'
 
@@ -10,7 +15,7 @@ const TOKEN = { address: 'CUSDC', symbol: 'USDC', decimals: 7 }
 // Timestamps as BigInt Unix seconds
 const START = BigInt(1_700_000_000) // ~ Nov 2023
 const END = BigInt(1_700_000_000 + 86_400) // +1 day
-const CLIFF = BigInt(1_700_000_000 + 3_600)  // +1 hour
+const CLIFF = BigInt(1_700_000_000 + 3_600) // +1 hour
 
 function makeStream(overrides: Partial<StreamData> = {}): StreamData {
   return {
@@ -19,12 +24,14 @@ function makeStream(overrides: Partial<StreamData> = {}): StreamData {
     recipient: 'GRECIPIENT222',
     token: TOKEN,
     depositedAmount: 1_000_0000000n, // 1000 USDC
-    withdrawnAmount: 100_0000000n,   // 100 USDC
+    withdrawnAmount: 100_0000000n, // 100 USDC
     startTime: START,
     endTime: END,
     cliffTime: CLIFF,
-    cliffAmount: 50_0000000n,        // 50 USDC cliff
-    amountPerSecond: 10_416n,        // approx 1 USDC / 1000s
+    cliffAmount: 50_0000000n, // 50 USDC cliff
+    amountPerSecond: 10_416n, // approx 1 USDC / 1000s
+    linearAmount: 950_0000000n, // depositedAmount - cliffAmount
+    duration: 86_400n,
     cancelled: false,
     ...overrides,
   }
@@ -53,9 +60,7 @@ describe('buildReceiptData', () => {
   it('computes remainingAmountRaw as deposited minus withdrawn', () => {
     const stream = makeStream()
     const receipt = buildReceiptData(stream)
-    expect(receipt.remainingAmountRaw).toBe(
-      stream.depositedAmount - stream.withdrawnAmount,
-    )
+    expect(receipt.remainingAmountRaw).toBe(stream.depositedAmount - stream.withdrawnAmount)
   })
 
   it('formats totalAmount as human-readable string', () => {
@@ -131,7 +136,12 @@ describe('buildReceiptData', () => {
   })
 
   it('includes cancellationTx when provided', () => {
-    const receipt = buildReceiptData(makeStream({ cancelled: true }), undefined, undefined, 'TX_CANCEL_HASH')
+    const receipt = buildReceiptData(
+      makeStream({ cancelled: true }),
+      undefined,
+      undefined,
+      'TX_CANCEL_HASH',
+    )
     expect(receipt.cancellationTx).toBe('TX_CANCEL_HASH')
   })
 

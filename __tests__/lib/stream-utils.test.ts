@@ -28,6 +28,8 @@ function makeStream(overrides?: Partial<StreamData>): StreamData {
     cliffTime: 1000n,
     cliffAmount: 0n,
     amountPerSecond: 1_000_000n, // 0.1 USDC/s
+    linearAmount: 1_000_000_000n,
+    duration: 1000n,
     cancelled: false,
     ...overrides,
   }
@@ -58,7 +60,7 @@ describe('getUnlockedAmount', () => {
   })
 
   it('never exceeds depositedAmount', () => {
-    const s = makeStream({ amountPerSecond: 999_999_999n })
+    const s = makeStream({ linearAmount: 999_999_999_000n })
     expect(getUnlockedAmount(s, 1100)).toBe(s.depositedAmount)
   })
 })

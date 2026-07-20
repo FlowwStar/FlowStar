@@ -31,6 +31,10 @@ export interface StreamData {
   cliffAmount: bigint
   /** Linear unlock rate after the cliff (smallest unit per second). */
   amountPerSecond: bigint
+  /** Total amount unlocked linearly after the cliff (smallest unit). Used with `duration` to reproduce the contract's exact unlock math. */
+  linearAmount: bigint
+  /** Length of the linear unlock period in seconds (matches the contract's `duration`). */
+  duration: bigint
   /** Whether the sender has cancelled the stream. */
   cancelled: boolean
   /** Optional metadata attached to the stream. */

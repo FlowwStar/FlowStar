@@ -4,7 +4,11 @@ import { StreamCard } from '@/components/streams/stream-card'
 import type { StreamData } from '@/types/stream'
 
 vi.mock('next/link', () => ({
-  default: ({ href, children, ...props }: any) => <a href={href} {...props}>{children}</a>,
+  default: ({ href, children, ...props }: any) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
 }))
 
 vi.mock('@/hooks/use-now', () => ({ useNow: vi.fn(() => 1_700_050_000) }))
@@ -26,6 +30,8 @@ function makeStream(overrides?: Partial<StreamData>): StreamData {
     cliffTime: BigInt(NOW - 3600),
     cliffAmount: 0n,
     amountPerSecond: 27_777n,
+    linearAmount: 100_000_000n,
+    duration: 7200n,
     cancelled: false,
     ...overrides,
   }
@@ -53,7 +59,15 @@ describe('StreamCard', () => {
   })
 
   it('shows Scheduled badge for not-yet-started stream', () => {
-    render(<StreamCard stream={makeStream({ startTime: BigInt(NOW + 3600), endTime: BigInt(NOW + 7200), cliffTime: BigInt(NOW + 3600) })} />)
+    render(
+      <StreamCard
+        stream={makeStream({
+          startTime: BigInt(NOW + 3600),
+          endTime: BigInt(NOW + 7200),
+          cliffTime: BigInt(NOW + 3600),
+        })}
+      />,
+    )
     expect(screen.getByText('Scheduled')).toBeInTheDocument()
   })
 

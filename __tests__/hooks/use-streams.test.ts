@@ -32,6 +32,8 @@ const mockStream: StreamData = {
   cliffTime: 0n,
   cliffAmount: 0n,
   amountPerSecond: 1n,
+  linearAmount: 1000n,
+  duration: 9999999999n,
   cancelled: false,
 }
 
