@@ -1571,3 +1571,92 @@ fn test_transfer_stream_updates_indices() {
     assert_eq!(received.len(), 1);
     assert_eq!(received.get(0), Some(stream_id));
 }
+
+// ─── cleanup_stream ───────────────────────────────────────────────────────────
+
+#[test]
+fn test_cleanup_stream_removes_all_associated_storage_keys() {
+    // Regression test for: cleanup_stream leaves orphaned StreamMetadata and
+    // Delegate storage entries (issue #220).
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Set optional metadata and delegate so all three keys exist.
+    let metadata = StreamMetadata {
+        name: soroban_sdk::String::from_str(&t.env, "Payroll"),
+        category: soroban_sdk::String::from_str(&t.env, "HR"),
+        memo: soroban_sdk::String::from_str(&t.env, "monthly"),
+    };
+    client.update_stream_metadata(&stream_id, &metadata);
+
+    let delegate = Address::generate(&t.env);
+    client.set_delegate(&stream_id, &delegate);
+
+    // Confirm all three keys are present before cleanup.
+    assert!(client.get_stream_metadata(&stream_id).is_some());
+    assert!(client.get_delegate(&stream_id).is_some());
+
+    // Cancel the stream so cleanup is permitted.
+    client.cancel(&stream_id);
+
+    // Perform cleanup.
+    client.cleanup_stream(&t.sender, &stream_id);
+
+    // All associated storage entries must be gone.
+    assert!(
+        client.try_get_stream(&stream_id).is_err()
+            || client.get_stream_metadata(&stream_id).is_none(),
+        "Stream entry should be removed"
+    );
+    assert_eq!(
+        client.get_stream_metadata(&stream_id),
+        None,
+        "StreamMetadata entry must be removed by cleanup_stream"
+    );
+    assert_eq!(
+        client.get_delegate(&stream_id),
+        None,
+        "Delegate entry must be removed by cleanup_stream"
+    );
+}
+
+#[test]
+fn test_cleanup_stream_works_without_optional_entries() {
+    // cleanup_stream must not panic when StreamMetadata and Delegate were
+    // never set for the stream.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Cancel without setting metadata or delegate.
+    client.cancel(&stream_id);
+
+    // Should not panic even when the optional keys are absent.
+    client.cleanup_stream(&t.sender, &stream_id);
+
+    assert_eq!(client.get_stream_metadata(&stream_id), None);
+    assert_eq!(client.get_delegate(&stream_id), None);
+}
