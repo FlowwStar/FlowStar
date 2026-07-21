@@ -1105,6 +1105,27 @@ impl StreamingContract {
         env.storage()
             .persistent()
             .remove(&DataKey::Stream(stream_id));
+
+        // Remove optional associated entries if they exist.
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::StreamMetadata(stream_id))
+        {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::StreamMetadata(stream_id));
+        }
+
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Delegate(stream_id))
+        {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::Delegate(stream_id));
+        }
     }
 
     // ── Write: Bump TTL ──────────────────────────────────────────────────────
