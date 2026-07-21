@@ -1,218 +1,263 @@
-'use client'
+"use client";
 
-import { useCallback, useMemo, useState } from 'react'
-import { ArrowLeft, ArrowRight, Loader2, Upload } from 'lucide-react'
-import Link from 'next/link'
-import { toast } from 'sonner'
-import { RequireWallet } from '@/components/layout/require-wallet'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { useCallback, useMemo, useState } from "react";
+import { ArrowLeft, ArrowRight, Loader2, Upload } from "lucide-react";
+import Link from "next/link";
+import { toast } from "sonner";
+import { RequireWallet } from "@/components/layout/require-wallet";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select'
-import { useContract } from '@/hooks/use-contract'
-import { useNetwork } from '@/components/providers/network-provider'
-import { parseTokenAmount, formatDateTime } from '@/lib/stream-utils'
-import { parseCsvBatch, type CsvBatchRow } from '@/lib/csv-parser'
-import type { TokenInfo } from '@/types/stream'
+} from "@/components/ui/select";
+import { useContract } from "@/hooks/use-contract";
+import { useNetwork } from "@/components/providers/network-provider";
+import { parseTokenAmount, formatDateTime } from "@/lib/stream-utils";
+import {
+  parseCsvBatch,
+  parseDuration,
+  type CsvBatchRow,
+} from "@/lib/csv-parser";
+import type { TokenInfo } from "@/types/stream";
 
 function parseTimestamp(value: string): bigint | null {
-  const trimmed = value.trim()
-  if (!trimmed) return null
+  const trimmed = value.trim();
+  if (!trimmed) return null;
   if (/^\d+$/.test(trimmed)) {
-    const numeric = BigInt(trimmed)
-    return trimmed.length === 13 ? numeric / 1000n : numeric
+    const numeric = BigInt(trimmed);
+    return trimmed.length === 13 ? numeric / 1000n : numeric;
   }
-  const parsed = Date.parse(trimmed)
-  if (Number.isNaN(parsed)) return null
-  return BigInt(Math.floor(parsed / 1000))
+  const parsed = Date.parse(trimmed);
+  if (Number.isNaN(parsed)) return null;
+  return BigInt(Math.floor(parsed / 1000));
 }
 
 function formatTimestamp(value: bigint | null): string {
-  if (value === null) return '-'
-  return formatDateTime(value)
+  if (value === null) return "-";
+  return formatDateTime(value);
 }
 
 function isValidAddress(address: string) {
-  return address.trim().startsWith('G') && address.trim().length === 56
+  return address.trim().startsWith("G") && address.trim().length === 56;
 }
 
 function parseDecimalAmount(value: string, decimals: number): bigint | null {
-  const normalized = value.trim()
-  if (!normalized || !/^\d+(\.\d+)?$/.test(normalized)) return null
+  const normalized = value.trim();
+  if (!normalized || !/^\d+(\.\d+)?$/.test(normalized)) return null;
   try {
-    return parseTokenAmount(normalized, decimals)
+    return parseTokenAmount(normalized, decimals);
   } catch {
-    return null
+    return null;
   }
 }
 
 interface ParsedRow {
-  source: CsvBatchRow
-  index: number
-  errors: string[]
-  recipient: string
-  amount: string
-  startTime: bigint | null
-  endTime: bigint | null
-  cliffTime: bigint | null
-  cliffAmount: bigint | null
+  source: CsvBatchRow;
+  index: number;
+  errors: string[];
+  recipient: string;
+  amount: string;
+  startTime: bigint | null;
+  endTime: bigint | null;
+  cliffTime: bigint | null;
+  cliffAmount: bigint | null;
 }
 
 export default function BatchCreatePage() {
-  const { createStream, pending, error } = useContract()
-  const { config } = useNetwork()
-  const TOKENS: TokenInfo[] = config.knownTokens.map((t) => ({ ...t }))
-  const [selectedToken, setSelectedToken] = useState<string>('')
-  const [fileText, setFileText] = useState('')
-  const [rows, setRows] = useState<ParsedRow[]>([])
-  const [parseErrors, setParseErrors] = useState<string[]>([])
-  const [uploadError, setUploadError] = useState<string | null>(null)
-  const [executing, setExecuting] = useState(false)
-  const [completedCount, setCompletedCount] = useState(0)
-  const [queuedCount, setQueuedCount] = useState(0)
-  const [executionErrors, setExecutionErrors] = useState<string[]>([])
-  const selectedTokenInfo = TOKENS.find((t) => t.address === selectedToken) ?? TOKENS[0] ?? { address: '', symbol: 'XLM', decimals: 7 }
+  const { createStream, pending, error } = useContract();
+  const { config } = useNetwork();
+  const TOKENS: TokenInfo[] = config.knownTokens.map((t) => ({ ...t }));
+  const [selectedToken, setSelectedToken] = useState<string>("");
+  const [fileText, setFileText] = useState("");
+  const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [parseErrors, setParseErrors] = useState<string[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [executing, setExecuting] = useState(false);
+  const [completedCount, setCompletedCount] = useState(0);
+  const [queuedCount, setQueuedCount] = useState(0);
+  const [executionErrors, setExecutionErrors] = useState<string[]>([]);
+  const selectedTokenInfo = TOKENS.find((t) => t.address === selectedToken) ??
+    TOKENS[0] ?? { address: "", symbol: "XLM", decimals: 7 };
 
   const isValidRow = useCallback(
     (row: ParsedRow) => row.errors.length === 0,
     [],
-  )
+  );
 
-  const parsedRows = useMemo(
-    () => rows,
-    [rows],
-  )
+  const parsedRows = useMemo(() => rows, [rows]);
 
   const validRows = useMemo(
     () => parsedRows.filter(isValidRow),
     [parsedRows, isValidRow],
-  )
+  );
 
-  const loadCsv = useCallback(async (file: File) => {
-    setUploadError(null)
-    setParseErrors([])
-    setRows([])
-    setExecutionErrors([])
-    setCompletedCount(0)
-    setQueuedCount(0)
+  const loadCsv = useCallback(
+    async (file: File) => {
+      setUploadError(null);
+      setParseErrors([]);
+      setRows([]);
+      setExecutionErrors([]);
+      setCompletedCount(0);
+      setQueuedCount(0);
 
-    const text = await file.text()
-    setFileText(text)
-    const { rows: parsed, errors } = parseCsvBatch(text)
-    setParseErrors(errors)
+      const text = await file.text();
+      setFileText(text);
+      const { rows: parsed, errors } = parseCsvBatch(text);
+      setParseErrors(errors);
 
-    const normalized = parsed.map((source, index) => {
-      const recipient = source.recipient.trim()
-      const amount = source.amount.trim()
-      const startTime = parseTimestamp(source.start_time)
-      const endTime = parseTimestamp(source.end_time)
-      const cliffTime = source.cliff_time ? parseTimestamp(source.cliff_time) : null
-      const cliffAmount = source.cliff_amount
-        ? parseDecimalAmount(source.cliff_amount, selectedTokenInfo.decimals)
-        : null
+      const normalized = parsed.map((source, index) => {
+        const recipient = source.recipient.trim();
+        const amount = source.amount.trim();
+        const startTime = parseTimestamp(source.start_time);
+        const endTime = parseTimestamp(source.end_time);
+        // An absolute cliff_time takes precedence; otherwise a relative
+        // cliff_duration is resolved against this row's start_time.
+        const cliffTimeAbsolute = source.cliff_time
+          ? parseTimestamp(source.cliff_time)
+          : null;
+        const cliffDuration = source.cliff_duration
+          ? parseDuration(source.cliff_duration)
+          : null;
+        const cliffTime =
+          cliffTimeAbsolute ??
+          (cliffDuration !== null && startTime !== null
+            ? startTime + cliffDuration
+            : null);
+        const cliffAmount = source.cliff_amount
+          ? parseDecimalAmount(source.cliff_amount, selectedTokenInfo.decimals)
+          : null;
 
-      const errors: string[] = []
-      if (!recipient || !isValidAddress(recipient)) {
-        errors.push('Invalid recipient address')
-      }
-      if (!amount || parseDecimalAmount(amount, selectedTokenInfo.decimals) === null) {
-        errors.push('Invalid amount')
-      }
-      if (!startTime) {
-        errors.push('Invalid start_time')
-      }
-      if (!endTime) {
-        errors.push('Invalid end_time')
-      }
-      if (startTime && endTime && endTime <= startTime) {
-        errors.push('end_time must be after start_time')
-      }
-      if (cliffTime && startTime && endTime && (cliffTime < startTime || cliffTime > endTime)) {
-        errors.push('cliff_time must fall between start_time and end_time')
-      }
-      if (cliffAmount !== null && amount && cliffAmount > parseDecimalAmount(amount, selectedTokenInfo.decimals)!) {
-        errors.push('cliff_amount cannot exceed total amount')
-      }
+        const errors: string[] = [];
+        if (!recipient || !isValidAddress(recipient)) {
+          errors.push("Invalid recipient address");
+        }
+        if (
+          !amount ||
+          parseDecimalAmount(amount, selectedTokenInfo.decimals) === null
+        ) {
+          errors.push("Invalid amount");
+        }
+        if (!startTime) {
+          errors.push("Invalid start_time");
+        }
+        if (!endTime) {
+          errors.push("Invalid end_time");
+        }
+        if (startTime && endTime && endTime <= startTime) {
+          errors.push("end_time must be after start_time");
+        }
+        if (source.cliff_time && cliffTimeAbsolute === null) {
+          errors.push("Invalid cliff_time");
+        }
+        if (source.cliff_duration && cliffDuration === null) {
+          errors.push("Invalid cliff_duration");
+        }
+        if (
+          cliffTime &&
+          startTime &&
+          endTime &&
+          (cliffTime < startTime || cliffTime > endTime)
+        ) {
+          errors.push(
+            source.cliff_time
+              ? "cliff_time must fall between start_time and end_time"
+              : "cliff_duration must land between start_time and end_time",
+          );
+        }
+        if (
+          cliffAmount !== null &&
+          amount &&
+          cliffAmount > parseDecimalAmount(amount, selectedTokenInfo.decimals)!
+        ) {
+          errors.push("cliff_amount cannot exceed total amount");
+        }
 
-      return {
-        source,
-        index: index + 1,
-        errors,
-        recipient,
-        amount,
-        startTime,
-        endTime,
-        cliffTime,
-        cliffAmount,
+        return {
+          source,
+          index: index + 1,
+          errors,
+          recipient,
+          amount,
+          startTime,
+          endTime,
+          cliffTime,
+          cliffAmount,
+        };
+      });
+
+      setRows(normalized);
+      setQueuedCount(
+        normalized.filter((row) => row.errors.length === 0).length,
+      );
+
+      if (errors.length === 0 && normalized.length === 0) {
+        setUploadError("CSV file contains no rows.");
       }
-    })
-
-    setRows(normalized)
-    setQueuedCount(normalized.filter((row) => row.errors.length === 0).length)
-
-    if (errors.length === 0 && normalized.length === 0) {
-      setUploadError('CSV file contains no rows.')
-    }
-  }, [selectedTokenInfo.decimals])
+    },
+    [selectedTokenInfo.decimals],
+  );
 
   const handleFileChange = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      if (!file) return
-      if (!file.name.toLowerCase().endsWith('.csv')) {
-        setUploadError('Please upload a .csv file.')
-        return
+      const file = event.target.files?.[0];
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        setUploadError("Please upload a .csv file.");
+        return;
       }
-      await loadCsv(file)
+      await loadCsv(file);
     },
     [loadCsv],
-  )
+  );
 
   const handleExecute = useCallback(async () => {
-    setExecuting(true)
-    setExecutionErrors([])
-    setCompletedCount(0)
-    setQueuedCount(validRows.length)
+    setExecuting(true);
+    setExecutionErrors([]);
+    setCompletedCount(0);
+    setQueuedCount(validRows.length);
 
-    const failures: string[] = []
+    const failures: string[] = [];
 
     for (let i = 0; i < validRows.length; i += 1) {
-      const row = validRows[i]
+      const row = validRows[i];
       try {
         await createStream({
           recipient: row.recipient,
           token: selectedTokenInfo,
-          totalAmount: parseDecimalAmount(row.amount, selectedTokenInfo.decimals)!,
+          totalAmount: parseDecimalAmount(
+            row.amount,
+            selectedTokenInfo.decimals,
+          )!,
           startTime: row.startTime!,
           endTime: row.endTime!,
           cliffTime: row.cliffTime ?? row.startTime!,
           cliffAmount: row.cliffAmount ?? 0n,
-        })
-        setCompletedCount((count) => count + 1)
+        });
+        setCompletedCount((count) => count + 1);
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Transaction failed'
-        failures.push(`Row ${row.index}: ${message}`)
-        break
+        const message =
+          err instanceof Error ? err.message : "Transaction failed";
+        failures.push(`Row ${row.index}: ${message}`);
+        break;
       }
     }
 
     if (failures.length > 0) {
-      setExecutionErrors(failures)
-      toast.error('Batch create stopped on failure.')
+      setExecutionErrors(failures);
+      toast.error("Batch create stopped on failure.");
     } else {
-      toast.success('Batch create completed', {
+      toast.success("Batch create completed", {
         description: `${completedCount + validRows.length} streams created successfully.`,
-      })
+      });
     }
 
-    setExecuting(false)
-  }, [createStream, selectedTokenInfo, validRows, completedCount])
+    setExecuting(false);
+  }, [createStream, selectedTokenInfo, validRows, completedCount]);
 
   return (
     <RequireWallet>
@@ -227,9 +272,12 @@ export default function BatchCreatePage() {
 
         <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Batch create streams</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Batch create streams
+            </h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Upload a CSV of recipient schedules, preview the rows, and execute creation sequentially.
+              Upload a CSV of recipient schedules, preview the rows, and execute
+              creation sequentially.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -249,7 +297,9 @@ export default function BatchCreatePage() {
                 <Label htmlFor="token">Token</Label>
                 <Select
                   value={selectedToken}
-                  onValueChange={(value) => { if (value) setSelectedToken(value) }}
+                  onValueChange={(value) => {
+                    if (value) setSelectedToken(value);
+                  }}
                 >
                   <SelectTrigger id="token" className="w-full">
                     <SelectValue />
@@ -272,7 +322,10 @@ export default function BatchCreatePage() {
                   onChange={handleFileChange}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Format: recipient,amount,start_time,end_time,cliff_time,cliff_amount
+                  Format:
+                  recipient,amount,start_time,end_time,cliff_time,cliff_amount.
+                  Use cliff_duration (e.g. 30d, 12h) as a relative alternative
+                  to cliff_time.
                 </p>
               </div>
             </div>
@@ -328,18 +381,32 @@ export default function BatchCreatePage() {
                     {rows.map((row) => (
                       <tr
                         key={row.index}
-                        className={row.errors.length > 0 ? 'bg-red-50' : undefined}
+                        className={
+                          row.errors.length > 0 ? "bg-red-50" : undefined
+                        }
                       >
                         <td className="py-3 pr-3 font-mono text-xs text-muted-foreground">
                           {row.index}
                         </td>
-                        <td className="py-3 pr-3 font-mono text-xs">{row.recipient}</td>
-                        <td className="py-3 pr-3">{row.amount} {selectedTokenInfo.symbol}</td>
-                        <td className="py-3 pr-3">{formatTimestamp(row.startTime)}</td>
-                        <td className="py-3 pr-3">{formatTimestamp(row.endTime)}</td>
+                        <td className="py-3 pr-3 font-mono text-xs">
+                          {row.recipient}
+                        </td>
                         <td className="py-3 pr-3">
-                          {row.cliffTime ? formatTimestamp(row.cliffTime) : 'none'}
-                          {row.cliffAmount !== null ? ` / ${row.cliffAmount.toString()}` : ''}
+                          {row.amount} {selectedTokenInfo.symbol}
+                        </td>
+                        <td className="py-3 pr-3">
+                          {formatTimestamp(row.startTime)}
+                        </td>
+                        <td className="py-3 pr-3">
+                          {formatTimestamp(row.endTime)}
+                        </td>
+                        <td className="py-3 pr-3">
+                          {row.cliffTime
+                            ? formatTimestamp(row.cliffTime)
+                            : "none"}
+                          {row.cliffAmount !== null
+                            ? ` / ${row.cliffAmount.toString()}`
+                            : ""}
                         </td>
                         <td className="py-3 pr-3">
                           {row.errors.length === 0 ? (
@@ -377,7 +444,8 @@ export default function BatchCreatePage() {
                 <div>
                   <h2 className="text-lg font-semibold">Execute batch</h2>
                   <p className="text-sm text-muted-foreground">
-                    Streams are created sequentially. The first invalid row will be skipped and any failure will pause execution.
+                    Streams are created sequentially. The first invalid row will
+                    be skipped and any failure will pause execution.
                   </p>
                 </div>
                 <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm">
@@ -395,8 +463,12 @@ export default function BatchCreatePage() {
                   onClick={handleExecute}
                   className="gap-2"
                 >
-                  {executing ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                  {executing ? 'Executing…' : 'Execute batch'}
+                  {executing ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Upload className="size-4" />
+                  )}
+                  {executing ? "Executing…" : "Execute batch"}
                 </Button>
                 <Button type="button" variant="outline" asChild>
                   <Link href="/app/create">Review single stream</Link>
@@ -413,5 +485,5 @@ export default function BatchCreatePage() {
         </div>
       </div>
     </RequireWallet>
-  )
+  );
 }
