@@ -16,8 +16,7 @@ const USDC = KNOWN_TOKENS[1]
 const EURC = KNOWN_TOKENS[2]
 
 const DEMO_ME = 'GBME...DEMO_WALLET_ADDRESS...XK7QZ'
-export const DEMO_ADDRESS =
-  'GBQ2X7KFY3R4VZ6N5LJ7WQH3M2PD8C9SAUTV4EXAMPLE0WALLET00ADDR'
+export const DEMO_ADDRESS = 'GBQ2X7KFY3R4VZ6N5LJ7WQH3M2PD8C9SAUTV4EXAMPLE0WALLET00ADDR'
 
 const now = Math.floor(Date.now() / 1000)
 const HOUR = 3600
@@ -29,9 +28,8 @@ function makeStream(partial: Partial<StreamData> & Pick<StreamData, 'id'>): Stre
   const deposited = partial.depositedAmount ?? 100_000n * 10n ** 7n
   const cliffAmount = partial.cliffAmount ?? 0n
   const duration = end - start
-  const perSecond =
-    partial.amountPerSecond ??
-    (duration > 0n ? (deposited - cliffAmount) / duration : 0n)
+  const linearAmount = partial.linearAmount ?? deposited - cliffAmount
+  const perSecond = partial.amountPerSecond ?? (duration > 0n ? linearAmount / duration : 0n)
   return {
     sender: DEMO_ADDRESS,
     recipient: 'GD7HQ...RECIPIENT...4FJ2K',
@@ -43,6 +41,8 @@ function makeStream(partial: Partial<StreamData> & Pick<StreamData, 'id'>): Stre
     cliffTime: partial.cliffTime ?? start,
     cliffAmount,
     amountPerSecond: perSecond,
+    linearAmount,
+    duration,
     cancelled: false,
     ...partial,
   }
@@ -123,8 +123,8 @@ export const mockStore = {
   create(input: CreateStreamInput, sender: string): StreamData {
     const id = String(Math.max(0, ...streams.map((s) => Number(s.id))) + 1)
     const duration = input.endTime - input.startTime
-    const amountPerSecond =
-      duration > 0n ? (input.totalAmount - input.cliffAmount) / duration : 0n
+    const linearAmount = input.totalAmount - input.cliffAmount
+    const amountPerSecond = duration > 0n ? linearAmount / duration : 0n
     const stream: StreamData = {
       id,
       sender,
@@ -137,6 +137,8 @@ export const mockStore = {
       cliffTime: input.cliffTime,
       cliffAmount: input.cliffAmount,
       amountPerSecond,
+      linearAmount,
+      duration,
       cancelled: false,
     }
     streams = [stream, ...streams]

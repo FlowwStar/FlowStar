@@ -2,9 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 
 // ── Hoisted mocks ──────────────────────────────────────────────────────────
-const mockUseWallet = vi.hoisted(() =>
-  vi.fn(() => ({ address: 'GSENDER', isConnected: true })),
-)
+const mockUseWallet = vi.hoisted(() => vi.fn(() => ({ address: 'GSENDER', isConnected: true })))
 
 vi.mock('@/hooks/use-wallet', () => ({ useWallet: mockUseWallet }))
 
@@ -30,7 +28,12 @@ vi.mock('@/lib/contract', () => ({
   estimateCreateStreamFee: vi.fn(),
 }))
 
-import { createStream, withdrawFromStream, cancelStream, estimateCreateStreamFee } from '@/lib/contract'
+import {
+  createStream,
+  withdrawFromStream,
+  cancelStream,
+  estimateCreateStreamFee,
+} from '@/lib/contract'
 import { useContract } from '@/hooks/use-contract'
 import type { CreateStreamInput, StreamData } from '@/types/stream'
 import { getWithdrawableAmount } from '@/lib/stream-utils'
@@ -66,6 +69,8 @@ const makeStream = (id = '1', recipient = 'GRCPT'): StreamData => ({
   cliffTime: 0n,
   cliffAmount: 0n,
   amountPerSecond: 1n,
+  linearAmount: 1000n,
+  duration: 9999999999n,
   cancelled: false,
 })
 
@@ -122,18 +127,18 @@ describe('useContract', () => {
   it('sets error and rethrows when createStream fails', async () => {
     vi.mocked(createStream).mockRejectedValueOnce(new Error('user rejected'))
     const { result } = renderHook(() => useContract())
-    await expect(
-      act(() => result.current.createStream(makeInput())),
-    ).rejects.toThrow('user rejected')
+    await expect(act(() => result.current.createStream(makeInput()))).rejects.toThrow(
+      'user rejected',
+    )
     expect(result.current.error).toContain('Wallet error')
   })
 
   it('throws when wallet not connected on createStream', async () => {
     mockUseWallet.mockReturnValue({ address: null, isConnected: false } as any)
     const { result } = renderHook(() => useContract())
-    await expect(
-      act(() => result.current.createStream(makeInput())),
-    ).rejects.toThrow('Connect a wallet')
+    await expect(act(() => result.current.createStream(makeInput()))).rejects.toThrow(
+      'Connect a wallet',
+    )
   })
 
   // ── withdraw ───────────────────────────────────────────────────────────────
@@ -149,9 +154,7 @@ describe('useContract', () => {
   it('sets error on withdraw failure', async () => {
     vi.mocked(withdrawFromStream).mockRejectedValueOnce(new Error('insufficient balance'))
     const { result } = renderHook(() => useContract())
-    await expect(
-      act(() => result.current.withdraw('1', 100n)),
-    ).rejects.toThrow()
+    await expect(act(() => result.current.withdraw('1', 100n))).rejects.toThrow()
     expect(result.current.error).toContain('Input error')
   })
 
@@ -201,9 +204,9 @@ describe('useContract', () => {
   it('throws when wallet not connected for withdrawAll', async () => {
     mockUseWallet.mockReturnValue({ address: null, isConnected: false } as any)
     const { result } = renderHook(() => useContract())
-    await expect(
-      act(() => result.current.withdrawAll([makeStream()])),
-    ).rejects.toThrow('Connect a wallet')
+    await expect(act(() => result.current.withdrawAll([makeStream()]))).rejects.toThrow(
+      'Connect a wallet',
+    )
   })
 
   it('returns {succeeded:0,failed:0} when no streams have withdrawable amount', async () => {

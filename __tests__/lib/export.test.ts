@@ -10,13 +10,15 @@ function makeStream(overrides?: Partial<StreamData>): StreamData {
     sender: 'GSEND123',
     recipient: 'GRCPT456',
     token: TOKEN,
-    depositedAmount: 100_000_000n,   // 10 USDC
-    withdrawnAmount: 50_000_000n,    // 5 USDC
+    depositedAmount: 100_000_000n, // 10 USDC
+    withdrawnAmount: 50_000_000n, // 5 USDC
     startTime: 1_700_000_000n,
     endTime: 1_700_086_400n,
     cliffTime: 1_700_000_000n,
     cliffAmount: 0n,
     amountPerSecond: 1_157n,
+    linearAmount: 100_000_000n,
+    duration: 86_400n,
     cancelled: false,
     ...overrides,
   }

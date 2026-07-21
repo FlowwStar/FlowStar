@@ -3,11 +3,7 @@
 import { useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
-import {
-  getUnlockedAmount,
-  getStreamProgress,
-  formatTokenAmount,
-} from '@/lib/stream-utils'
+import { getUnlockedAmount, getStreamProgress, formatTokenAmount } from '@/lib/stream-utils'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import type { StreamData } from '@/types/stream'
 
@@ -33,6 +29,8 @@ function buildDemoStream(now: number): StreamData {
     cliffTime: BigInt(start),
     cliffAmount: 0n,
     amountPerSecond: (120_000n * 10n ** 7n) / BigInt(STREAM_DURATION),
+    linearAmount: 120_000n * 10n ** 7n,
+    duration: BigInt(STREAM_DURATION),
     cancelled: false,
   }
 }
@@ -72,9 +70,7 @@ export function LiveStreamPreview() {
       </div>
 
       <div className="mt-6">
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">
-          Unlocked so far
-        </p>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">Unlocked so far</p>
         <p className="mt-1 font-mono text-3xl font-semibold tabular-nums text-foreground sm:text-4xl">
           {formatTokenAmount(unlocked, demoStream.token.decimals, 4)}
           <span className="ml-2 text-base text-muted-foreground">USDC</span>

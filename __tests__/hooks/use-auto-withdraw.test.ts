@@ -38,6 +38,8 @@ function makeStream(overrides: Partial<StreamData> = {}): StreamData {
     cliffTime: 0n,
     cliffAmount: 0n,
     amountPerSecond: 1n,
+    linearAmount: 10_000n,
+    duration: 9_999_999n,
     cancelled: false,
     ...overrides,
   }
