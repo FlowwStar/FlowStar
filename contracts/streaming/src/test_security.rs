@@ -186,6 +186,89 @@ fn test_auth_sender_cannot_withdraw() {
     ctx.client().withdraw(&id, &1_0000000);
 }
 
+/// Authorized delegate can withdraw on behalf of recipient.
+#[test]
+fn test_auth_delegate_can_withdraw() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let id = ctx.create_basic_stream(now);
+
+    let delegate = Address::generate(&ctx.env);
+    ctx.client().set_delegate(&id, &delegate);
+
+    ctx.set_time(now + 500);
+    let withdrawable = ctx.client().get_withdrawable(&id);
+    assert!(withdrawable > 0);
+
+    ctx.env.mock_auths(&[MockAuth {
+        address: &delegate,
+        invoke: &MockAuthInvoke {
+            contract: &ctx.contract_id,
+            fn_name: "withdraw",
+            args: (id, withdrawable).into_val(&ctx.env),
+            sub_invokes: &[],
+        },
+    }]);
+    ctx.client().withdraw(&id, &withdrawable);
+
+    assert_eq!(ctx.token().balance(&ctx.recipient), withdrawable);
+}
+
+/// Recipient cannot withdraw without delegate auth when a delegate is set.
+#[test]
+#[should_panic]
+fn test_auth_recipient_cannot_withdraw_without_delegate_auth_when_delegate_set() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let id = ctx.create_basic_stream(now);
+
+    let delegate = Address::generate(&ctx.env);
+    ctx.client().set_delegate(&id, &delegate);
+
+    ctx.set_time(now + 500);
+    let withdrawable = ctx.client().get_withdrawable(&id);
+
+    ctx.env.mock_auths(&[MockAuth {
+        address: &ctx.recipient,
+        invoke: &MockAuthInvoke {
+            contract: &ctx.contract_id,
+            fn_name: "withdraw",
+            args: (id, withdrawable).into_val(&ctx.env),
+            sub_invokes: &[],
+        },
+    }]);
+    ctx.client().withdraw(&id, &withdrawable);
+}
+
+/// Attacker cannot withdraw even when a delegate is set.
+#[test]
+#[should_panic]
+fn test_auth_attacker_cannot_withdraw_when_delegate_set() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let id = ctx.create_basic_stream(now);
+
+    let delegate = Address::generate(&ctx.env);
+    ctx.client().set_delegate(&id, &delegate);
+
+    ctx.set_time(now + 500);
+    let withdrawable = ctx.client().get_withdrawable(&id);
+
+    ctx.env.mock_auths(&[MockAuth {
+        address: &ctx.attacker,
+        invoke: &MockAuthInvoke {
+            contract: &ctx.contract_id,
+            fn_name: "withdraw",
+            args: (id, withdrawable).into_val(&ctx.env),
+            sub_invokes: &[],
+        },
+    }]);
+    ctx.client().withdraw(&id, &withdrawable);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // 2. NON-EXISTENT STREAM
 // ═══════════════════════════════════════════════════════════════════
