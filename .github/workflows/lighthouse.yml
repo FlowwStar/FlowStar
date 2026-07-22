@@ -20,7 +20,7 @@ jobs:
 
       - run: npm run build
         env:
-          NEXT_PUBLIC_STREAM_CONTRACT_ID: ${{ secrets.NEXT_PUBLIC_STREAM_CONTRACT_ID }}
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ${{ secrets.NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET }}
 
       - name: Start Next.js server
         run: npm run start &
@@ -37,5 +37,5 @@ jobs:
             http://localhost:3000
           uploadArtifacts: true
           temporaryPublicStorage: true
-          runs: 1
+          runs: 3
           budgetPath: .github/lighthouse-budget.json
