@@ -60,6 +60,7 @@ export function useAutoWithdraw(stream: StreamData | null) {
     useState<AutoWithdrawSettings>(DEFAULT_SETTINGS);
   const [lastAutoWithdraw, setLastAutoWithdraw] = useState<number | null>(null);
   const [autoWithdrawPending, setAutoWithdrawPending] = useState(false);
+  const autoWithdrawPendingRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -150,13 +151,14 @@ export function useAutoWithdraw(stream: StreamData | null) {
     const intervalMs = settings.intervalHours * 60 * 60 * 1000;
 
     async function tryWithdraw() {
-      if (!stream || autoWithdrawPending) return;
+      if (!stream || autoWithdrawPendingRef.current) return;
       const now = Math.floor(Date.now() / 1000);
       const withdrawable = getWithdrawableAmount(stream, now);
       const amount = calculateWithdrawAmount(withdrawable, stream);
 
       if (amount <= 0n) return;
 
+      autoWithdrawPendingRef.current = true;
       setAutoWithdrawPending(true);
       try {
         const txHash = await withdrawFromStream(stream.id, amount, network);
@@ -173,6 +175,7 @@ export function useAutoWithdraw(stream: StreamData | null) {
           error: String(error),
         });
       } finally {
+        autoWithdrawPendingRef.current = false;
         setAutoWithdrawPending(false);
       }
     }
@@ -190,7 +193,6 @@ export function useAutoWithdraw(stream: StreamData | null) {
     settings.maxSafetyLimitRaw,
     settings.thresholdPercentage,
     stream,
-    autoWithdrawPending,
     calculateWithdrawAmount,
     addWithdrawalHistory,
     network,
