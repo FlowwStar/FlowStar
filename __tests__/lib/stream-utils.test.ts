@@ -203,4 +203,8 @@ describe('formatTimeRemaining', () => {
     const result = formatTimeRemaining(BigInt(Math.floor(Date.now() / 1000) + 90061))
     expect(result).toMatch(/\d+d/)
   })
+
+  it('shows only seconds for sub-minute durations', () => {
+    expect(formatTimeRemaining(1045n, 1000)).toBe('45s')
+  })
 })
