@@ -977,7 +977,7 @@ impl StreamingContract {
             .get(&DataKey::SentBy(address))
             .unwrap_or(Vec::new(&env));
         let start = core::cmp::min(offset, all.len());
-        let end = core::cmp::min(offset + limit, all.len());
+        let end = core::cmp::min(offset.saturating_add(limit), all.len());
         let mut result = Vec::new(&env);
         let mut i = start;
         while i < end {
@@ -995,7 +995,7 @@ impl StreamingContract {
             .get(&DataKey::ReceivedBy(address))
             .unwrap_or(Vec::new(&env));
         let start = core::cmp::min(offset, all.len());
-        let end = core::cmp::min(offset + limit, all.len());
+        let end = core::cmp::min(offset.saturating_add(limit), all.len());
         let mut result = Vec::new(&env);
         let mut i = start;
         while i < end {
@@ -1036,7 +1036,7 @@ impl StreamingContract {
             .get(&DataKey::ArchiveSentBy(address))
             .unwrap_or(Vec::new(&env));
         let start = core::cmp::min(offset, all.len());
-        let end = core::cmp::min(offset + limit, all.len());
+        let end = core::cmp::min(offset.saturating_add(limit), all.len());
         let mut result = Vec::new(&env);
         let mut i = start;
         while i < end {
@@ -1059,7 +1059,7 @@ impl StreamingContract {
             .get(&DataKey::ArchiveReceivedBy(address))
             .unwrap_or(Vec::new(&env));
         let start = core::cmp::min(offset, all.len());
-        let end = core::cmp::min(offset + limit, all.len());
+        let end = core::cmp::min(offset.saturating_add(limit), all.len());
         let mut result = Vec::new(&env);
         let mut i = start;
         while i < end {

@@ -452,6 +452,26 @@ fn test_stream_indexes() {
 }
 
 #[test]
+fn test_pagination_offset_limit_overflow_does_not_panic() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &t.default_params(now).total_amount,
+        &(t.env.ledger().sequence() + 500),
+    );
+    client.create_stream(&t.sender, &t.default_params(now));
+
+    // offset + limit would overflow a u32 if added directly instead of saturating.
+    let sent = client.get_sent_streams(&t.sender, &(u32::MAX - 1), &u32::MAX);
+    assert_eq!(sent.len(), 0);
+}
+
+#[test]
 fn test_incrementing_ids() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
