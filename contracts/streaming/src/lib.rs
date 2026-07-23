@@ -195,6 +195,13 @@ pub enum StreamError {
     BatchSizeExceeded = 11,
     /// Batch cannot be empty.
     BatchEmpty = 12,
+    /// Arithmetic overflow in vesting calculation (e.g. elapsed × linear_amount
+    /// overflows i128). The stream's funds are not lost — the stream is still
+    /// stored — but the parameters that were accepted at creation time produce
+    /// an unrepresentable intermediate value.  The caller should treat this the
+    /// same way they treat any other hard error (surface it to the user; do not
+    /// silently swallow it).
+    ArithmeticOverflow = 13,
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -735,7 +742,7 @@ impl StreamingContract {
             // time. This keeps already-unlocked funds untouched while
             // making the top-up actually stream out instead of sitting
             // inert until end_time.
-            let already_unlocked = Self::unlocked_amount(&stream, now);
+            let already_unlocked = Self::unlocked_amount(&stream, now)?;
             let remaining = stream
                 .deposited_amount
                 .checked_sub(already_unlocked)
@@ -813,7 +820,7 @@ impl StreamingContract {
         }
 
         let now = env.ledger().timestamp();
-        let withdrawable = Self::withdrawable_amount(&stream, now);
+        let withdrawable = Self::withdrawable_amount(&stream, now)?;
 
         if amount <= 0 || amount > withdrawable {
             return Err(StreamError::InsufficientFunds);
@@ -855,7 +862,7 @@ impl StreamingContract {
         let token_client = token::Client::new(&env, &stream.token);
         token_client.transfer(&env.current_contract_address(), &stream.recipient, &amount);
 
-        let remaining_withdrawable = Self::withdrawable_amount(&stream, now);
+        let remaining_withdrawable = Self::withdrawable_amount(&stream, now)?;
         WithdrawEvent {
             stream_id,
             recipient: stream.recipient.clone(),
@@ -885,7 +892,7 @@ impl StreamingContract {
         }
 
         let now = env.ledger().timestamp();
-        let unlocked = Self::unlocked_amount(&stream, now);
+        let unlocked = Self::unlocked_amount(&stream, now)?;
         let recipient_owes = unlocked - stream.withdrawn_amount;
         let sender_gets_back = stream.deposited_amount - unlocked;
 
@@ -959,7 +966,7 @@ impl StreamingContract {
     pub fn get_withdrawable(env: Env, stream_id: u64) -> Result<i128, StreamError> {
         let stream = Self::load_stream(&env, stream_id)?;
         let now = env.ledger().timestamp();
-        Ok(Self::withdrawable_amount(&stream, now))
+        Self::withdrawable_amount(&stream, now)
     }
 
     /// Get paginated stream IDs where `address` is the sender.
@@ -1233,36 +1240,57 @@ impl StreamingContract {
     }
 
     /// Compute total unlocked amount at `now` (UNIX seconds).
-    fn unlocked_amount(stream: &Stream, now: u64) -> i128 {
+    ///
+    /// Returns `Err(StreamError::ArithmeticOverflow)` if the intermediate
+    /// `elapsed × linear_amount` multiplication overflows `i128`.  This can
+    /// only happen when the product exceeds ~1.7 × 10^38; practically it
+    /// requires an astronomically large `linear_amount` combined with a long
+    /// `elapsed` window that was not caught by the `amount_per_second >= 1`
+    /// guard at creation time.  Using `checked_mul` / `checked_div` ensures
+    /// the runtime never aborts due to `overflow-checks = true` in the release
+    /// profile, leaving the stream recoverable rather than permanently frozen.
+    fn unlocked_amount(stream: &Stream, now: u64) -> Result<i128, StreamError> {
         if now < stream.cliff_time {
-            return 0;
+            return Ok(0);
         }
         if now >= stream.end_time {
-            return stream.deposited_amount;
+            return Ok(stream.deposited_amount);
         }
         let elapsed = (now - stream.start_time) as i128;
-        let linear = (elapsed * stream.linear_amount) / stream.duration;
+
+        // Prefer divide-first to keep the intermediate value small, but only
+        // when it produces an exact result (i.e. elapsed is divisible by
+        // duration).  Otherwise fall back to multiply-first with a checked_mul
+        // so an overflow is surfaced as a typed error instead of aborting the
+        // entire transaction.
+        let linear = if elapsed % stream.duration == 0 {
+            // Exact path: no precision loss, no overflow risk.
+            (elapsed / stream.duration) * stream.linear_amount
+        } else {
+            // General path: multiply first for precision, guard the overflow.
+            elapsed
+                .checked_mul(stream.linear_amount)
+                .ok_or(StreamError::ArithmeticOverflow)?
+                / stream.duration
+        };
+
         let unlocked = stream.cliff_amount + linear;
         // Cap at deposited (rounding safety).
-        if unlocked > stream.deposited_amount {
+        Ok(if unlocked > stream.deposited_amount {
             stream.deposited_amount
         } else {
             unlocked
-        }
+        })
     }
 
     /// Amount the recipient can withdraw right now.
-    fn withdrawable_amount(stream: &Stream, now: u64) -> i128 {
+    fn withdrawable_amount(stream: &Stream, now: u64) -> Result<i128, StreamError> {
         if stream.cancelled {
-            return 0;
+            return Ok(0);
         }
-        let unlocked = Self::unlocked_amount(stream, now);
+        let unlocked = Self::unlocked_amount(stream, now)?;
         let available = unlocked - stream.withdrawn_amount;
-        if available > 0 {
-            available
-        } else {
-            0
-        }
+        Ok(if available > 0 { available } else { 0 })
     }
 
     /// Increment and return the next stream ID.
