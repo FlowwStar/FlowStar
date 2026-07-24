@@ -976,8 +976,13 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::SentBy(address))
             .unwrap_or(Vec::new(&env));
-        let start = core::cmp::min(offset, all.len());
-        let end = core::cmp::min(offset + limit, all.len());
+        let len = all.len();
+        let start = core::cmp::min(offset, len);
+        let end = if let Some(limit_end) = offset.checked_add(limit) {
+            core::cmp::min(limit_end, len)
+        } else {
+            len
+        };
         let mut result = Vec::new(&env);
         let mut i = start;
         while i < end {
@@ -994,8 +999,13 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ReceivedBy(address))
             .unwrap_or(Vec::new(&env));
-        let start = core::cmp::min(offset, all.len());
-        let end = core::cmp::min(offset + limit, all.len());
+        let len = all.len();
+        let start = core::cmp::min(offset, len);
+        let end = if let Some(limit_end) = offset.checked_add(limit) {
+            core::cmp::min(limit_end, len)
+        } else {
+            len
+        };
         let mut result = Vec::new(&env);
         let mut i = start;
         while i < end {
@@ -1035,8 +1045,13 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ArchiveSentBy(address))
             .unwrap_or(Vec::new(&env));
-        let start = core::cmp::min(offset, all.len());
-        let end = core::cmp::min(offset + limit, all.len());
+        let len = all.len();
+        let start = core::cmp::min(offset, len);
+        let end = if let Some(limit_end) = offset.checked_add(limit) {
+            core::cmp::min(limit_end, len)
+        } else {
+            len
+        };
         let mut result = Vec::new(&env);
         let mut i = start;
         while i < end {
@@ -1058,8 +1073,13 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ArchiveReceivedBy(address))
             .unwrap_or(Vec::new(&env));
-        let start = core::cmp::min(offset, all.len());
-        let end = core::cmp::min(offset + limit, all.len());
+        let len = all.len();
+        let start = core::cmp::min(offset, len);
+        let end = if let Some(limit_end) = offset.checked_add(limit) {
+            core::cmp::min(limit_end, len)
+        } else {
+            len
+        };
         let mut result = Vec::new(&env);
         let mut i = start;
         while i < end {

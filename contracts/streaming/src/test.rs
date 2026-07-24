@@ -149,6 +149,38 @@ fn test_create_stream_with_cliff() {
 }
 
 #[test]
+fn test_create_stream_accepts_past_start_and_cliff_times() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let client = t.client();
+    let params = CreateStreamParams {
+        recipient: t.recipient.clone(),
+        token: t.token_id.clone(),
+        total_amount: 1_000_0000000,
+        start_time: now - 100,
+        end_time: now + 100,
+        cliff_time: now - 50,
+        cliff_amount: 0,
+    };
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &params.total_amount,
+        &(t.env.ledger().sequence() + 500),
+    );
+
+    let stream_id = client.create_stream(&t.sender, &params);
+    let stream = client.get_stream(&stream_id);
+
+    assert_eq!(stream.start_time, now - 100);
+    assert_eq!(stream.cliff_time, now - 50);
+    assert_eq!(stream.end_time, now + 100);
+}
+
+#[test]
 fn test_create_stream_invalid_times() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;

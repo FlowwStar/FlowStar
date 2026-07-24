@@ -69,7 +69,7 @@ interface ParsedRow {
 }
 
 export default function BatchCreatePage() {
-  const { createStream, pending, error } = useContract();
+  const { createStreamsBatch, pending, error } = useContract();
   const { config } = useNetwork();
   const TOKENS: TokenInfo[] = config.knownTokens.map((t) => ({ ...t }));
   const [selectedToken, setSelectedToken] = useState<string>("");
@@ -223,41 +223,35 @@ export default function BatchCreatePage() {
 
     const failures: string[] = [];
 
-    for (let i = 0; i < validRows.length; i += 1) {
-      const row = validRows[i];
-      try {
-        await createStream({
+    try {
+      await createStreamsBatch(
+        validRows.map((row) => ({
           recipient: row.recipient,
           token: selectedTokenInfo,
-          totalAmount: parseDecimalAmount(
-            row.amount,
-            selectedTokenInfo.decimals,
-          )!,
+          totalAmount: parseDecimalAmount(row.amount, selectedTokenInfo.decimals)!,
           startTime: row.startTime!,
           endTime: row.endTime!,
           cliffTime: row.cliffTime ?? row.startTime!,
           cliffAmount: row.cliffAmount ?? 0n,
-        });
-        setCompletedCount((count) => count + 1);
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Transaction failed";
-        failures.push(`Row ${row.index}: ${message}`);
-        break;
-      }
+        })),
+      );
+      setCompletedCount(validRows.length);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Transaction failed";
+      failures.push(message);
     }
 
     if (failures.length > 0) {
       setExecutionErrors(failures);
-      toast.error("Batch create stopped on failure.");
+      toast.error("Batch create failed.");
     } else {
       toast.success("Batch create completed", {
-        description: `${completedCount + validRows.length} streams created successfully.`,
+        description: `${validRows.length} streams created successfully.`,
       });
     }
 
     setExecuting(false);
-  }, [createStream, selectedTokenInfo, validRows, completedCount]);
+  }, [createStreamsBatch, selectedTokenInfo, validRows]);
 
   return (
     <RequireWallet>

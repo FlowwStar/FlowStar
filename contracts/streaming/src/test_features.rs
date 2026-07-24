@@ -392,6 +392,31 @@ fn test_pagination_works_with_optimized_index() {
 }
 
 #[test]
+fn test_pagination_clamps_when_offset_plus_limit_overflows() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let client = t.client();
+
+    for i in 0..3 {
+        let mut params = t.default_params(now);
+        let total = params.total_amount;
+
+        t.token().approve(
+            &t.sender,
+            &t.contract_id,
+            &total,
+            &(t.env.ledger().sequence() + 500 + i as u32),
+        );
+        client.create_stream(&t.sender, &params);
+    }
+
+    let page = client.get_sent_streams(&t.sender, &u32::MAX, &u32::MAX);
+    assert!(page.is_empty());
+}
+
+#[test]
 fn test_get_sent_stream_count_accurate() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
