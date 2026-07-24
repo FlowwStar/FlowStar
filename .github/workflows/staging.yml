@@ -5,6 +5,9 @@ on:
     branches: [staging]
   pull_request:
     types: [opened, synchronize, reopened]
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
 
 jobs:
   deploy-staging:
