@@ -32,6 +32,10 @@ export default defineConfig({
       use: { browserName: "firefox", viewport: { width: 1280, height: 900 } },
     },
     {
+      name: "webkit-desktop",
+      use: { ...devices["Desktop Safari"] },
+    },
+    {
       name: "chromium-mobile",
       use: { ...devices["Pixel 5"] },
     },
@@ -43,6 +47,10 @@ export default defineConfig({
         userAgent:
           "Mozilla/5.0 (Android 10; Mobile; rv:120.0) Gecko/20100101 Firefox/120.0",
       },
+    },
+    {
+      name: "mobile-safari",
+      use: { ...devices["iPhone 13"] },
     },
   ],
   webServer: {
