@@ -106,6 +106,20 @@ test.describe('Axe automated scans', () => {
     await page.waitForLoadState('networkidle')
     await checkA11y(page)
   })
+
+  test('settings page passes axe wcag2a/2aa', async ({ page }) => {
+    await withWallet(page)
+    await page.goto('/app/settings')
+    await expect(page.locator('h1:has-text("Settings")')).toBeVisible()
+    await checkA11y(page)
+  })
+
+  test('analytics page passes axe wcag2a/2aa', async ({ page }) => {
+    await page.goto('/app/analytics')
+    await expect(page.locator('h1:has-text("Platform analytics")')).toBeVisible()
+    await page.waitForLoadState('networkidle')
+    await checkA11y(page)
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
