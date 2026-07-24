@@ -26,6 +26,15 @@ interface AutoWithdrawSettings {
   withdrawalHistory: WithdrawalHistoryEntry[];
 }
 
+const MIN_INTERVAL_HOURS = 1;
+
+function clampIntervalHours(hours: number): number {
+  if (!Number.isFinite(hours) || hours < MIN_INTERVAL_HOURS) {
+    return MIN_INTERVAL_HOURS;
+  }
+  return hours;
+}
+
 const DEFAULT_SETTINGS: AutoWithdrawSettings = {
   enabled: false,
   strategy: "time-based",
@@ -44,7 +53,9 @@ function loadSettings(streamId: string): AutoWithdrawSettings {
   try {
     const stored = localStorage.getItem(storageKey(streamId));
     if (!stored) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+    const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+    parsed.intervalHours = clampIntervalHours(parsed.intervalHours);
+    return parsed;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -71,6 +82,9 @@ export function useAutoWithdraw(stream: StreamData | null) {
     (update: Partial<AutoWithdrawSettings>) => {
       if (!stream) return;
       const next = { ...settings, ...update };
+      if (update.intervalHours !== undefined) {
+        next.intervalHours = clampIntervalHours(update.intervalHours);
+      }
       setSettings(next);
       saveSettings(stream.id, next);
     },
@@ -148,7 +162,7 @@ export function useAutoWithdraw(stream: StreamData | null) {
 
     if (!settings.enabled || !stream || stream.cancelled) return;
 
-    const intervalMs = settings.intervalHours * 60 * 60 * 1000;
+    const intervalMs = clampIntervalHours(settings.intervalHours) * 60 * 60 * 1000;
 
     async function tryWithdraw() {
       if (!stream || autoWithdrawPendingRef.current) return;
