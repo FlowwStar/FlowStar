@@ -21,6 +21,7 @@ jobs:
       - run: npm run build
         env:
           NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ${{ secrets.NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET }}
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET: ${{ secrets.NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET }}
 
       - name: Start Next.js server
         run: npm run start &
