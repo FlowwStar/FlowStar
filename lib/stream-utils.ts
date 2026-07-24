@@ -200,7 +200,7 @@ export function formatTimeRemaining(
   const parts: string[] = []
   if (days) parts.push(`${days}d`)
   if (hours || days) parts.push(`${hours}h`)
-  if (!days) parts.push(`${minutes}m`)
+  if (!days && (minutes || hours)) parts.push(`${minutes}m`)
   if (!days && !hours) parts.push(`${seconds}s`)
   return parts.join(' ')
 }
