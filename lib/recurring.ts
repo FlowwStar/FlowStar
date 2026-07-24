@@ -44,8 +44,26 @@ export function getUpcomingRenewals(): RecurringRule[] {
 }
 
 export function buildNextRunAt(startTime: number, cadence: Exclude<RecurrenceCadence, 'none'>) {
-  const ms = { weekly: 7, monthly: 30, quarterly: 90 }[cadence] * 24 * 60 * 60 * 1000
-  return startTime + ms
+  if (cadence === 'weekly') {
+    return startTime + 7 * 24 * 60 * 60 * 1000
+  }
+
+  // 'monthly' and 'quarterly' use real calendar-month arithmetic instead of
+  // fixed day counts so renewal dates don't drift across months of varying
+  // length (e.g. Feb, or 31-day months).
+  const monthsToAdd = cadence === 'monthly' ? 1 : 3
+  const date = new Date(startTime)
+  const originalDay = date.getDate()
+
+  date.setDate(1) // avoid month-length overflow while shifting months
+  date.setMonth(date.getMonth() + monthsToAdd)
+
+  // Clamp to the last day of the target month if the original day doesn't
+  // exist there (e.g. Jan 31 + 1 month -> Feb 28/29, not Mar 3).
+  const daysInTargetMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  date.setDate(Math.min(originalDay, daysInTargetMonth))
+
+  return date.getTime()
 }
 
 export function createRenewalPreset(stream: { id: string; recipient: string; token: { symbol: string }; depositedAmount: bigint }, cadence: Exclude<RecurrenceCadence, 'none'>) {
