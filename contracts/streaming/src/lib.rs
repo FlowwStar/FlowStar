@@ -802,12 +802,21 @@ impl StreamingContract {
 
     /// Withdraw unlocked tokens from a stream.
     ///
-    /// Either the recipient or the registered delegate (if set via `set_delegate`)
-    /// may authorize a withdrawal. Pass the exact amount to withdraw (must be ≤ withdrawable amount).
-    /// Use `get_withdrawable` to query first.
+    /// Authorization rules:
+    /// - If no delegate is registered, the stream's **recipient** must authorize.
+    /// - If a delegate is registered via [`set_delegate`], the **delegate** must
+    ///   authorize instead.  The delegate withdraws on behalf of the recipient
+    ///   (tokens are still sent to the recipient's address).  The recipient is
+    ///   locked out while a delegate is active; call [`remove_delegate`] first to
+    ///   restore direct-recipient access.
+    ///
+    /// Pass the exact amount to withdraw (must be ≤ the withdrawable amount).
+    /// Use [`get_withdrawable`] to query the available amount first.
     pub fn withdraw(env: Env, stream_id: u64, amount: i128) -> Result<(), StreamError> {
         let mut stream = Self::load_stream(&env, stream_id)?;
 
+        // Delegate, when registered, has exclusive withdrawal authority.
+        // If no delegate is set the recipient authorises directly.
         if let Some(delegate) = Self::get_delegate(env.clone(), stream_id) {
             delegate.require_auth();
         } else {
