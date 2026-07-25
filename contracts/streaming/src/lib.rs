@@ -1130,26 +1130,15 @@ impl StreamingContract {
             .persistent()
             .remove(&DataKey::Stream(stream_id));
 
-        // Remove optional associated entries if they exist.
-        if env
-            .storage()
+        // Remove optional associated entries (StreamMetadata and Delegate).
+        // These are always removed unconditionally — remove() is a no-op when
+        // the key is absent, so the has() guards are unnecessary.
+        env.storage()
             .persistent()
-            .has(&DataKey::StreamMetadata(stream_id))
-        {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::StreamMetadata(stream_id));
-        }
-
-        if env
-            .storage()
+            .remove(&DataKey::StreamMetadata(stream_id));
+        env.storage()
             .persistent()
-            .has(&DataKey::Delegate(stream_id))
-        {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::Delegate(stream_id));
-        }
+            .remove(&DataKey::Delegate(stream_id));
     }
 
     // ── Write: Bump TTL ──────────────────────────────────────────────────────
