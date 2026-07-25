@@ -87,9 +87,6 @@ pub enum DataKey {
     /// Global upgrade pause / freeze. When set, prevents creating new streams.
     Paused,
 
-    /// Whether a specific stream has already been migrated.
-    Migrated(u64),
-
     /// Stream struct keyed by ID. Stored in Persistent.
     Stream(u64),
 
