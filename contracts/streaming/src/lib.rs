@@ -1412,7 +1412,10 @@ impl StreamingContract {
                 / stream.duration
         };
 
-        let unlocked = stream.cliff_amount + linear;
+        let unlocked = stream
+            .cliff_amount
+            .checked_add(linear)
+            .ok_or(StreamError::ArithmeticOverflow)?;
         // Cap at deposited (rounding safety).
         Ok(if unlocked > stream.deposited_amount {
             stream.deposited_amount
