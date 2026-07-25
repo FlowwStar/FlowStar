@@ -87,9 +87,6 @@ pub enum DataKey {
     /// Global upgrade pause / freeze. When set, prevents creating new streams.
     Paused,
 
-    /// Whether a specific stream has already been migrated.
-    Migrated(u64),
-
     /// Stream struct keyed by ID. Stored in Persistent.
     Stream(u64),
 
@@ -202,6 +199,20 @@ pub enum StreamError {
     /// same way they treat any other hard error (surface it to the user; do not
     /// silently swallow it).
     ArithmeticOverflow = 13,
+    /// Contract has already been initialized.
+    AlreadyInitialized = 14,
+    /// Contract has not been initialized yet.
+    NotInitialized = 15,
+    /// All write operations are paused.
+    ContractPaused = 16,
+    /// Stream duration exceeds the maximum allowed value.
+    DurationExceedsMaximum = 17,
+    /// Recipient address must not be the contract itself.
+    InvalidRecipient = 18,
+    /// Stream amount is too small for the duration — the per-second rate would be zero.
+    RateIsZero = 19,
+    /// Stream is not yet cancelled or fully drained; cleanup is not allowed.
+    StreamNotEligibleForCleanup = 20,
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -287,12 +298,12 @@ impl StreamingContract {
     // ── Admin: Initialize ────────────────────────────────────────────────────
 
     /// Initialize contract with admin address (one-time).
-    pub fn initialize(env: Env, admin: Address) {
+    pub fn initialize(env: Env, admin: Address) -> Result<(), StreamError> {
         admin.require_auth();
 
         let is_initialized = env.storage().instance().has(&DataKey::Admin);
         if is_initialized {
-            panic!("already initialized");
+            return Err(StreamError::AlreadyInitialized);
         }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
@@ -300,17 +311,18 @@ impl StreamingContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_TTL_LEDGERS, INSTANCE_TTL_LEDGERS);
+        Ok(())
     }
 
     // ── Admin: Pause/Unpause ─────────────────────────────────────────────────
 
     /// Pause all write operations (admin only).
-    pub fn pause(env: Env) {
+    pub fn pause(env: Env) -> Result<(), StreamError> {
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic!("not initialized"));
+            .ok_or(StreamError::NotInitialized)?;
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::Paused, &true);
@@ -322,15 +334,16 @@ impl StreamingContract {
             timestamp: env.ledger().timestamp(),
         }
         .publish(&env);
+        Ok(())
     }
 
     /// Unpause all write operations (admin only).
-    pub fn unpause(env: Env) {
+    pub fn unpause(env: Env) -> Result<(), StreamError> {
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic!("not initialized"));
+            .ok_or(StreamError::NotInitialized)?;
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::Paused, &false);
@@ -342,45 +355,49 @@ impl StreamingContract {
             timestamp: env.ledger().timestamp(),
         }
         .publish(&env);
+        Ok(())
     }
 
     // ── Write: Admin / Upgrade ───────────────────────────────────────────────
 
     /// Upgrade the contract wasm. Only callable by the admin.
-    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) -> Result<(), StreamError> {
         admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(StreamError::NotInitialized)?;
         if admin != stored_admin {
-            panic!("unauthorized");
+            return Err(StreamError::Unauthorized);
         }
         env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
     }
 
     /// Post-upgrade data migration hook. Call this after an upgrade to
     /// migrate storage layouts.
-    pub fn migrate(env: Env) {
+    pub fn migrate(env: Env) -> Result<(), StreamError> {
         let admin: Address = env
             .storage()
             .instance()
             .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic!("not initialized"));
+            .ok_or(StreamError::NotInitialized)?;
         admin.require_auth();
 
         // By default, unfreeze after wasm upgrade.
         env.storage().instance().set(&DataKey::Paused, &false);
+        Ok(())
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    fn require_not_paused(env: &Env) {
+    fn require_not_paused(env: &Env) -> Result<(), StreamError> {
         let paused: bool = env
             .storage()
             .instance()
             .get(&DataKey::Paused)
             .unwrap_or(false);
         if paused {
-            panic!("contract is paused");
+            return Err(StreamError::ContractPaused);
         }
+        Ok(())
     }
 
     // ── Write: Create ────────────────────────────────────────────────────────
@@ -397,7 +414,7 @@ impl StreamingContract {
         params: CreateStreamParams,
     ) -> Result<u64, StreamError> {
         sender.require_auth();
-        Self::require_not_paused(&env);
+        Self::require_not_paused(&env)?;
 
         // ── Validate params ──────────────────────────────────────────────────
         if params.total_amount <= 0 {
@@ -408,7 +425,7 @@ impl StreamingContract {
         }
         let duration = params.end_time - params.start_time;
         if duration > MAX_STREAM_DURATION {
-            panic!("stream duration exceeds maximum");
+            return Err(StreamError::DurationExceedsMaximum);
         }
         if params.cliff_time < params.start_time || params.cliff_time > params.end_time {
             return Err(StreamError::InvalidCliff);
@@ -420,7 +437,7 @@ impl StreamingContract {
             return Err(StreamError::SelfStream);
         }
         if params.recipient == env.current_contract_address() {
-            panic!("recipient cannot be the contract itself");
+            return Err(StreamError::InvalidRecipient);
         }
 
         let duration_i128 = duration as i128;
@@ -433,7 +450,7 @@ impl StreamingContract {
 
         // Security: Reject dust streams with zero rate when linear_amount > 0
         if amount_per_second == 0 && linear_amount > 0 {
-            panic!("stream amount too small for duration — rate would be 0");
+            return Err(StreamError::RateIsZero);
         }
 
         // ── Pull funds from sender into contract ─────────────────────────────
@@ -521,7 +538,7 @@ impl StreamingContract {
         streams: Vec<CreateStreamInput>,
     ) -> Result<Vec<u64>, StreamError> {
         sender.require_auth();
-        Self::require_not_paused(&env);
+        Self::require_not_paused(&env)?;
 
         const MAX_BATCH_SIZE: u32 = 20;
 
@@ -543,7 +560,7 @@ impl StreamingContract {
             }
             let duration = input.end_time - input.start_time;
             if duration > MAX_STREAM_DURATION {
-                panic!("stream duration exceeds maximum");
+                return Err(StreamError::DurationExceedsMaximum);
             }
             if input.cliff_time < input.start_time || input.cliff_time > input.end_time {
                 return Err(StreamError::InvalidCliff);
@@ -555,7 +572,7 @@ impl StreamingContract {
                 return Err(StreamError::SelfStream);
             }
             if input.recipient == env.current_contract_address() {
-                panic!("recipient cannot be the contract itself");
+                return Err(StreamError::InvalidRecipient);
             }
             // Validate rate would be non-zero when linear amount > 0
             let linear_amount = input.total_amount - input.cliff_amount;
@@ -566,7 +583,7 @@ impl StreamingContract {
                 0
             };
             if amount_per_second == 0 && linear_amount > 0 {
-                panic!("stream amount too small for duration — rate would be 0");
+                return Err(StreamError::RateIsZero);
             }
         }
 
@@ -650,7 +667,7 @@ impl StreamingContract {
         stream.recipient.require_auth();
         let old_recipient = stream.recipient.clone();
 
-        Self::require_not_paused(&env);
+        Self::require_not_paused(&env)?;
 
         if stream.cancelled {
             return Err(StreamError::StreamCancelled);
@@ -697,7 +714,7 @@ impl StreamingContract {
     pub fn top_up(env: Env, stream_id: u64, additional_amount: i128) -> Result<(), StreamError> {
         let mut stream = Self::load_stream(&env, stream_id)?;
         stream.sender.require_auth();
-        Self::require_not_paused(&env);
+        Self::require_not_paused(&env)?;
 
         if stream.cancelled {
             return Err(StreamError::StreamCancelled);
@@ -754,7 +771,7 @@ impl StreamingContract {
                 0
             };
             if new_rate == 0 && remaining > 0 {
-                panic!("stream amount too small for remaining duration");
+                return Err(StreamError::RateIsZero);
             }
 
             stream.cliff_time = now;
@@ -776,7 +793,7 @@ impl StreamingContract {
                 0
             };
             if new_rate == 0 && stream.linear_amount > 0 {
-                panic!("stream amount too small for remaining duration");
+                return Err(StreamError::RateIsZero);
             }
             stream.amount_per_second = new_rate;
         }
@@ -813,7 +830,7 @@ impl StreamingContract {
         } else {
             stream.recipient.require_auth();
         }
-        Self::require_not_paused(&env);
+        Self::require_not_paused(&env)?;
 
         if stream.cancelled {
             return Err(StreamError::StreamCancelled);
@@ -885,7 +902,7 @@ impl StreamingContract {
         let mut stream = Self::load_stream(&env, stream_id)?;
 
         stream.sender.require_auth();
-        Self::require_not_paused(&env);
+        Self::require_not_paused(&env)?;
 
         if stream.cancelled {
             return Err(StreamError::StreamCancelled);
@@ -949,6 +966,110 @@ impl StreamingContract {
             recipient_amount: recipient_owes,
             sender_refund: sender_gets_back,
             timestamp: now,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    // ── Write: Partial Cancel ────────────────────────────────────────────────
+
+    /// Partially reduce a stream's locked (not-yet-vested) balance.
+    ///
+    /// Releases up to `amount` tokens from the *locked* (not-yet-unlocked)
+    /// portion back to the sender, while leaving the vested and already-
+    /// withdrawn portions untouched so the recipient can still claim what has
+    /// already unlocked.
+    ///
+    /// If `amount` exceeds the current locked balance, the actual reduction is
+    /// capped at the locked balance — the call still succeeds. Calling on an
+    /// already-cancelled stream is a no-op (`Ok(())`).
+    ///
+    /// The unlock schedule is re-anchored at the current ledger time after the
+    /// reduction so that `unlocked_amount` continues to return correct values.
+    ///
+    /// Only the stream's sender may call this function.
+    pub fn partial_cancel(env: Env, stream_id: u64, amount: i128) -> Result<(), StreamError> {
+        let mut stream = Self::load_stream(&env, stream_id)?;
+        stream.sender.require_auth();
+        Self::require_not_paused(&env);
+
+        // No-op for streams that are already fully cancelled.
+        if stream.cancelled {
+            return Ok(());
+        }
+
+        if amount <= 0 {
+            return Err(StreamError::InvalidAmount);
+        }
+
+        let now = env.ledger().timestamp();
+        let unlocked = Self::unlocked_amount(&stream, now)?;
+        let locked = stream
+            .deposited_amount
+            .checked_sub(unlocked)
+            .unwrap_or(0);
+
+        // Cap the reduction at the available locked balance ("up to amount").
+        let actual_reduce = if amount > locked { locked } else { amount };
+
+        // Nothing locked to return.
+        if actual_reduce == 0 {
+            return Ok(());
+        }
+
+        let old_rate = stream.amount_per_second;
+
+        let remaining_seconds = if stream.end_time > now {
+            (stream.end_time - now) as i128
+        } else {
+            0
+        };
+
+        let new_locked = locked
+            .checked_sub(actual_reduce)
+            .unwrap_or(0);
+
+        let new_rate = if remaining_seconds > 0 {
+            new_locked / remaining_seconds
+        } else {
+            0
+        };
+
+        // Reduce total deposited amount.
+        stream.deposited_amount = stream
+            .deposited_amount
+            .checked_sub(actual_reduce)
+            .expect("deposited_amount underflow in partial_cancel");
+
+        // Re-anchor the vesting schedule at the current time so that
+        // unlocked_amount() and withdrawable_amount() stay consistent.
+        stream.cliff_time = now;
+        stream.cliff_amount = unlocked;
+        stream.start_time = now;
+        stream.linear_amount = new_locked;
+        stream.duration = remaining_seconds;
+        stream.amount_per_second = new_rate;
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Stream(stream_id), &stream);
+
+        Self::extend_stream_ttl(&env, stream_id);
+
+        // Return the reduced locked amount to the sender.
+        let token_client = token::Client::new(&env, &stream.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &stream.sender,
+            &actual_reduce,
+        );
+
+        PartialCancelEvent {
+            stream_id,
+            reduce_amount: actual_reduce,
+            old_rate,
+            new_rate,
         }
         .publish(&env);
 
@@ -1093,22 +1214,21 @@ impl StreamingContract {
     ///
     /// Either party (sender or recipient) may call this. The stream must be
     /// cancelled or fully drained before cleanup is allowed.
-    pub fn cleanup_stream(env: Env, caller: Address, stream_id: u64) {
+    pub fn cleanup_stream(env: Env, caller: Address, stream_id: u64) -> Result<(), StreamError> {
         caller.require_auth();
 
-        let stream =
-            Self::load_stream(&env, stream_id).unwrap_or_else(|_| panic!("stream not found"));
+        let stream = Self::load_stream(&env, stream_id)?;
 
         // Only sender or recipient may clean up.
         if caller != stream.sender && caller != stream.recipient {
-            panic!("only sender or recipient may clean up a stream");
+            return Err(StreamError::Unauthorized);
         }
 
         let fully_drained = stream.withdrawn_amount >= stream.deposited_amount
             && env.ledger().timestamp() >= stream.end_time;
 
         if !stream.cancelled && !fully_drained {
-            panic!("stream must be cancelled or fully completed before cleanup");
+            return Err(StreamError::StreamNotEligibleForCleanup);
         }
 
         // Remove from all indexes (active + archive).
@@ -1134,26 +1254,15 @@ impl StreamingContract {
             .persistent()
             .remove(&DataKey::Stream(stream_id));
 
-        // Remove optional associated entries if they exist.
-        if env
-            .storage()
+        // Remove optional associated entries (StreamMetadata and Delegate).
+        // These are always removed unconditionally — remove() is a no-op when
+        // the key is absent, so the has() guards are unnecessary.
+        env.storage()
             .persistent()
-            .has(&DataKey::StreamMetadata(stream_id))
-        {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::StreamMetadata(stream_id));
-        }
-
-        if env
-            .storage()
+            .remove(&DataKey::StreamMetadata(stream_id));
+        env.storage()
             .persistent()
-            .has(&DataKey::Delegate(stream_id))
-        {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::Delegate(stream_id));
-        }
+            .remove(&DataKey::Delegate(stream_id));
     }
 
     // ── Write: Bump TTL ──────────────────────────────────────────────────────
@@ -1379,5 +1488,7 @@ impl StreamingContract {
 mod bench;
 mod test;
 mod test_batch;
+#[cfg(test)]
+mod test_features;
 mod test_integration;
 mod test_security;

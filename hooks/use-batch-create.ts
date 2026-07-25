@@ -2,6 +2,8 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { createStreamsBatch as createStreamsBatchCall } from '@/lib/contract'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { createStream as createStreamCall } from '@/lib/contract'
 import { invalidateStreams } from '@/hooks/use-streams'
 import { useWallet } from '@/hooks/use-wallet'
 import { useNetwork } from '@/components/providers/network-provider'
@@ -191,6 +193,15 @@ export function useBatchCreate() {
 
   const cancel = useCallback(() => {
     abortRef.current = true
+  }, [])
+
+  // Automatically abort the running batch when the component unmounts so that
+  // in-progress state updates are not posted to an unmounted component.
+  // The cancel callback is stable (empty deps) so this effect runs only once.
+  useEffect(() => {
+    return () => {
+      abortRef.current = true
+    }
   }, [])
 
   return { progress, createBatch, retryFailed, cancel }
