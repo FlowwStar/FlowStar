@@ -1,5 +1,7 @@
 'use client'
 
+import { useState, useCallback, useRef } from 'react'
+import { createStreamsBatch as createStreamsBatchCall } from '@/lib/contract'
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { createStream as createStreamCall } from '@/lib/contract'
 import { invalidateStreams } from '@/hooks/use-streams'
@@ -77,42 +79,34 @@ export function useBatchCreate() {
 
       setProgress(newProgress)
 
-      for (let i = 0; i < streams.length; i += 1) {
-        if (abortRef.current) break
+      try {
+        const batchIds = await createStreamsBatchCall(
+          streams.map((stream) => ({
+            recipient: stream.recipient,
+            token: stream.token,
+            totalAmount: stream.totalAmount,
+            startTime: stream.startTime,
+            endTime: stream.endTime,
+            cliffTime: stream.cliffTime,
+            cliffAmount: stream.cliffAmount,
+          })),
+          address,
+          network,
+        )
 
-        const stream = streams[i]
-        newProgress.current = i + 1
-
-        try {
-          const streamId = await createStreamCall(
-            {
-              recipient: stream.recipient,
-              token: stream.token,
-              totalAmount: stream.totalAmount,
-              startTime: stream.startTime,
-              endTime: stream.endTime,
-              cliffTime: stream.cliffTime,
-              cliffAmount: stream.cliffAmount,
-            },
-            address,
-          )
-
-          newProgress.successIds.push(streamId)
-          newProgress.completed += 1
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Unknown error'
-          newProgress.errors.set(i, message)
-          newProgress.failed += 1
-        }
-
-        setProgress({ ...newProgress })
-        onProgress?.({ ...newProgress })
-
-        // Delay before next stream creation (except for last one)
-        if (i < streams.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, batchDelay))
-        }
+        newProgress.successIds.push(...batchIds)
+        newProgress.completed = streams.length
+        newProgress.failed = 0
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        streams.forEach((_, index) => {
+          newProgress.errors.set(index, message)
+        })
+        newProgress.failed = streams.length
       }
+
+      setProgress({ ...newProgress })
+      onProgress?.({ ...newProgress })
 
       newProgress.isRunning = false
       setProgress(newProgress)
@@ -152,42 +146,39 @@ export function useBatchCreate() {
 
       setProgress(newProgress)
 
-      for (let i = 0; i < failedIndices.length; i += 1) {
-        if (abortRef.current) break
+      const retryStreams = failedIndices.map((index) => streams[index])
 
-        const originalIndex = failedIndices[i]
-        const stream = streams[originalIndex]
-        newProgress.current = i + 1
+      try {
+        const batchIds = await createStreamsBatchCall(
+          retryStreams.map((stream) => ({
+            recipient: stream.recipient,
+            token: stream.token,
+            totalAmount: stream.totalAmount,
+            startTime: stream.startTime,
+            endTime: stream.endTime,
+            cliffTime: stream.cliffTime,
+            cliffAmount: stream.cliffAmount,
+          })),
+          address,
+          network,
+        )
 
-        try {
-          const streamId = await createStreamCall(
-            {
-              recipient: stream.recipient,
-              token: stream.token,
-              totalAmount: stream.totalAmount,
-              startTime: stream.startTime,
-              endTime: stream.endTime,
-              cliffTime: stream.cliffTime,
-              cliffAmount: stream.cliffAmount,
-            },
-            address,
-          )
-
-          newProgress.successIds.push(streamId)
-          newProgress.completed += 1
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Unknown error'
-          newProgress.errors.set(originalIndex, message)
-          newProgress.failed += 1
-        }
-
-        setProgress({ ...newProgress })
-        onProgress?.({ ...newProgress })
-
-        if (i < failedIndices.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, batchDelay))
-        }
+        newProgress.successIds.push(...batchIds)
+        newProgress.completed = retryStreams.length
+        newProgress.failed = 0
+        retryStreams.forEach((_, index) => {
+          newProgress.errors.delete(failedIndices[index])
+        })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        failedIndices.forEach((index) => {
+          newProgress.errors.set(index, message)
+        })
+        newProgress.failed = failedIndices.length
       }
+
+      setProgress({ ...newProgress })
+      onProgress?.({ ...newProgress })
 
       newProgress.isRunning = false
       setProgress(newProgress)

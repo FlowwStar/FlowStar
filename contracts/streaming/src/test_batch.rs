@@ -285,6 +285,37 @@ fn test_batch_partial_failure_rejected_atomically() {
 }
 
 #[test]
+fn test_batch_accepts_past_start_and_cliff_times() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let r1 = Address::generate(&t.env);
+    let per_stream = 1_000_0000000i128;
+    t.approve(per_stream);
+
+    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    inputs.push_back(CreateStreamInput {
+        recipient: r1,
+        token: t.token_id.clone(),
+        total_amount: per_stream,
+        start_time: now - 1000,
+        end_time: now + 1000,
+        cliff_time: now - 500,
+        cliff_amount: 0,
+    });
+
+    let client = t.client();
+    let ids = client.create_streams_batch(&t.sender, &inputs);
+    assert_eq!(ids.len(), 1);
+
+    let stream = client.get_stream(&ids.get(0).unwrap());
+    assert_eq!(stream.start_time, now - 1000);
+    assert_eq!(stream.cliff_time, now - 500);
+    assert_eq!(stream.end_time, now + 1000);
+}
+
+#[test]
 fn test_batch_invalid_time_range_fails() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;

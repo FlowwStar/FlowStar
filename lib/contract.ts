@@ -405,6 +405,46 @@ export async function estimateCreateStreamFee(
   }
 }
 
+function buildCreateStreamInputScVal(input: CreateStreamInput): xdr.ScVal {
+  return xdr.ScVal.scvMap(
+    [
+      ['recipient', new Address(input.recipient).toScVal()],
+      ['token', new Address(input.token.address).toScVal()],
+      ['total_amount', nativeToScVal(input.totalAmount, { type: 'i128' })],
+      ['start_time', nativeToScVal(input.startTime, { type: 'u64' })],
+      ['end_time', nativeToScVal(input.endTime, { type: 'u64' })],
+      ['cliff_time', nativeToScVal(input.cliffTime, { type: 'u64' })],
+      ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
+    ].map(
+      ([k, v]) =>
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvSymbol(k as string),
+          val: v as xdr.ScVal,
+        }),
+    ),
+  )
+}
+
+function buildCreateStreamParamsScVal(input: CreateStreamInput): xdr.ScVal {
+  return xdr.ScVal.scvMap(
+    [
+      ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
+      ['cliff_time', nativeToScVal(input.cliffTime, { type: 'u64' })],
+      ['end_time', nativeToScVal(input.endTime, { type: 'u64' })],
+      ['recipient', new Address(input.recipient).toScVal()],
+      ['start_time', nativeToScVal(input.startTime, { type: 'u64' })],
+      ['token', new Address(input.token.address).toScVal()],
+      ['total_amount', nativeToScVal(input.totalAmount, { type: 'i128' })],
+    ].map(
+      ([k, v]) =>
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvSymbol(k as string),
+          val: v as xdr.ScVal,
+        }),
+    ),
+  )
+}
+
 export async function createStream(
   input: CreateStreamInput,
   sender: string,
@@ -483,6 +523,81 @@ export async function createStream(
   if (!ids || ids.length === 0) throw new Error('Stream created but could not retrieve ID')
   const newId = ids.reduce((a, b) => (a > b ? a : b))
   return String(newId)
+}
+
+export async function createStreamsBatch(
+  inputs: CreateStreamInput[],
+  sender: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string[]> {
+  if (inputs.length === 0) throw new Error('No streams to create')
+
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    return inputs.map((input) => mockStore.create(input, sender).id)
+  }
+
+  const server = getServer(network)
+  const currentLedger = (await withRetry(() => server.getLatestLedger())).sequence
+  const expirationLedger = currentLedger + 500
+
+  const approvalsByToken = new Map<string, bigint>()
+  for (const input of inputs) {
+    const current = approvalsByToken.get(input.token.address) ?? 0n
+    approvalsByToken.set(input.token.address, current + input.totalAmount)
+  }
+
+  for (const [tokenAddress, totalAmount] of approvalsByToken.entries()) {
+    await invoke(
+      network,
+      'approve',
+      [
+        new Address(sender).toScVal(),
+        new Address(config.streamContractId).toScVal(),
+        nativeToScVal(totalAmount, { type: 'i128' }),
+        nativeToScVal(expirationLedger, { type: 'u32' }),
+      ],
+      sender,
+      tokenAddress,
+      onStep,
+    )
+  }
+
+  const params = xdr.ScVal.scvVec(inputs.map(buildCreateStreamInputScVal))
+
+  await invoke(
+    network,
+    'create_streams_batch',
+    [new Address(sender).toScVal(), params],
+    sender,
+    config.streamContractId,
+    onStep,
+  )
+
+  const sentResult = await query(
+    network,
+    'get_sent_streams',
+    [
+      new Address(sender).toScVal(),
+      nativeToScVal(0, { type: 'u32' }),
+      nativeToScVal(1000, { type: 'u32' }),
+    ],
+    config.streamContractId,
+  )
+  const ids = scValToNative(sentResult) as bigint[]
+  if (!ids || ids.length < inputs.length) {
+    throw new Error('Streams created but could not retrieve IDs')
+  }
+
+  const createdIds = [...ids]
+    .sort((a, b) => Number(a - b))
+    .slice(-inputs.length)
+    .map((id) => String(id))
+
+  return createdIds
 }
 
 export async function withdrawFromStream(

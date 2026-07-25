@@ -5,6 +5,7 @@ const mockUseWallet = vi.hoisted(() => vi.fn(() => ({ address: 'GSENDER', isConn
 
 vi.mock('@/lib/contract', () => ({
   createStream: vi.fn(),
+  createStreamsBatch: vi.fn(),
 }))
 
 vi.mock('@/hooks/use-wallet', () => ({
@@ -19,7 +20,7 @@ vi.mock('@/hooks/use-streams', () => ({
   invalidateStreams: vi.fn(),
 }))
 
-import { createStream } from '@/lib/contract'
+import { createStream, createStreamsBatch } from '@/lib/contract'
 import { useBatchCreate, type BatchStreamInput } from '@/hooks/use-batch-create'
 
 const TOKEN = { address: 'CUSDC', symbol: 'USDC', decimals: 7 }
@@ -39,6 +40,7 @@ describe('useBatchCreate', () => {
     vi.clearAllMocks()
     mockUseWallet.mockReturnValue({ address: 'GSENDER', isConnected: true })
     vi.mocked(createStream).mockResolvedValue('stream-id-1')
+    vi.mocked(createStreamsBatch).mockResolvedValue(['stream-id-1'])
   })
 
   it('throws when wallet not connected', async () => {
@@ -65,9 +67,7 @@ describe('useBatchCreate', () => {
   })
 
   it('creates streams and tracks progress', async () => {
-    vi.mocked(createStream)
-      .mockResolvedValueOnce('id-1')
-      .mockResolvedValueOnce('id-2')
+    vi.mocked(createStreamsBatch).mockResolvedValue(['id-1', 'id-2'])
 
     const { result } = renderHook(() => useBatchCreate())
     let final: any
@@ -75,6 +75,7 @@ describe('useBatchCreate', () => {
       final = await result.current.createBatch([makeStream(0), makeStream(1)], { batchDelay: 0 })
     })
 
+    expect(vi.mocked(createStreamsBatch)).toHaveBeenCalledTimes(1)
     expect(final.completed).toBe(2)
     expect(final.failed).toBe(0)
     expect(final.successIds).toEqual(['id-1', 'id-2'])
@@ -82,9 +83,7 @@ describe('useBatchCreate', () => {
   })
 
   it('records errors for failed streams without stopping', async () => {
-    vi.mocked(createStream)
-      .mockResolvedValueOnce('id-1')
-      .mockRejectedValueOnce(new Error('rejected'))
+    vi.mocked(createStreamsBatch).mockRejectedValueOnce(new Error('rejected'))
 
     const { result } = renderHook(() => useBatchCreate())
     let final: any
@@ -92,8 +91,10 @@ describe('useBatchCreate', () => {
       final = await result.current.createBatch([makeStream(0), makeStream(1)], { batchDelay: 0 })
     })
 
-    expect(final.completed).toBe(1)
-    expect(final.failed).toBe(1)
+    expect(vi.mocked(createStreamsBatch)).toHaveBeenCalledTimes(1)
+    expect(final.completed).toBe(0)
+    expect(final.failed).toBe(2)
+    expect(final.errors.get(0)).toBe('rejected')
     expect(final.errors.get(1)).toBe('rejected')
   })
 

@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import {
   createStream as createStreamCall,
+  createStreamsBatch as createStreamsBatchCall,
   withdrawFromStream,
   cancelStream as cancelStreamCall,
   estimateCreateStreamFee,
@@ -104,6 +105,14 @@ export function useContract() {
     [run, address, network],
   );
 
+  const createStreamsBatch = useCallback(
+    (inputs: CreateStreamInput[]) =>
+      run("Create streams", (onStep) =>
+        createStreamsBatchCall(inputs, address!, network, onStep),
+      ),
+    [run, address, network],
+  );
+
   const withdraw = useCallback(
     (id: string, amount: bigint) =>
       run("Withdraw", (onStep) =>
@@ -187,6 +196,7 @@ export function useContract() {
 
   return {
     createStream,
+    createStreamsBatch,
     withdraw,
     cancel,
     withdrawAll,
