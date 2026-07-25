@@ -1359,5 +1359,7 @@ impl StreamingContract {
 mod bench;
 mod test;
 mod test_batch;
+#[cfg(test)]
+mod test_features;
 mod test_integration;
 mod test_security;
