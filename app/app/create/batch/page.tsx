@@ -21,6 +21,7 @@ import { parseTokenAmount, formatDateTime } from "@/lib/stream-utils";
 import {
   parseCsvBatch,
   parseDuration,
+  resolveCliffTime,
   type CsvBatchRow,
 } from "@/lib/csv-parser";
 import type { TokenInfo } from "@/types/stream";
@@ -117,17 +118,7 @@ export default function BatchCreatePage() {
         const endTime = parseTimestamp(source.end_time);
         // An absolute cliff_time takes precedence; otherwise a relative
         // cliff_duration is resolved against this row's start_time.
-        const cliffTimeAbsolute = source.cliff_time
-          ? parseTimestamp(source.cliff_time)
-          : null;
-        const cliffDuration = source.cliff_duration
-          ? parseDuration(source.cliff_duration)
-          : null;
-        const cliffTime =
-          cliffTimeAbsolute ??
-          (cliffDuration !== null && startTime !== null
-            ? startTime + cliffDuration
-            : null);
+        const cliffTime = resolveCliffTime(source, startTime, parseTimestamp);
         const cliffAmount = source.cliff_amount
           ? parseDecimalAmount(source.cliff_amount, selectedTokenInfo.decimals)
           : null;
@@ -151,10 +142,10 @@ export default function BatchCreatePage() {
         if (startTime && endTime && endTime <= startTime) {
           errors.push("end_time must be after start_time");
         }
-        if (source.cliff_time && cliffTimeAbsolute === null) {
+        if (source.cliff_time && resolveCliffTime({ cliff_time: source.cliff_time }, null, parseTimestamp) === null) {
           errors.push("Invalid cliff_time");
         }
-        if (source.cliff_duration && cliffDuration === null) {
+        if (source.cliff_duration && parseDuration(source.cliff_duration) === null) {
           errors.push("Invalid cliff_duration");
         }
         if (
