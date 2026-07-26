@@ -5,17 +5,17 @@ export interface FeeBreakdown {
   estimatedUsd?: number;
 }
 
-const XLM_PRICE = 0.12; // Average XLM price in USD for estimation
-
 /**
  * Calculate fee breakdown from transaction simulation
  * @param minResourceFee Minimum resource fee from simulation in stroops
- * @param xlmPrice Current XLM price in USD (optional)
+ * @param xlmPrice Current XLM/USD price. Pass the live value from useTokenPrice;
+ *                 omit (or pass undefined) when no price is available and USD
+ *                 estimate should be suppressed.
  * @returns Fee breakdown: base estimate, safety buffer, and total
  */
 export function calculateFeeBreakdown(
   minResourceFee: number,
-  xlmPrice: number = XLM_PRICE,
+  xlmPrice?: number,
 ): FeeBreakdown {
   // Apply 15% buffer to ensure inclusion
   const bufferMultiplier = 1.15;
@@ -23,7 +23,8 @@ export function calculateFeeBreakdown(
   const bufferFee = totalFee - minResourceFee;
 
   const totalXlm = totalFee / 1e7;
-  const estimatedUsd = totalXlm * xlmPrice;
+  const estimatedUsd =
+    xlmPrice !== undefined ? totalXlm * xlmPrice : undefined;
 
   return {
     minFee: minResourceFee,
