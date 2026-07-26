@@ -99,4 +99,71 @@ describe('usePortfolioValue', () => {
       expect(result.current.totalUsd).toBe(10_000)
     })
   })
+
+  it('shows USD value for known tokens and ignores unknown tokens', async () => {
+    const streams: StreamData[] = [
+      {
+        id: '1',
+        sender: 'GSENDER',
+        recipient: 'GRECIPIENT',
+        token: { address: 'CUSDC', symbol: 'USDC', decimals: 7 },
+        depositedAmount: 5_000_0000000n,
+        withdrawnAmount: 0n,
+        startTime: 0n,
+        endTime: 9999999999n,
+        cliffTime: 0n,
+        cliffAmount: 0n,
+        amountPerSecond: 1n,
+        linearAmount: 5_000_0000000n,
+        duration: 9999999999n,
+        cancelled: false,
+      },
+      {
+        id: '2',
+        sender: 'GSENDER',
+        recipient: 'GRECIPIENT',
+        token: { address: 'CUSTOM_TOKEN', symbol: 'CUSTOM', decimals: 6 },
+        depositedAmount: 1_000_000000n,
+        withdrawnAmount: 0n,
+        startTime: 0n,
+        endTime: 9999999999n,
+        cliffTime: 0n,
+        cliffAmount: 0n,
+        amountPerSecond: 1n,
+        linearAmount: 1_000_000000n,
+        duration: 9999999999n,
+        cancelled: false,
+      },
+    ]
+    const { result } = renderHook(() => usePortfolioValue(streams))
+    await waitFor(() => {
+      // Should show 5000 USD from USDC, not null despite unknown CUSTOM token
+      expect(result.current.totalUsd).toBe(5_000)
+    })
+  })
+
+  it('returns null when all streams use unknown tokens', async () => {
+    const streams: StreamData[] = [
+      {
+        id: '1',
+        sender: 'GSENDER',
+        recipient: 'GRECIPIENT',
+        token: { address: 'CUSTOM_TOKEN', symbol: 'CUSTOM', decimals: 6 },
+        depositedAmount: 1_000_000000n,
+        withdrawnAmount: 0n,
+        startTime: 0n,
+        endTime: 9999999999n,
+        cliffTime: 0n,
+        cliffAmount: 0n,
+        amountPerSecond: 1n,
+        linearAmount: 1_000_000000n,
+        duration: 9999999999n,
+        cancelled: false,
+      },
+    ]
+    const { result } = renderHook(() => usePortfolioValue(streams))
+    await waitFor(() => {
+      expect(result.current.totalUsd).toBeNull()
+    })
+  })
 })
