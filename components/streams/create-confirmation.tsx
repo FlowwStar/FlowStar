@@ -140,7 +140,7 @@ export function CreateConfirmation({
                   }
                 />
               )}
-              <div className="flex items-start justify-between gap-4 py-2 border-t border-border bg-secondary/30 px-3 py-2 rounded">
+              <div className="flex items-start justify-between gap-4 border-t border-border bg-secondary/30 px-3 py-2 rounded">
                 <span className="text-sm font-medium text-foreground">
                   Total estimated
                 </span>
