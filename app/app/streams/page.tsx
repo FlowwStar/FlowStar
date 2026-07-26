@@ -102,6 +102,7 @@ function StreamsPage() {
               placeholder="Search by address or token…"
               value={search}
               onChange={(e) => setParam('q', e.target.value)}
+              data-testid="streams-search-input"
               className="pl-9"
             />
           </div>
