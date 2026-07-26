@@ -16,6 +16,7 @@ import {
   shortenAddress,
 } from "@/lib/stream-utils";
 import { calculateFeeBreakdown, TYPICAL_FEES } from "@/lib/fee-utils";
+import { useTokenPrice } from "@/hooks/use-token-price";
 import type { TokenInfo } from "@/types/stream";
 
 interface ConfirmationProps {
@@ -60,11 +61,17 @@ export function CreateConfirmation({
 }: ConfirmationProps) {
   const rate = formatRate(amountPerSecond, token.decimals, token.symbol);
 
+  // Fetch live XLM/USD price for fee USD estimate
+  const { usdPrice: xlmPrice } = useTokenPrice("XLM");
+
   // Calculate fee breakdown if estimate is available
   const estimatedFeeStroops = feeEstimate
     ? Math.ceil(parseFloat(feeEstimate) * 1e7)
     : TYPICAL_FEES.createStream.typical;
-  const feeBreakdown = calculateFeeBreakdown(estimatedFeeStroops);
+  const feeBreakdown = calculateFeeBreakdown(
+    estimatedFeeStroops,
+    xlmPrice ?? undefined,
+  );
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && !pending && onCancel()}>
