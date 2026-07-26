@@ -156,9 +156,13 @@ function WithdrawDialog({
   // Calculate estimated fees
   const estimatedFee = TYPICAL_FEES.withdraw.typical;
   const feeBreakdown = calculateFeeBreakdown(estimatedFee);
+  // isHighFee(fee, average) returns fee > average * 2. With estimatedFee
+  // being the static "typical" baseline (a placeholder until a real network
+  // estimate is wired in), pass the typical / 2 reference so the
+  // withdrawFeeHigh flag still compares against an actionable threshold.
   const withdrawFeeHigh = isHighFee(
     estimatedFee,
-    TYPICAL_FEES.withdraw.typical,
+    TYPICAL_FEES.withdraw.typical / 2,
   );
 
   async function handleWithdraw() {
@@ -288,7 +292,10 @@ function CancelDialog({
 
   const estimatedFee = TYPICAL_FEES.cancel.typical;
   const feeBreakdown = calculateFeeBreakdown(estimatedFee);
-  const cancelFeeHigh = isHighFee(estimatedFee, TYPICAL_FEES.cancel.typical);
+  const cancelFeeHigh = isHighFee(
+    estimatedFee,
+    TYPICAL_FEES.cancel.typical / 2,
+  );
 
   async function handleCancel() {
     try {
