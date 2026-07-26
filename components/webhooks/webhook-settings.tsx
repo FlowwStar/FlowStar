@@ -92,20 +92,24 @@ export function WebhookSettings() {
         <div className="space-y-2">
           <Label>Event types</Label>
           <div className="flex flex-wrap gap-2">
-            {ALL_EVENTS.map((ev) => (
-              <button
-                key={ev.value}
-                type="button"
-                onClick={() => toggleEvent(ev.value)}
-                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                  selectedEvents.includes(ev.value)
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border text-muted-foreground hover:border-foreground'
-                }`}
-              >
-                {ev.label}
-              </button>
-            ))}
+            {ALL_EVENTS.map((ev) => {
+              const isSelected = selectedEvents.includes(ev.value)
+              return (
+                <button
+                  key={ev.value}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => toggleEvent(ev.value)}
+                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                    isSelected
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border text-muted-foreground hover:border-foreground'
+                  }`}
+                >
+                  {ev.label}
+                </button>
+              )
+            })}
           </div>
         </div>
 
