@@ -79,6 +79,7 @@ export function NotificationBell() {
         onClick={handleToggle}
         aria-expanded={open}
         aria-haspopup="true"
+        data-testid="notification-bell-trigger"
         className="relative rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
       >
