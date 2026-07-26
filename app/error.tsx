@@ -6,6 +6,19 @@ import { useRouter } from 'next/navigation'
 
 type Props = { error: Error; reset: () => void }
 
+/**
+ * Read the first defined string value among a candidate list of keys
+ * on an already-narrowed object. Used to safely traverse unknown-shaped
+ * RPC error payloads without resorting to `any`.
+ */
+function readField(obj: object, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = (obj as Record<string, unknown>)[key]
+    if (value !== undefined && value !== null) return value
+  }
+  return undefined
+}
+
 function parseError(e: unknown) {
   const defaultResult = {
     title: 'Something went wrong',
@@ -59,15 +72,19 @@ function parseError(e: unknown) {
     // Some errors come as JSON in the message
     const trimmed = message.trim()
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const parsed: any = JSON.parse(trimmed)
-      if (parsed) {
-        const code = parsed.code ?? parsed.error_code ?? parsed.err ?? parsed.error?.code
-        const detail = parsed.message ?? parsed.error ?? parsed.reason ?? parsed.detail ?? parsed.error?.message
+      const parsed: unknown = JSON.parse(trimmed)
+      if (parsed && typeof parsed === 'object') {
+        const code = readField(parsed, ['code', 'error_code', 'err'])
+        const detail = readField(parsed, [
+          'message',
+          'error',
+          'reason',
+          'detail',
+        ])
         if (code || detail) {
           return {
             title: code ? `Contract error: ${String(code)}` : 'Contract error',
-            message: detail ? String(detail) : message
+            message: detail ? String(detail) : message,
           }
         }
       }
