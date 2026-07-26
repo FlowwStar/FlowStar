@@ -129,6 +129,49 @@ export function resolveCliffTime(
   return null;
 }
 
+/**
+ * Parses a CSV string into an array of batch payment rows with optional column mapping.
+ *
+ * @param csvText The raw CSV text to parse. Supports both \n and \r\n line endings.
+ * @param customColumnMapping Optional pre-defined column indices. When provided, skips header detection
+ *                              and uses these exact positions instead. Useful when the CSV has no header row
+ *                              or when automatic detection fails.
+ *
+ * @returns A CsvParseResult object containing:
+ *   - rows: Array of parsed CsvBatchRow objects with extracted fields
+ *   - errors: Array of validation error messages encountered during parsing
+ *   - headerMapping: Record mapping field names to their column indices (auto-detected or custom)
+ *
+ * @description
+ * This function implements flexible CSV parsing with support for multiple header naming conventions:
+ *
+ * **Supported Header Aliases:**
+ * - recipient: "recipient", "recipient_address", "address", "to"
+ * - amount: "amount", "total_amount", "stream_amount"
+ * - start_time: "start_time", "start_date", "start_timestamp"
+ * - end_time: "end_time", "end_date", "end_timestamp"
+ * - cliff_time: "cliff_time", "cliff_date", "cliff_timestamp"
+ * - cliff_amount: "cliff_amount"
+ * - cliff_duration: "cliff_duration", "cliff_period"
+ * - start_date: "start_date", "start_time"
+ * - end_date: "end_date", "end_time"
+ *
+ * **Column Mapping/Detection Logic:**
+ * 1. Normalizes all headers to lowercase and trims whitespace
+ * 2. Matches each header against its field's alias list (case-insensitive)
+ * 3. Returns the index of the first matching alias
+ * 4. Auto-detection only occurs when customColumnMapping is not provided
+ * 5. If no matching header is found for a field, returns -1 (indicating not present)
+ * 6. Required columns (recipient, amount, start_time/start_date, end_time/end_date) are validated;
+ *    missing required columns trigger an error
+ *
+ * **Malformed Input Handling:**
+ * - Empty CSV strings return empty rows array with no errors
+ * - CSV lines with mismatched column counts are returned as-is (trailing columns are undefined)
+ * - Invalid headers that don't match any field aliases trigger validation error
+ * - Missing required columns are reported in errors array; rows array remains empty
+ * - All errors are descriptive and can be used for user feedback
+ */
 export function parseCsvBatch(
   csvText: string,
   customColumnMapping?: Record<string, number>,
