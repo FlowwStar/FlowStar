@@ -17,6 +17,17 @@ interface DashboardStatsProps {
  * active (streaming) streams; otherwise uses a 60s interval to avoid
  * unnecessary re-renders on dashboards with only static streams.
  */
+/**
+ * Map a human-friendly stat label ("Total streaming value") into a
+ * DOM-stable kebab-case token ("total-streaming-value") for data-testid.
+ */
+function slugStatLabel(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
 export function DashboardStats({ sent, received }: DashboardStatsProps) {
   const hasActiveStreams =
     sent.some(
@@ -124,6 +135,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
         <div
           key={stat.label}
           className="rounded-2xl border border-border bg-card p-5"
+          data-testid={`stat-${slugStatLabel(stat.label)}`}
         >
           <p className="text-sm text-muted-foreground">{stat.label}</p>
           <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">
