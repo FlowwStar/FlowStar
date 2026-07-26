@@ -73,6 +73,7 @@ function StreamCardInner({ stream }: { stream: StreamData }) {
       href={`/app/stream/${stream.id}`}
       className="group block rounded-2xl border border-border bg-card p-5 transition-colors hover:border-primary/40"
       aria-label={ariaLabel}
+      data-testid={`stream-card-${stream.id}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
