@@ -43,6 +43,24 @@ export function getUpcomingRenewals(): RecurringRule[] {
     .sort((a, b) => a.nextRunAt - b.nextRunAt)
 }
 
+/**
+ * Compute the next run timestamp for a recurring rule.
+ *
+ * Cadences:
+ *   - `weekly` advances by a fixed 7-day step from `startTime`.
+ *   - `monthly` / `quarterly` use calendar-month arithmetic (the wall-clock
+ *     month-rollforward, not a fixed 30 or 90 days). For example, Jan 31 +
+ *     1 month clamps to Feb 28/29 rather than rolling over to Mar 3 — the
+ *     caller is signaling "the same day of the month" semantics, and the
+ *     function preserves that intent across month-of-year boundaries.
+ *
+ * `startTime` is treated as a wall-clock instant; the function reads its
+ * components via `new Date(startTime)` in the local time zone, so callers
+ * crossing DST should be aware the result is in the same TZ as `startTime`.
+ *
+ * @returns The next run time as a Unix epoch in milliseconds, suitable for
+ *   storage in the existing `RecurringRule.nextRunAt` numeric field.
+ */
 export function buildNextRunAt(startTime: number, cadence: Exclude<RecurrenceCadence, 'none'>) {
   if (cadence === 'weekly') {
     return startTime + 7 * 24 * 60 * 60 * 1000
