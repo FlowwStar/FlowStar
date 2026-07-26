@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
-import { createStreamsBatch as createStreamsBatchCall } from '@/lib/contract'
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { createStreamsBatch as createStreamsBatchCall } from '@/lib/contract'
 import { createStream as createStreamCall } from '@/lib/contract'
 import { invalidateStreams } from '@/hooks/use-streams'
 import { useWallet } from '@/hooks/use-wallet'
