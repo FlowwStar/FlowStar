@@ -60,6 +60,7 @@ import {
 import { explorerUrl } from "@/lib/stellar";
 import { useNetwork } from "@/components/providers/network-provider";
 import { useAutoWithdraw } from "@/hooks/use-auto-withdraw";
+import { useTokenPrice } from "@/hooks/use-token-price";
 import { UnlockChart } from "@/components/streams/unlock-chart";
 import { StreamTimeline } from "@/components/streams/stream-timeline";
 import { DownloadReceiptButton } from "@/components/streams/download-receipt-button";
@@ -144,6 +145,7 @@ function WithdrawDialog({
 }) {
   const { withdraw, pending, error } = useContract();
   const { network } = useNetwork();
+  const { usdPrice: xlmPrice } = useTokenPrice("XLM");
   const [inputAmount, setInputAmount] = useState("");
   const [showFeeEstimate, setShowFeeEstimate] = useState(false);
 
@@ -155,7 +157,7 @@ function WithdrawDialog({
 
   // Calculate estimated fees
   const estimatedFee = TYPICAL_FEES.withdraw.typical;
-  const feeBreakdown = calculateFeeBreakdown(estimatedFee);
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined);
   const withdrawFeeHigh = isHighFee(
     estimatedFee,
     TYPICAL_FEES.withdraw.typical,
@@ -284,10 +286,11 @@ function CancelDialog({
   const { cancel, pending, error } = useContract();
   const { network } = useNetwork();
   const router = useRouter();
+  const { usdPrice: xlmPrice } = useTokenPrice("XLM");
   const [showFeeEstimate, setShowFeeEstimate] = useState(false);
 
   const estimatedFee = TYPICAL_FEES.cancel.typical;
-  const feeBreakdown = calculateFeeBreakdown(estimatedFee);
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined);
   const cancelFeeHigh = isHighFee(estimatedFee, TYPICAL_FEES.cancel.typical);
 
   async function handleCancel() {
