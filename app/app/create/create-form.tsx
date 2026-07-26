@@ -155,11 +155,11 @@ export function CreateForm() {
   const [recurrenceCadence, setRecurrenceCadence] =
     useState<RecurrenceCadence>("none");
 
-  // Issue #29: balance state
+  // Tracks the connected wallet's token balance used during stream-creation validation.
   const [tokenBalance, setTokenBalance] = useState<bigint | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
 
-  // Issue #103: recipient account validation
+  // Tracks whether the recipient account exists and is funded before allowing a stream to be created.
   const [recipientAccountInfo, setRecipientAccountInfo] = useState<{
     exists: boolean;
     funded: boolean;
