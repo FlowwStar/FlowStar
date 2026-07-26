@@ -204,3 +204,22 @@ export function formatTimeRemaining(
   if (!days && !hours) parts.push(`${seconds}s`)
   return parts.join(' ')
 }
+
+/**
+ * Format a unix-ms timestamp as a coarse relative time string ("just now",
+ * "5m ago", "3h ago", "2d ago", or fall back to a localized date for older
+ * times). Used by ActivityFeed, NotificationBell, and WebhookSettings.
+ *
+ * Single source of truth — issue FlowwStar/FlowStar#377 deduped three
+ * near-identical helpers (relativeTime/timeAgo/formatRelative) into this
+ * one. Behavior matches the original activity-feed variant: 7-day boundary
+ * for "d ago", with locale-formatted date past that.
+ */
+export function formatTimeAgo(timestampMs: number, nowMs: number = Date.now()): string {
+  const diff = nowMs - timestampMs
+  if (diff < 60_000) return 'just now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`
+  return new Date(timestampMs).toLocaleDateString()
+}
