@@ -89,6 +89,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
         showUsd && totalUsd !== null
           ? "locked across all streams"
           : "enable USD in settings",
+      testId: "stat-total-streaming",
     },
     {
       label: "Available to withdraw",
@@ -105,16 +106,19 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
         withdrawableByToken.size > 1
           ? `+${withdrawableByToken.size - 1} more token${withdrawableByToken.size > 2 ? "s" : ""}`
           : "across received streams",
+      testId: "stat-available-to-withdraw",
     },
     {
       label: "Receiving",
       value: <span>{received.length}</span>,
       hint: `${activeReceiving} streaming now`,
+      testId: "stat-receiving",
     },
     {
       label: "Sending",
       value: <span>{sent.length}</span>,
       hint: `${activeSending} streaming now`,
+      testId: "stat-sending",
     },
   ];
 
@@ -124,6 +128,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
         <div
           key={stat.label}
           className="rounded-2xl border border-border bg-card p-5"
+          data-testid={stat.testId}
         >
           <p className="text-sm text-muted-foreground">{stat.label}</p>
           <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">
