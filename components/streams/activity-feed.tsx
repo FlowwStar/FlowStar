@@ -11,6 +11,7 @@ import {
   Activity,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { formatTimeAgo } from '@/lib/date-utils'
 import { useActivityFeed, type ActivityEventType } from '@/hooks/use-activity-feed'
 
 const EVENT_ICONS: Record<ActivityEventType, React.ElementType> = {
@@ -38,15 +39,6 @@ const ALL_TYPES: { value: ActivityEventType | 'all'; label: string }[] = [
   { value: 'stream.cancelled', label: 'Cancelled' },
   { value: 'stream.completed', label: 'Completed' },
 ]
-
-function relativeTime(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`
-  return new Date(ts).toLocaleDateString()
-}
 
 function absoluteTime(ts: number): string {
   return new Date(ts).toLocaleString()
@@ -133,7 +125,7 @@ export function ActivityFeed({ walletAddress }: ActivityFeedProps) {
                   title={absoluteTime(event.timestamp)}
                   className="text-xs text-muted-foreground shrink-0 tabular-nums"
                 >
-                  {relativeTime(event.timestamp)}
+                  {formatTimeAgo(event.timestamp)}
                 </time>
               </Link>
             )
