@@ -13,6 +13,7 @@ interface TokenShare {
   symbol: string
   amount: bigint
   count: number
+  decimals: number
 }
 
 interface Props {
@@ -64,7 +65,7 @@ export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }:
                   <p className="font-medium">{token.symbol}</p>
                   <p className="text-xs text-muted-foreground">{token.count} streams</p>
                 </div>
-                <Badge variant="secondary">{formatTokenAmount(token.amount, 7)} {token.symbol}</Badge>
+                <Badge variant="secondary">{formatTokenAmount(token.amount, token.decimals)} {token.symbol}</Badge>
               </div>
             ))}
           </CardContent>
@@ -84,7 +85,7 @@ export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }:
               <div key={token.symbol} className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <span>{token.symbol}</span>
-                  <span className="font-medium">{formatTokenAmount(token.amount, 7)}</span>
+                  <span className="font-medium">{formatTokenAmount(token.amount, token.decimals)}</span>
                 </div>
                 <div className="h-2 rounded-full bg-muted">
                   <div
