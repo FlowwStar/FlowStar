@@ -288,10 +288,40 @@ export function useNotifications(walletAddress: string | null) {
         await fetchContractEvents(startLedger + 1, rpcUrl, contractId);
 
       if (retentionError) {
+        // The stored ledger has fallen outside the RPC's retention window.
+        // Reset it to the oldest ledger the RPC still holds so the next poll
+        // can catch up from there rather than staying permanently frozen.
         const oldestLedger = await fetchOldestLedger(rpcUrl);
 
         if (oldestLedger !== null) {
-          setLastSeenLedger(oldestLedger);
+          // Use oldestLedger - 1 so the next poll starts AT the oldest
+          // retained ledger (fetchContractEvents is called with startLedger + 1).
+          setLastSeenLedger(oldestLedger - 1);
+        } else {
+          // fetchOldestLedger failed (RPC unreachable). Fall back to the
+          // current tip so we don't miss future events while not replaying
+          // a potentially huge backlog on recovery.
+          try {
+            const res = await fetch(rpcUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "getLatestLedger",
+              }),
+            });
+            const json = (await res.json()) as {
+              result?: { sequence?: number };
+            };
+            const sequence = json.result?.sequence;
+            if (sequence !== undefined) {
+              setLastSeenLedger(sequence - 1);
+            }
+          } catch {
+            // Both RPC calls failed — leave lastSeenLedger unchanged and
+            // retry on the next poll cycle.
+          }
         }
 
         return;
