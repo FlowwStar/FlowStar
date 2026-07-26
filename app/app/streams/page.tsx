@@ -103,6 +103,7 @@ function StreamsPage() {
               value={search}
               onChange={(e) => setParam('q', e.target.value)}
               className="pl-9"
+              data-testid="streams-search-input"
             />
           </div>
           {/* Token filter */}
