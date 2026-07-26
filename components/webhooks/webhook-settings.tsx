@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWebhooks, type WebhookEventType } from '@/hooks/use-webhooks'
+import { formatTimeAgo } from '@/lib/stream-utils'
 
 const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
   { value: 'stream.created', label: 'Stream Created' },
@@ -18,11 +19,7 @@ const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
 ]
 
 function formatRelative(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
+  return formatTimeAgo(ts)
 }
 
 export function WebhookSettings() {

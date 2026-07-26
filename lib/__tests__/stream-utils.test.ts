@@ -6,6 +6,7 @@ import {
   formatTokenAmount,
   parseTokenAmount,
   formatTimeRemaining,
+  formatTimeAgo,
 } from '../stream-utils'
 import type { StreamData } from '../../types/stream'
 
@@ -216,5 +217,32 @@ describe('formatTimeRemaining', () => {
   it('does not show seconds when days are present', () => {
     const result = formatTimeRemaining(BigInt(1000 + 2 * 86400 + 30), 1000)
     expect(result).not.toContain('s')
+  })
+})
+
+describe('formatTimeAgo', () => {
+  const now = 1_700_000_000_000 // a fixed ms reference
+
+  it('returns "just now" within a minute', () => {
+    expect(formatTimeAgo(now - 30_000, now)).toBe('just now')
+  })
+
+  it('returns minutes under an hour', () => {
+    expect(formatTimeAgo(now - 5 * 60_000, now)).toBe('5m ago')
+  })
+
+  it('returns hours under a day', () => {
+    expect(formatTimeAgo(now - 2 * 3_600_000, now)).toBe('2h ago')
+  })
+
+  it('returns days under a week', () => {
+    expect(formatTimeAgo(now - 3 * 86_400_000, now)).toBe('3d ago')
+  })
+
+  it('falls back to a localized date past 7 days', () => {
+    const past = now - 30 * 86_400_000
+    const result = formatTimeAgo(past, now)
+    expect(result).not.toContain('ago')
+    expect(result).not.toMatch(/^\d/)
   })
 })
