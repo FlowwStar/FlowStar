@@ -125,6 +125,133 @@ describe('mapError', () => {
     const result = mapError(new Error('mystery error'))
     expect(result.details).toBe('mystery error')
   })
+
+  // Soroban contract error codes
+  it('maps Error(Contract, 1) - InvalidAmount', () => {
+    const result = mapError(new Error('Error(Contract, 1)'))
+    expect(result.message).toBe('Invalid stream amount')
+    expect(result.category).toBe('contract')
+  })
+
+  it('maps Error(Contract, 2) - InvalidTimeRange', () => {
+    const result = mapError(new Error('Error(Contract, 2)'))
+    expect(result.message).toBe('Invalid time range')
+    expect(result.category).toBe('contract')
+  })
+
+  it('maps Error(Contract, 3) - InvalidCliff', () => {
+    const result = mapError(new Error('Error(Contract, 3)'))
+    expect(result.message).toBe('Invalid cliff configuration')
+    expect(result.category).toBe('contract')
+  })
+
+  it('maps Error(Contract, 4) - SelfStream', () => {
+    const result = mapError(new Error('Error(Contract, 4)'))
+    expect(result.message).toBe('Cannot create self-directed stream')
+    expect(result.category).toBe('user')
+  })
+
+  it('maps Error(Contract, 5) - StreamNotFound', () => {
+    const result = mapError(new Error('Error(Contract, 5)'))
+    expect(result.message).toBe('Stream not found')
+    expect(result.category).toBe('contract')
+  })
+
+  it('maps Error(Contract, 6) - StreamCancelled', () => {
+    const result = mapError(new Error('Error(Contract, 6)'))
+    expect(result.message).toBe('Stream has been cancelled')
+    expect(result.category).toBe('contract')
+  })
+
+  it('maps Error(Contract, 7) - Unauthorized', () => {
+    const result = mapError(new Error('Error(Contract, 7)'))
+    expect(result.message).toBe('Unauthorized operation')
+    expect(result.category).toBe('user')
+  })
+
+  it('maps Error(Contract, 8) - InsufficientFunds', () => {
+    const result = mapError(new Error('Error(Contract, 8)'))
+    expect(result.message).toBe('Insufficient funds in stream')
+    expect(result.category).toBe('user')
+  })
+
+  it('maps Error(Contract, 9) - StreamEnded', () => {
+    const result = mapError(new Error('Error(Contract, 9)'))
+    expect(result.message).toBe('Stream has ended')
+    expect(result.category).toBe('contract')
+  })
+
+  it('maps Error(Contract, 10) - SameRecipient', () => {
+    const result = mapError(new Error('Error(Contract, 10)'))
+    expect(result.message).toBe('Recipient already set')
+    expect(result.category).toBe('user')
+  })
+
+  it('maps Error(Contract, 11) - BatchSizeExceeded', () => {
+    const result = mapError(new Error('Error(Contract, 11)'))
+    expect(result.message).toBe('Batch size exceeds maximum')
+    expect(result.category).toBe('user')
+  })
+
+  it('maps Error(Contract, 12) - BatchEmpty', () => {
+    const result = mapError(new Error('Error(Contract, 12)'))
+    expect(result.message).toBe('Batch cannot be empty')
+    expect(result.category).toBe('user')
+  })
+
+  it('maps Error(Contract, 13) - ArithmeticOverflow', () => {
+    const result = mapError(new Error('Error(Contract, 13)'))
+    expect(result.message).toBe('Arithmetic overflow in calculation')
+    expect(result.category).toBe('contract')
+  })
+
+  it('maps Error(Contract, 14) - AlreadyInitialized', () => {
+    const result = mapError(new Error('Error(Contract, 14)'))
+    expect(result.message).toBe('Contract already initialized')
+    expect(result.category).toBe('contract')
+  })
+
+  it('maps Error(Contract, 15) - NotInitialized', () => {
+    const result = mapError(new Error('Error(Contract, 15)'))
+    expect(result.message).toBe('Contract not initialized')
+    expect(result.category).toBe('contract')
+  })
+
+  it('maps Error(Contract, 16) - ContractPaused', () => {
+    const result = mapError(new Error('Error(Contract, 16)'))
+    expect(result.message).toBe('Contract is paused')
+    expect(result.category).toBe('network')
+  })
+
+  it('maps Error(Contract, 17) - DurationExceedsMaximum', () => {
+    const result = mapError(new Error('Error(Contract, 17)'))
+    expect(result.message).toBe('Stream duration exceeds maximum')
+    expect(result.category).toBe('user')
+  })
+
+  it('maps Error(Contract, 18) - InvalidRecipient', () => {
+    const result = mapError(new Error('Error(Contract, 18)'))
+    expect(result.message).toBe('Invalid recipient address')
+    expect(result.category).toBe('user')
+  })
+
+  it('maps Error(Contract, 19) - RateIsZero', () => {
+    const result = mapError(new Error('Error(Contract, 19)'))
+    expect(result.message).toBe('Stream amount too small for duration')
+    expect(result.category).toBe('user')
+  })
+
+  it('maps Error(Contract, 20) - StreamNotEligibleForCleanup', () => {
+    const result = mapError(new Error('Error(Contract, 20)'))
+    expect(result.message).toBe('Stream not eligible for cleanup')
+    expect(result.category).toBe('contract')
+  })
+
+  it('handles soroban error with extra whitespace', () => {
+    const result = mapError(new Error('Error(Contract,   1  )'))
+    expect(result.message).toBe('Invalid stream amount')
+    expect(result.category).toBe('contract')
+  })
 })
 
 // ─── categoryLabel ────────────────────────────────────────────────────────────
