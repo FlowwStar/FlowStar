@@ -1,5 +1,13 @@
 import { cn } from '@/lib/utils'
 
+type ProgressBarSize = 'sm' | 'default' | 'lg'
+
+const SIZE_TRACK_CLASSES: Record<ProgressBarSize, string> = {
+  sm: 'h-1',
+  default: 'h-2',
+  lg: 'h-3',
+}
+
 interface ProgressBarProps {
   /** 0–1 */
   value: number
@@ -7,6 +15,8 @@ interface ProgressBarProps {
   /** Optional secondary marker (0–1), e.g. withdrawn portion. */
   marker?: number
   indeterminateShimmer?: boolean
+  /** Track height variant. Defaults to \`default\` (h-2) to preserve existing usage. */
+  size?: ProgressBarSize
 }
 
 /** Shows the % of a stream that has unlocked, with an optional withdrawn marker. */
@@ -15,10 +25,13 @@ export function ProgressBar({
   className,
   marker,
   indeterminateShimmer,
+  size = 'default',
 }: ProgressBarProps) {
   const pct = Math.min(Math.max(value, 0), 1) * 100
   const markerPct =
     marker != null ? Math.min(Math.max(marker, 0), 1) * 100 : null
+
+  const trackSizeClass = SIZE_TRACK_CLASSES[size]
 
   return (
     <div
@@ -27,7 +40,8 @@ export function ProgressBar({
       aria-valuemin={0}
       aria-valuemax={100}
       className={cn(
-        'relative h-2 w-full overflow-hidden rounded-full bg-secondary',
+        'relative w-full overflow-hidden rounded-full bg-secondary',
+        trackSizeClass,
         className,
       )}
     >
