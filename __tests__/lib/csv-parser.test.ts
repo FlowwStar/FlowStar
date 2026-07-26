@@ -230,6 +230,93 @@ describe("parseDuration", () => {
   });
 });
 
+// ─── parseCsvLine (via parseCsvBatch with customColumnMapping) ────────────────
+//
+// parseCsvLine is private, so we exercise it through parseCsvBatch by providing
+// a custom column mapping and a single data row — that way we're testing exactly
+// the tokenisation logic without any header-detection noise.
+
+describe('parseCsvLine', () => {
+  // Helper: parse one raw data line using explicit column positions 0-3
+  function tokenise(line: string): string[] {
+    const result = parseCsvBatch(line, {
+      recipient: 0,
+      amount: 1,
+      start_time: 2,
+      end_time: 3,
+    })
+    const row = result.rows[0]
+    return [row.recipient, row.amount, row.start_time, row.end_time]
+  }
+
+  it('splits plain comma-separated values', () => {
+    const fields = tokenise('GABC,1000,1000000,2000000')
+    expect(fields).toEqual(['GABC', '1000', '1000000', '2000000'])
+  })
+
+  it('handles a quoted field containing a comma', () => {
+    // The recipient value "GABC,extra" is wrapped in double quotes so the
+    // comma inside must NOT be treated as a field separator.
+    const fields = tokenise('"GABC,extra",1000,1000000,2000000')
+    expect(fields[0]).toBe('GABC,extra')
+    expect(fields[1]).toBe('1000')
+  })
+
+  it('unescapes doubled double-quotes ("") inside a quoted field', () => {
+    // RFC 4180: "" inside a quoted field represents a single literal "
+    const fields = tokenise('"GA""BC",1000,1000000,2000000')
+    expect(fields[0]).toBe('GA"BC')
+  })
+
+  it('handles multiple escaped quotes in the same field', () => {
+    const fields = tokenise('"say ""hello"" world",1000,1000000,2000000')
+    expect(fields[0]).toBe('say "hello" world')
+  })
+
+  it('trims surrounding whitespace from plain (unquoted) values', () => {
+    const fields = tokenise('  GABC  ,  1000  ,  1000000  ,  2000000  ')
+    expect(fields).toEqual(['GABC', '1000', '1000000', '2000000'])
+  })
+
+  it('preserves whitespace inside quoted fields after trimming outer quotes', () => {
+    // The quoted value itself has internal spaces that must be kept.
+    const fields = tokenise('" hello world ",1000,1000000,2000000')
+    // parseCsvLine trims the result, so leading/trailing spaces are stripped
+    expect(fields[0]).toBe('hello world')
+  })
+
+  it('returns an empty string for an empty (adjacent-comma) field', () => {
+    // Middle field is empty: recipient,,start,end
+    const result = parseCsvBatch('GABC,,1000000,2000000', {
+      recipient: 0,
+      amount: 1,
+      start_time: 2,
+      end_time: 3,
+    })
+    expect(result.rows[0].amount).toBe('')
+  })
+
+  it('returns an empty string for a trailing empty field', () => {
+    // Four-column line where the last field is absent (trailing comma)
+    const result = parseCsvBatch('GABC,1000,1000000,', {
+      recipient: 0,
+      amount: 1,
+      start_time: 2,
+      end_time: 3,
+    })
+    expect(result.rows[0].end_time).toBe('')
+  })
+
+  it('handles an empty quoted field (pair of double-quotes)', () => {
+    const result = parseCsvBatch('GABC,"",1000000,2000000', {
+      recipient: 0,
+      amount: 1,
+      start_time: 2,
+      end_time: 3,
+    })
+    expect(result.rows[0].amount).toBe('')
+  })
+})
 // ─── resolveCliffTime ─────────────────────────────────────────────────────────
 
 /**
