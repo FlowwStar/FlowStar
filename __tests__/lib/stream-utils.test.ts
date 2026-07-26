@@ -6,10 +6,12 @@ import {
   getStreamStatus,
   getStreamProgress,
   formatTokenAmount,
+  formatCompactAmount,
   parseTokenAmount,
   formatRate,
   shortenAddress,
   formatTimeRemaining,
+  formatDateTime,
 } from '@/lib/stream-utils'
 import type { StreamData } from '@/types/stream'
 
@@ -202,5 +204,159 @@ describe('formatTimeRemaining', () => {
   it('returns days/hours for long duration', () => {
     const result = formatTimeRemaining(BigInt(Math.floor(Date.now() / 1000) + 90061))
     expect(result).toMatch(/\d+d/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatCompactAmount
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalise a compact-notation string so that assertions work regardless of
+ * whether the runtime uses a regular space, thin space (\u2009), or narrow
+ * no-break space (\u202f) between the number and the suffix.  Intl output is
+ * implementation-dependent; stripping all whitespace makes comparisons stable.
+ */
+function normalizeCompact(s: string): string {
+  // Remove every kind of whitespace/separator that Intl may inject
+  return s.replace(/[\s\u00a0\u2009\u202f]/g, '')
+}
+
+describe('formatCompactAmount', () => {
+  // 1 token at 7 decimals = 10_000_000n raw units
+  const D = 7
+
+  it('formats zero as "0"', () => {
+    expect(normalizeCompact(formatCompactAmount(0n, D))).toBe('0')
+  })
+
+  it('formats values under 1 000 with no K/M suffix', () => {
+    // 999 tokens
+    expect(normalizeCompact(formatCompactAmount(9_990_000_000n, D))).toBe('999')
+  })
+
+  it('formats exactly 1 000 tokens as "1K"', () => {
+    expect(normalizeCompact(formatCompactAmount(10_000_000_000n, D))).toBe('1K')
+  })
+
+  it('formats 1 200 tokens as "1.2K"', () => {
+    expect(normalizeCompact(formatCompactAmount(12_000_000_000n, D))).toBe('1.2K')
+  })
+
+  it('formats 999 900 tokens as "999.9K"', () => {
+    expect(normalizeCompact(formatCompactAmount(9_999_000_000_000n, D))).toBe('999.9K')
+  })
+
+  it('formats exactly 1 000 000 tokens as "1M"', () => {
+    expect(normalizeCompact(formatCompactAmount(10_000_000_000_000n, D))).toBe('1M')
+  })
+
+  it('formats 3 400 000 tokens as "3.4M"', () => {
+    expect(normalizeCompact(formatCompactAmount(34_000_000_000_000n, D))).toBe('3.4M')
+  })
+
+  it('rounds to 1 decimal place — rounds up', () => {
+    // 1 250 tokens → 1.3K
+    expect(normalizeCompact(formatCompactAmount(12_500_000_000n, D))).toBe('1.3K')
+  })
+
+  it('rounds to 1 decimal place — rounds down', () => {
+    // 1 240 tokens → 1.2K
+    expect(normalizeCompact(formatCompactAmount(12_400_000_000n, D))).toBe('1.2K')
+  })
+
+  it('handles negative values', () => {
+    // -1 000 tokens → "-1K"
+    expect(normalizeCompact(formatCompactAmount(-10_000_000_000n, D))).toBe('-1K')
+  })
+
+  it('works with 2-decimal precision', () => {
+    // 100 tokens at 2 decimals = 10 000 raw
+    expect(normalizeCompact(formatCompactAmount(10_000n, 2))).toBe('100')
+    // 1 000 tokens at 2 decimals = 100 000 raw
+    expect(normalizeCompact(formatCompactAmount(100_000n, 2))).toBe('1K')
+  })
+
+  it('boundary: value just below 1 000 000 is either "999.9K" or "1M" (Intl rounding)', () => {
+    // 999 999.9 tokens — Intl may round up to 1M
+    const result = normalizeCompact(formatCompactAmount(9_999_999_000_000n, D))
+    expect(['999.9K', '1000K', '1M']).toContain(result)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatDateTime
+// ---------------------------------------------------------------------------
+
+/**
+ * toLocaleString('en-US', ...) output is stable across Node/jsdom when the
+ * locale is explicitly pinned, but punctuation details (comma after year,
+ * narrow-no-break space before AM/PM) can vary by ICU version.  We use
+ * targeted regex patterns against individual parts rather than full-string
+ * equality to stay robust.
+ */
+describe('formatDateTime', () => {
+  it('accepts a plain number timestamp and returns a non-empty string', () => {
+    const result = formatDateTime(1705323900)
+    expect(typeof result).toBe('string')
+    expect(result.length).toBeGreaterThan(0)
+  })
+
+  it('accepts a bigint timestamp and produces the same output as the number equivalent', () => {
+    expect(formatDateTime(1705323900n)).toBe(formatDateTime(1705323900))
+  })
+
+  it('formats epoch 0 — contains Jan, 1, and 1970', () => {
+    const result = formatDateTime(0)
+    expect(result).toMatch(/Jan/)
+    expect(result).toMatch(/1/)
+    expect(result).toMatch(/1970/)
+  })
+
+  it('formats epoch 0 as bigint without throwing', () => {
+    expect(() => formatDateTime(0n)).not.toThrow()
+    const result = formatDateTime(0n)
+    expect(result).toMatch(/1970/)
+  })
+
+  it('formats a known mid-range timestamp — Jan 15, 2024', () => {
+    // 1 705 323 900 = 2024-01-15 (UTC)
+    const result = formatDateTime(1705323900)
+    expect(result).toMatch(/Jan/)
+    expect(result).toMatch(/15/)
+    expect(result).toMatch(/2024/)
+  })
+
+  it('formats a far-future timestamp (year 2100)', () => {
+    // 4 107 542 400 = 2100-03-14 00:00:00 UTC
+    const result = formatDateTime(4107542400)
+    expect(result).toMatch(/2100/)
+    expect(result).toMatch(/Mar/)
+  })
+
+  it('includes an AM or PM marker (12-hour format)', () => {
+    const result = formatDateTime(1705323900)
+    expect(result).toMatch(/AM|PM/)
+  })
+
+  it('includes 2-digit minutes', () => {
+    // Any valid output must contain ":<two digits>" before AM/PM
+    const result = formatDateTime(1705323900)
+    expect(result).toMatch(/:\d{2}/)
+  })
+
+  it('contains a short month abbreviation (3 letters)', () => {
+    const result = formatDateTime(1685608200) // 2023-06-01
+    expect(result).toMatch(/\b[A-Z][a-z]{2}\b/)
+  })
+
+  it('contains the 4-digit year', () => {
+    const result = formatDateTime(1685608200)
+    expect(result).toMatch(/2023/)
+  })
+
+  it('output is consistent — same input always produces same output', () => {
+    const ts = 1700000000
+    expect(formatDateTime(ts)).toBe(formatDateTime(ts))
   })
 })
