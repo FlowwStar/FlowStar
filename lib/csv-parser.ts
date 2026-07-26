@@ -101,6 +101,32 @@ function findColumnIndex(headers: string[], fieldName: string): number {
   return -1;
 }
 
+/**
+ * Parse a CSV string containing one header row followed by zero or more
+ * data rows, mapping each row's columns onto the canonical CsvBatchRow
+ * shape by either:
+ *   - looking up `HEADER_ALIASES[fieldName]` for each known column and
+ *     resolving the first matching header (case-insensitive, trimmed),
+ *     or
+ *   - if `customColumnMapping` is supplied, using the explicit positional
+ *     override for the named fields and falling back to alias detection
+ *     for the rest.
+ *
+ * Quoted fields containing the column separator and embedded `""` escape
+ * sequences are normalized through `parseCsvLine`. Lines with fewer
+ * mapped columns than the header rows expect are collected as `errors`
+ * rather than aborting the parse, so a CSV with mixed valid + invalid rows
+ * still yields the valid subset.
+ *
+ * @param csvText - The full CSV body, including the header row.
+ *   CRLF line endings are normalized to LF before splitting.
+ * @param customColumnMapping - Optional map of field name -> 0-based header
+ *   column index, used when the file's headers don't match any alias.
+ * @returns A `CsvParseResult` whose `rows` are the successfully mapped
+ *   CsvBatchRow objects, `errors` collects any line-level failure
+ *   messages, and `headerMapping` reports the resolved per-field
+ *   column indices (when alias detection is the active strategy).
+ */
 export function parseCsvBatch(
   csvText: string,
   customColumnMapping?: Record<string, number>,
