@@ -210,6 +210,12 @@ export function useAutoWithdraw(stream: StreamData | null) {
     calculateWithdrawAmount,
     addWithdrawalHistory,
     network,
+    // NOTE: `autoWithdrawPending` is intentionally excluded from this array.
+    // The interval callback guards against concurrent withdrawals via
+    // `autoWithdrawPendingRef` (a ref), so the state counterpart — which
+    // exists only to trigger UI re-renders — must not be listed here.
+    // Including it would tear down and recreate the interval on every
+    // withdrawal, resetting the cadence instead of keeping a stable schedule.
   ]);
 
   return {

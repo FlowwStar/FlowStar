@@ -101,6 +101,34 @@ function findColumnIndex(headers: string[], fieldName: string): number {
   return -1;
 }
 
+/**
+ * Resolves a cliff timestamp (in seconds) from a parsed CSV row.
+ *
+ * Priority:
+ *  1. `cliff_time` — an absolute timestamp (unix seconds or ISO date string).
+ *     If present and parseable, it is returned directly.
+ *  2. `cliff_duration` — a relative offset from `startTime`.
+ *     If present and parseable, `startTime + duration` is returned.
+ *  3. Neither present → returns null (no cliff).
+ *
+ * `parseTimestampFn` is injected so this pure helper has no dependency on
+ * browser/Node APIs; callers supply their own timestamp parser.
+ */
+export function resolveCliffTime(
+  row: Pick<CsvBatchRow, "cliff_time" | "cliff_duration">,
+  startTime: bigint | null,
+  parseTimestampFn: (value: string) => bigint | null,
+): bigint | null {
+  if (row.cliff_time) {
+    return parseTimestampFn(row.cliff_time);
+  }
+  if (row.cliff_duration && startTime !== null) {
+    const duration = parseDuration(row.cliff_duration);
+    if (duration !== null) return startTime + duration;
+  }
+  return null;
+}
+
 export function parseCsvBatch(
   csvText: string,
   customColumnMapping?: Record<string, number>,
