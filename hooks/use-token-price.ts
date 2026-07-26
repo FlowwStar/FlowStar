@@ -21,7 +21,11 @@ async function fetchXlmUsdPrice(): Promise<number> {
   );
   if (!res.ok) throw new Error("price fetch failed");
   const json = await res.json();
-  return Number(json.price ?? json.close ?? json.last);
+  const price = Number(json.price ?? json.close ?? json.last);
+  if (!Number.isFinite(price)) {
+    throw new Error("price fetch returned invalid data");
+  }
+  return price;
 }
 
 export function formatUsd(value: number): string {
@@ -77,7 +81,11 @@ export function useTokenPrice(symbol: string): TokenPrice {
         setFetchedAt(Date.now());
       })
       .catch(() => {
-        setPrice(null);
+        // Keep showing the last known-good price (if any) instead of
+        // clobbering it with NaN/null on a malformed or failed response.
+        if (!cached) {
+          setPrice(null);
+        }
       })
       .finally(() => setLoading(false));
 

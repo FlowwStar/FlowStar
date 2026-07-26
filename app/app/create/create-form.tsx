@@ -952,7 +952,6 @@ export function CreateForm() {
                   id="startDate"
                   type="datetime-local"
                   value={form.startDate}
-                  min={localDatetimeMin()}
                   onChange={(e) => set("startDate", e.target.value)}
                 />
               </div>

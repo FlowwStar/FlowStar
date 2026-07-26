@@ -155,18 +155,68 @@ export function generateReceiptCSV(receipt: ReceiptData): string {
 }
 
 /**
+ * Escape a string for safe interpolation into HTML text content or attribute values.
+ * Replaces the five characters that carry meaning in HTML/XML.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+}
+
+/**
  * Generate HTML content for receipt (print-friendly).
  */
 export function generateReceiptHTML(
   receipt: ReceiptData,
   logoBase64?: string,
 ): string {
+  // Escape all dynamic values before they touch the HTML string.
+  const id        = escapeHtml(receipt.streamId)
+  const status    = escapeHtml(receipt.status)
+  // status is always one of 'Active' | 'Completed' | 'Cancelled' (ASCII), but
+  // we still escape it and use the escaped form for the CSS class name so a
+  // hypothetical future status value cannot break out of the attribute.
+  const statusCls = escapeHtml(receipt.status.toLowerCase())
+  const sender    = escapeHtml(receipt.sender)
+  const recipient = escapeHtml(receipt.recipient)
+  const symbol    = escapeHtml(receipt.tokenSymbol)
+  const address   = escapeHtml(receipt.tokenAddress)
+  const generated = escapeHtml(receipt.generatedDate)
+  const startDate = escapeHtml(receipt.startDate)
+  const endDate   = escapeHtml(receipt.endDate)
+  const cliffDate = escapeHtml(receipt.cliffDate)
+  const duration  = escapeHtml(receipt.duration)
+  const total     = escapeHtml(receipt.totalAmount)
+  const withdrawn = escapeHtml(receipt.withdrawnAmount)
+  const remaining = escapeHtml(receipt.remainingAmount)
+  const cliffAmt  = receipt.cliffAmount   ? escapeHtml(receipt.cliffAmount)   : null
+  const perSec    = receipt.amountPerSecond ? escapeHtml(receipt.amountPerSecond) : null
+  const creationTx    = receipt.creationTx    ? escapeHtml(receipt.creationTx)    : null
+  const cancellationTx = receipt.cancellationTx ? escapeHtml(receipt.cancellationTx) : null
+  const withdrawalTxs = (receipt.withdrawalTxs ?? []).map(escapeHtml)
+
+  // The CSV data is passed through JSON.stringify which produces a valid JS
+  // string literal.  The only remaining risk is a </script> sequence inside
+  // the JSON payload; replace it with a safe Unicode escape so the inline
+  // script tag cannot be terminated early.
+  const csvJson = JSON.stringify(generateReceiptCSV(receipt))
+    .replace(/<\/script>/gi, '<\\/script>')
+
+  // The download filename only needs to appear inside a JS string literal
+  // (already wrapped in quotes by the template below), so we escape backslash
+  // and the quote character that wraps it.
+  const safeId = receipt.streamId.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FlowStar Stream Receipt - ${receipt.streamId}</title>
+  <title>FlowStar Stream Receipt - ${id}</title>
   <style>
     * {
       margin: 0;
@@ -357,7 +407,7 @@ export function generateReceiptHTML(
       </div>
       <div class="generated-date">
         <div>Generated</div>
-        <div>${receipt.generatedDate}</div>
+        <div>${generated}</div>
       </div>
     </div>
 
@@ -365,11 +415,11 @@ export function generateReceiptHTML(
       <div class="section-title">Stream Information</div>
       <div class="row">
         <span class="row-label">Stream ID</span>
-        <span class="row-value mono">${receipt.streamId}</span>
+        <span class="row-value mono">${id}</span>
       </div>
       <div class="row">
         <span class="row-label">Status</span>
-        <span class="row-value status-${receipt.status.toLowerCase()}">${receipt.status}</span>
+        <span class="row-value status-${statusCls}">${status}</span>
       </div>
     </div>
 
@@ -377,11 +427,11 @@ export function generateReceiptHTML(
       <div class="section-title">Parties</div>
       <div class="row">
         <span class="row-label">Sender</span>
-        <span class="row-value mono">${receipt.sender}</span>
+        <span class="row-value mono">${sender}</span>
       </div>
       <div class="row">
         <span class="row-label">Recipient</span>
-        <span class="row-value mono">${receipt.recipient}</span>
+        <span class="row-value mono">${recipient}</span>
       </div>
     </div>
 
@@ -389,11 +439,11 @@ export function generateReceiptHTML(
       <div class="section-title">Token</div>
       <div class="row">
         <span class="row-label">Symbol</span>
-        <span class="row-value">${receipt.tokenSymbol}</span>
+        <span class="row-value">${symbol}</span>
       </div>
       <div class="row">
         <span class="row-label">Address</span>
-        <span class="row-value mono">${receipt.tokenAddress}</span>
+        <span class="row-value mono">${address}</span>
       </div>
     </div>
 
@@ -403,23 +453,23 @@ export function generateReceiptHTML(
       <div class="section-title">Schedule</div>
       <div class="row">
         <span class="row-label">Start Date</span>
-        <span class="row-value">${receipt.startDate}</span>
+        <span class="row-value">${startDate}</span>
       </div>
       <div class="row">
         <span class="row-label">End Date</span>
-        <span class="row-value">${receipt.endDate}</span>
+        <span class="row-value">${endDate}</span>
       </div>
       <div class="row">
         <span class="row-label">Cliff Date</span>
-        <span class="row-value">${receipt.cliffDate}</span>
+        <span class="row-value">${cliffDate}</span>
       </div>
-      ${receipt.cliffAmount ? `<div class="row">
+      ${cliffAmt ? `<div class="row">
         <span class="row-label">Cliff Amount</span>
-        <span class="row-value">${receipt.cliffAmount} ${receipt.tokenSymbol}</span>
+        <span class="row-value">${cliffAmt} ${symbol}</span>
       </div>` : ''}
       <div class="row">
         <span class="row-label">Duration</span>
-        <span class="row-value">${receipt.duration}</span>
+        <span class="row-value">${duration}</span>
       </div>
     </div>
 
@@ -429,23 +479,23 @@ export function generateReceiptHTML(
       <div class="section-title">Amounts</div>
       <div class="row amount-row">
         <span class="row-label">Total Deposited</span>
-        <span class="row-value">${receipt.totalAmount} ${receipt.tokenSymbol}</span>
+        <span class="row-value">${total} ${symbol}</span>
       </div>
       <div class="row">
         <span class="row-label">Withdrawn</span>
-        <span class="row-value">${receipt.withdrawnAmount} ${receipt.tokenSymbol}</span>
+        <span class="row-value">${withdrawn} ${symbol}</span>
       </div>
       <div class="row">
         <span class="row-label">Remaining</span>
-        <span class="row-value">${receipt.remainingAmount} ${receipt.tokenSymbol}</span>
+        <span class="row-value">${remaining} ${symbol}</span>
       </div>
     </div>
 
-    ${receipt.amountPerSecond ? `<div class="section">
+    ${perSec ? `<div class="section">
       <div class="section-title">Unlock Rate</div>
       <div class="row">
         <span class="row-label">Per Second</span>
-        <span class="row-value">${receipt.amountPerSecond} ${receipt.tokenSymbol}</span>
+        <span class="row-value">${perSec} ${symbol}</span>
       </div>
     </div>` : ''}
 
@@ -453,15 +503,15 @@ export function generateReceiptHTML(
 
     <div class="section">
       <div class="section-title">Transaction Hashes</div>
-      ${receipt.creationTx ? `<div class="row"><span class="row-label">Creation</span></div><div class="tx-list">${receipt.creationTx}</div>` : ''}
-      ${receipt.withdrawalTxs && receipt.withdrawalTxs.length > 0 ? receipt.withdrawalTxs.map((tx, idx) => `<div class="row"><span class="row-label">Withdrawal ${idx + 1}</span></div><div class="tx-list">${tx}</div>`).join('') : ''}
-      ${receipt.cancellationTx ? `<div class="row"><span class="row-label">Cancellation</span></div><div class="tx-list">${receipt.cancellationTx}</div>` : ''}
+      ${creationTx ? `<div class="row"><span class="row-label">Creation</span></div><div class="tx-list">${creationTx}</div>` : ''}
+      ${withdrawalTxs.length > 0 ? withdrawalTxs.map((tx, idx) => `<div class="row"><span class="row-label">Withdrawal ${idx + 1}</span></div><div class="tx-list">${tx}</div>`).join('') : ''}
+      ${cancellationTx ? `<div class="row"><span class="row-label">Cancellation</span></div><div class="tx-list">${cancellationTx}</div>` : ''}
     </div>
 
     <div class="actions no-print">
-      <button onclick="window.print()">🖨️ Print Receipt</button>
-      <button onclick="downloadAsCSV()">📥 Download CSV</button>
-      <button onclick="window.close()">✕ Close</button>
+      <button onclick="window.print()">&#x1F5A8;&#xFE0F; Print Receipt</button>
+      <button onclick="downloadAsCSV()">&#x1F4E5; Download CSV</button>
+      <button onclick="window.close()">&#x2715; Close</button>
     </div>
 
     <div class="footer">
@@ -471,12 +521,12 @@ export function generateReceiptHTML(
 
   <script>
     function downloadAsCSV() {
-      const csv = ${JSON.stringify(generateReceiptCSV(receipt))};
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      var csv = ${csvJson};
+      var blob = new Blob([csv], { type: 'text/csv' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
       a.href = url;
-      a.download = 'flowstar-receipt-${receipt.streamId}.csv';
+      a.download = 'flowstar-receipt-${safeId}.csv';
       a.click();
       URL.revokeObjectURL(url);
     }

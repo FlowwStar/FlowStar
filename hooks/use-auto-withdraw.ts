@@ -26,6 +26,15 @@ interface AutoWithdrawSettings {
   withdrawalHistory: WithdrawalHistoryEntry[];
 }
 
+const MIN_INTERVAL_HOURS = 1;
+
+function clampIntervalHours(hours: number): number {
+  if (!Number.isFinite(hours) || hours < MIN_INTERVAL_HOURS) {
+    return MIN_INTERVAL_HOURS;
+  }
+  return hours;
+}
+
 const DEFAULT_SETTINGS: AutoWithdrawSettings = {
   enabled: false,
   strategy: "time-based",
@@ -44,7 +53,9 @@ function loadSettings(streamId: string): AutoWithdrawSettings {
   try {
     const stored = localStorage.getItem(storageKey(streamId));
     if (!stored) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+    const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+    parsed.intervalHours = clampIntervalHours(parsed.intervalHours);
+    return parsed;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -63,6 +74,7 @@ export function useAutoWithdraw(stream: StreamData | null) {
   const settingsRef = useRef<AutoWithdrawSettings>(DEFAULT_SETTINGS);
   const [lastAutoWithdraw, setLastAutoWithdraw] = useState<number | null>(null);
   const [autoWithdrawPending, setAutoWithdrawPending] = useState(false);
+  const autoWithdrawPendingRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -82,6 +94,12 @@ export function useAutoWithdraw(stream: StreamData | null) {
         saveSettings(stream.id, next);
         return next;
       });
+      const next = { ...settings, ...update };
+      if (update.intervalHours !== undefined) {
+        next.intervalHours = clampIntervalHours(update.intervalHours);
+      }
+      setSettings(next);
+      saveSettings(stream.id, next);
     },
     [stream],
   );
@@ -161,16 +179,17 @@ export function useAutoWithdraw(stream: StreamData | null) {
 
     if (!settings.enabled || !stream || stream.cancelled) return;
 
-    const intervalMs = settings.intervalHours * 60 * 60 * 1000;
+    const intervalMs = clampIntervalHours(settings.intervalHours) * 60 * 60 * 1000;
 
     async function tryWithdraw() {
-      if (!stream || autoWithdrawPending) return;
+      if (!stream || autoWithdrawPendingRef.current) return;
       const now = Math.floor(Date.now() / 1000);
       const withdrawable = getWithdrawableAmount(stream, now);
       const amount = calculateWithdrawAmount(withdrawable, stream);
 
       if (amount <= 0n) return;
 
+      autoWithdrawPendingRef.current = true;
       setAutoWithdrawPending(true);
       try {
         const txHash = await withdrawFromStream(stream.id, amount, network);
@@ -187,6 +206,7 @@ export function useAutoWithdraw(stream: StreamData | null) {
           error: String(error),
         });
       } finally {
+        autoWithdrawPendingRef.current = false;
         setAutoWithdrawPending(false);
       }
     }
@@ -204,10 +224,15 @@ export function useAutoWithdraw(stream: StreamData | null) {
     settings.maxSafetyLimitRaw,
     settings.thresholdPercentage,
     stream,
-    autoWithdrawPending,
     calculateWithdrawAmount,
     addWithdrawalHistory,
     network,
+    // NOTE: `autoWithdrawPending` is intentionally excluded from this array.
+    // The interval callback guards against concurrent withdrawals via
+    // `autoWithdrawPendingRef` (a ref), so the state counterpart — which
+    // exists only to trigger UI re-renders — must not be listed here.
+    // Including it would tear down and recreate the interval on every
+    // withdrawal, resetting the cadence instead of keeping a stable schedule.
   ]);
 
   return {

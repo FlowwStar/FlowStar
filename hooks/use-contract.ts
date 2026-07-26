@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import {
   createStream as createStreamCall,
+  createStreamsBatch as createStreamsBatchCall,
   withdrawFromStream,
   cancelStream as cancelStreamCall,
   estimateCreateStreamFee,
@@ -59,6 +60,13 @@ export function useContract() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Tracks the latest connection state so long-running loops (withdrawAll)
+  // can detect a mid-batch disconnect instead of relying on a stale closure.
+  const isConnectedRef = useRef(isConnected);
+  useEffect(() => {
+    isConnectedRef.current = isConnected;
+  }, [isConnected]);
+
   const run = useCallback(
     async <T>(
       label: string,
@@ -93,6 +101,14 @@ export function useContract() {
     (input: CreateStreamInput) =>
       run("Create stream", (onStep) =>
         createStreamCall(input, address!, network, onStep),
+      ),
+    [run, address, network],
+  );
+
+  const createStreamsBatch = useCallback(
+    (inputs: CreateStreamInput[]) =>
+      run("Create streams", (onStep) =>
+        createStreamsBatchCall(inputs, address!, network, onStep),
       ),
     [run, address, network],
   );
@@ -143,13 +159,17 @@ export function useContract() {
       let failed = 0;
 
       for (let i = 0; i < withdrawable.length; i++) {
+        if (!isConnectedRef.current) {
+          toast.error("Wallet disconnected — stopping remaining withdrawals.", {
+            duration: 5000,
+          });
+          break;
+        }
+
         onProgress?.(i + 1, withdrawable.length);
         const s = withdrawable[i];
         try {
-          const amount = getWithdrawableAmount(
-            s,
-            Math.floor(Date.now() / 1000),
-          );
+          const amount = getWithdrawableAmount(s, now);
           await withdrawFromStream(s.id, amount, network);
           succeeded++;
         } catch (err) {
@@ -176,6 +196,7 @@ export function useContract() {
 
   return {
     createStream,
+    createStreamsBatch,
     withdraw,
     cancel,
     withdrawAll,
