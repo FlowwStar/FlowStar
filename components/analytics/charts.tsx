@@ -15,6 +15,12 @@ interface TokenShare {
   count: number
 }
 
+/** Scale factor: pixels per unit count for the bar chart width */
+const PIXELS_PER_COUNT = 20;
+
+/** Minimum bar width in pixels so very small values are still visible */
+const MIN_BAR_WIDTH_PX = 8;
+
 interface Props {
   series: SeriesPoint[]
   topTokens: TokenShare[]
@@ -42,7 +48,7 @@ export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }:
                     <span className="font-medium">{point.count}</span>
                   </div>
                   <div className="h-2 rounded-full bg-muted">
-                    <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.min(100, point.count * 20)}%` }} />
+                    <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.min(100, point.count * PIXELS_PER_COUNT)}%` }} />
                   </div>
                 </div>
               ))}
@@ -90,7 +96,7 @@ export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }:
                   <div
                     className="h-2 rounded-full bg-secondary"
                     style={{
-                      width: `${Math.max(8, (Number(token.amount) / Math.max(1, Number(totalVolume))) * 100) || 0}%`,
+                      width: `${Math.max(MIN_BAR_WIDTH_PX, (Number(token.amount) / Math.max(1, Number(totalVolume))) * 100) || 0}%`,
                     }}
                   />
                 </div>
