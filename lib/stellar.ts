@@ -59,8 +59,8 @@ export function getNetworkConfig(network: NetworkName): NetworkConfig {
   const base = NETWORKS[network]
   const contractId =
     network === 'testnet'
-      ? process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET ?? ''
-      : process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET ?? ''
+      ? (process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET ?? '')
+      : (process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET ?? '')
 
   return {
     ...base,
@@ -69,10 +69,12 @@ export function getNetworkConfig(network: NetworkName): NetworkConfig {
 }
 
 export const KNOWN_TOKENS = [...NETWORKS.testnet.knownTokens, ...NETWORKS.mainnet.knownTokens]
-export const NETWORK: NetworkName = (process.env.NEXT_PUBLIC_STELLAR_NETWORK as NetworkName | undefined) ?? 'testnet'
-export const STREAM_CONTRACT_ID = NETWORK === 'mainnet'
-  ? process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET ?? ''
-  : process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET ?? ''
+export const NETWORK: NetworkName =
+  (process.env.NEXT_PUBLIC_STELLAR_NETWORK as NetworkName | undefined) ?? 'testnet'
+export const STREAM_CONTRACT_ID =
+  NETWORK === 'mainnet'
+    ? (process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET ?? '')
+    : (process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET ?? '')
 
 const CUSTOM_TOKENS_KEY = 'flowstar:custom-tokens'
 const FAVORITE_TOKENS_KEY = 'flowstar:favorite-tokens'
@@ -95,7 +97,7 @@ async function loadVerifiedTokens(): Promise<VerifiedTokenEntry[]> {
   try {
     const response = await fetch('/lib/tokens.json')
     if (!response.ok) throw new Error('Failed to load verified tokens')
-    const data = await response.json() as { tokens: VerifiedTokenEntry[] }
+    const data = (await response.json()) as { tokens: VerifiedTokenEntry[] }
     verifiedTokensCache = data.tokens
     return data.tokens
   } catch (error) {
@@ -117,7 +119,9 @@ export function getVerifiedTokenInfo(address: string): VerifiedTokenEntry | null
 
 const CUSTOM_TOKENS_KEY_PREFIX = 'flowstar:custom-tokens:'
 
-export function getCustomTokens(network: NetworkName): { address: string; symbol: string; decimals: number }[] {
+export function getCustomTokens(
+  network: NetworkName,
+): { address: string; symbol: string; decimals: number }[] {
   if (typeof window === 'undefined') return []
   try {
     const raw = localStorage.getItem(`${CUSTOM_TOKENS_KEY_PREFIX}${network}`)
@@ -127,7 +131,10 @@ export function getCustomTokens(network: NetworkName): { address: string; symbol
   }
 }
 
-export function saveCustomToken(network: NetworkName, token: { address: string; symbol: string; decimals: number }) {
+export function saveCustomToken(
+  network: NetworkName,
+  token: { address: string; symbol: string; decimals: number },
+) {
   const existing = getCustomTokens(network)
   if (existing.some((t) => t.address === token.address)) return
   const updated = [token, ...existing].slice(0, 10)
@@ -139,7 +146,11 @@ export function removeCustomToken(network: NetworkName, address: string) {
   localStorage.setItem(`${CUSTOM_TOKENS_KEY_PREFIX}${network}`, JSON.stringify(updated))
 }
 
-export function explorerUrl(network: NetworkName, type: 'account' | 'contract' | 'tx', id: string): string {
+export function explorerUrl(
+  network: NetworkName,
+  type: 'account' | 'contract' | 'tx',
+  id: string,
+): string {
   const explorerNetwork = network === 'testnet' ? 'testnet' : 'public'
   return `https://stellar.expert/explorer/${explorerNetwork}/${type}/${id}`
 }
@@ -170,7 +181,9 @@ export function isFavoriteToken(address: string): boolean {
   return getFavoriteTokens().includes(address)
 }
 
-export function getAllTokens(network: NetworkName): { address: string; symbol: string; decimals: number }[] {
+export function getAllTokens(
+  network: NetworkName,
+): { address: string; symbol: string; decimals: number }[] {
   const config = getNetworkConfig(network)
   return [...config.knownTokens, ...getCustomTokens(network)]
 }
@@ -189,7 +202,23 @@ export interface AccountInfo {
   error?: string
 }
 
-export async function checkAccountInfo(address: string, network: NetworkName): Promise<AccountInfo> {
+/**
+ * Shape of a Horizon /accounts/{id} API response.
+ * `data` is present only for checkAccountInfo's use case but included optionally.
+ */
+interface HorizonAccountResponse {
+  id: string
+  account_id: string
+  sequence: string
+  balances: Array<{ balance: string; asset_type: string }>
+  signers: Array<{ key: string; type: string; weight: number }>
+  data: Record<string, string>
+}
+
+export async function checkAccountInfo(
+  address: string,
+  network: NetworkName,
+): Promise<AccountInfo> {
   const config = getNetworkConfig(network)
   const horizonUrl = config.horizonUrl
 
@@ -202,11 +231,11 @@ export async function checkAccountInfo(address: string, network: NetworkName): P
       return { exists: false, funded: false, transactionCount: 0, error: 'Failed to query account' }
     }
 
-    const data = await response.json() as any
+    const data = (await response.json()) as HorizonAccountResponse
     return {
       exists: true,
       funded: true,
-      transactionCount: data.data?.length || 0,
+      transactionCount: Object.keys(data.data ?? {}).length,
     }
   } catch (error) {
     console.error('Error checking account info:', error)
@@ -228,12 +257,14 @@ export async function getXlmBalance(address: string, network: NetworkName): Prom
       return null
     }
 
-    const data = await response.json() as any
-    const balances = data.balances as Array<{ asset_type: string; balance: string }> | undefined
+    const data = (await response.json()) as Omit<HorizonAccountResponse, 'data'>
+    const balances = data.balances
     if (!balances) return null
 
     // Find native (XLM) balance
-    const nativeBalance = balances.find((b: any) => b.asset_type === 'native')
+    const nativeBalance = balances.find(
+      (b: { asset_type: string; balance: string }) => b.asset_type === 'native',
+    )
     if (!nativeBalance) return null
 
     // Convert to stroops (multiply by 10,000,000)
