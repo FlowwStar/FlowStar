@@ -32,4 +32,31 @@ playwright/.cache/
 *.swp
 *.swo
 .idea/
+# Soroban test snapshots (auto-generated, not needed in source control)
+contracts/**/test_snapshots/
+# Test snapshots
+contracts/streaming/test_snapshots/
+
+# Vitest
+*.snap
+coverage/
+
+# Playwright
+playwright-report/
+test-results/
+
+# TypeScript build info
+tsconfig.tsbuildinfo
+
+# Logs
+*.log
+.eslintcache
+
+# Lock files (keep package-lock.json, ignore pnpm if using npm)
+pnpm-lock.yaml
+# Editor
+.vscode/
+.idea/
+
+# OS
 Thumbs.db

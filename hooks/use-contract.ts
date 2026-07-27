@@ -1,156 +1,207 @@
-'use client'
+"use client";
 
-import { useState, useCallback } from 'react'
-import { toast } from 'sonner'
+import { useState, useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 import {
   createStream as createStreamCall,
+  createStreamsBatch as createStreamsBatchCall,
   withdrawFromStream,
   cancelStream as cancelStreamCall,
   estimateCreateStreamFee,
-} from '@/lib/contract'
-import { useNetwork } from '@/components/providers/network-provider'
-import type { FeeEstimate } from '@/lib/contract'
-import { invalidateStreams } from '@/hooks/use-streams'
-import { useWallet } from '@/hooks/use-wallet'
-import { useNetwork } from '@/components/providers/network-provider'
-import { getWithdrawableAmount } from '@/lib/stream-utils'
-import { mapError, categoryLabel } from '@/lib/error-messages'
-import type { CreateStreamInput, StreamData } from '@/types/stream'
+  type TxStep,
+} from "@/lib/contract";
+import type { FeeEstimate } from "@/lib/contract";
+import { invalidateStreams } from "@/hooks/use-streams";
+import { useWallet } from "@/hooks/use-wallet";
+import { useNetwork } from "@/components/providers/network-provider";
+import { getWithdrawableAmount } from "@/lib/stream-utils";
+import { mapError, categoryLabel } from "@/lib/error-messages";
+import type { CreateStreamInput, StreamData } from "@/types/stream";
 
 export interface WithdrawAllResult {
-  succeeded: number
-  failed: number
+  succeeded: number;
+  failed: number;
 }
 
-function showErrorToast(err: unknown) {
-  const mapped = mapError(err)
-  const category = categoryLabel(mapped.category)
-  toast.error(mapped.message, {
+const TX_STEP_LABELS: Record<TxStep, string> = {
+  simulating: "Simulating transaction…",
+  signing: "Please sign in your wallet",
+  submitting: "Transaction submitted — waiting for confirmation",
+  confirming: "Confirming on-chain…",
+};
+
+function showErrorToast(err: unknown, toastId?: string | number) {
+  const mapped = mapError(err);
+  const category = categoryLabel(mapped.category);
+  const opts = {
     description: mapped.suggestion,
     duration: 7000,
+    ...(toastId ? { id: toastId } : {}),
     action: mapped.details
       ? {
-          label: 'Details',
+          label: "Details",
           onClick: () => {
-            const short = mapped.details!.length > 200
-              ? mapped.details!.slice(0, 200) + '…'
-              : mapped.details!
-            toast.info(short, { duration: 10000 })
+            const short =
+              mapped.details!.length > 200
+                ? mapped.details!.slice(0, 200) + "…"
+                : mapped.details!;
+            toast.info(short, { duration: 10000 });
           },
         }
       : undefined,
-  })
-  return `[${category}] ${mapped.message}`
+  };
+  toast.error(mapped.message, opts);
+  return `[${category}] ${mapped.message}`;
 }
 
 export function useContract() {
-  const { address, isConnected } = useWallet()
-  const { network } = useNetwork()
-  const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { address, isConnected } = useWallet();
+  const { network } = useNetwork();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Tracks the latest connection state so long-running loops (withdrawAll)
+  // can detect a mid-batch disconnect instead of relying on a stale closure.
+  const isConnectedRef = useRef(isConnected);
+  useEffect(() => {
+    isConnectedRef.current = isConnected;
+  }, [isConnected]);
 
   const run = useCallback(
-    async <T,>(fn: () => Promise<T>): Promise<T> => {
-      if (!isConnected || !address) throw new Error('Connect a wallet first.')
-      setPending(true)
-      setError(null)
+    async <T>(
+      label: string,
+      fn: (onStep: (step: TxStep) => void) => Promise<T>,
+    ): Promise<T> => {
+      if (!isConnected || !address) throw new Error("Connect a wallet first.");
+      setPending(true);
+      setError(null);
+      const toastId = toast.loading("Simulating transaction…");
       try {
-        const result = await fn()
-        invalidateStreams()
-        return result
+        const result = await fn((step) => {
+          toast.loading(TX_STEP_LABELS[step], { id: toastId });
+        });
+        toast.success(`${label} confirmed!`, { id: toastId, duration: 4000 });
+        invalidateStreams();
+        return result;
       } catch (err) {
-        const displayMessage = showErrorToast(err)
-        setError(displayMessage)
-        throw err
+        showErrorToast(err, toastId);
+        const mapped = mapError(err);
+        const category = categoryLabel(mapped.category);
+        const displayMessage = `[${category}] ${mapped.message}`;
+        setError(displayMessage);
+        throw err;
       } finally {
-        setPending(false)
+        setPending(false);
       }
     },
     [address, isConnected],
-  )
+  );
 
   const createStream = useCallback(
-    (input: CreateStreamInput) => run(() => createStreamCall(input, address!, network)),
+    (input: CreateStreamInput) =>
+      run("Create stream", (onStep) =>
+        createStreamCall(input, address!, network, onStep),
+      ),
     [run, address, network],
-  )
+  );
+
+  const createStreamsBatch = useCallback(
+    (inputs: CreateStreamInput[]) =>
+      run("Create streams", (onStep) =>
+        createStreamsBatchCall(inputs, address!, network, onStep),
+      ),
+    [run, address, network],
+  );
 
   const withdraw = useCallback(
-    (id: string, amount: bigint) => run(() => withdrawFromStream(id, amount, network)),
-    (input: CreateStreamInput) => run(() => createStreamCall(network, input, address!)),
-    [run, network, address],
-  )
-
-  const withdraw = useCallback(
-    (id: string, amount: bigint) => run(() => withdrawFromStream(network, id, amount)),
+    (id: string, amount: bigint) =>
+      run("Withdraw", (onStep) =>
+        withdrawFromStream(id, amount, network, onStep),
+      ),
     [run, network],
-  )
+  );
 
   const cancel = useCallback(
-    (id: string) => run(() => cancelStreamCall(id, network)),
-    (id: string) => run(() => cancelStreamCall(network, id)),
+    (id: string) =>
+      run("Cancel stream", (onStep) => cancelStreamCall(id, network, onStep)),
     [run, network],
-  )
+  );
 
   const estimateFee = useCallback(
     async (input: CreateStreamInput): Promise<FeeEstimate | null> => {
-      if (!isConnected || !address) return null
+      if (!isConnected || !address) return null;
       try {
-        return await estimateCreateStreamFee(network, input, address)
+        return await estimateCreateStreamFee(network, input, address);
       } catch {
-        return null
+        return null;
       }
     },
     [address, isConnected, network],
-    [network, address, isConnected],
-  )
+  );
 
   const withdrawAll = useCallback(
     async (
       streams: StreamData[],
       onProgress?: (current: number, total: number) => void,
     ): Promise<WithdrawAllResult> => {
-      if (!isConnected || !address) throw new Error('Connect a wallet first.')
+      if (!isConnected || !address) throw new Error("Connect a wallet first.");
 
-      const now = Math.floor(Date.now() / 1000)
-      const withdrawable = streams.filter((s) => getWithdrawableAmount(s, now) > 0n)
-      if (withdrawable.length === 0) return { succeeded: 0, failed: 0 }
+      const now = Math.floor(Date.now() / 1000);
+      const withdrawable = streams.filter(
+        (s) => getWithdrawableAmount(s, now) > 0n,
+      );
+      if (withdrawable.length === 0) return { succeeded: 0, failed: 0 };
 
-      setPending(true)
-      setError(null)
+      setPending(true);
+      setError(null);
 
-      let succeeded = 0
-      let failed = 0
+      let succeeded = 0;
+      let failed = 0;
 
       for (let i = 0; i < withdrawable.length; i++) {
-        onProgress?.(i + 1, withdrawable.length)
-        const s = withdrawable[i]
+        if (!isConnectedRef.current) {
+          toast.error("Wallet disconnected — stopping remaining withdrawals.", {
+            duration: 5000,
+          });
+          break;
+        }
+
+        onProgress?.(i + 1, withdrawable.length);
+        const s = withdrawable[i];
         try {
-          const amount = getWithdrawableAmount(s, Math.floor(Date.now() / 1000))
-          await withdrawFromStream(s.id, amount, network)
-          await withdrawFromStream(network, s.id, amount)
-          succeeded++
+          const amount = getWithdrawableAmount(s, now);
+          await withdrawFromStream(s.id, amount, network);
+          succeeded++;
         } catch (err) {
-          failed++
-          const mapped = mapError(err)
+          failed++;
+          const mapped = mapError(err);
           toast.error(`Stream #${s.id}: ${mapped.message}`, {
             description: mapped.suggestion,
             duration: 5000,
-          })
+          });
         }
       }
 
-      invalidateStreams()
-      setPending(false)
+      invalidateStreams();
+      setPending(false);
 
       if (failed > 0 && succeeded === 0) {
-        setError('All withdrawals failed. See error toasts for details.')
+        setError("All withdrawals failed. See error toasts for details.");
       }
 
-      return { succeeded, failed }
+      return { succeeded, failed };
     },
     [address, isConnected, network],
-    [network, address, isConnected],
-  )
+  );
 
-  return { createStream, withdraw, cancel, withdrawAll, estimateFee, pending, error }
+  return {
+    createStream,
+    createStreamsBatch,
+    withdraw,
+    cancel,
+    withdrawAll,
+    estimateFee,
+    pending,
+    error,
+  };
 }

@@ -4,13 +4,13 @@ import { useEffect, useState } from 'react'
 
 /**
  * Returns the current UNIX time in seconds, updating on an interval.
- * Use this to drive live unlock counters and countdowns client-side instead
- * of polling the contract.
+ * Pass `intervalMs = null` to disable updates (for completed/cancelled streams).
  */
-export function useNow(intervalMs = 1000): number {
+export function useNow(intervalMs: number | null = 1000): number {
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000))
 
   useEffect(() => {
+    if (intervalMs === null) return
     const id = setInterval(() => {
       setNow(Math.floor(Date.now() / 1000))
     }, intervalMs)

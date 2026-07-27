@@ -1,36 +1,29 @@
-'use client'
+"use client";
 
-import { AlertTriangle, TrendingUp } from 'lucide-react'
+import { AlertTriangle, TrendingUp } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import type { FeeBreakdown } from "@/lib/fee-utils";
 
-export interface FeeBreakdown {
-  networkFee: number
-  cpuFee: number
-  memoryFee: number
-  storageFee: number
-  totalEstimated: number
-  estimatedUsd?: number
-  minFee: number
-}
+export type { FeeBreakdown };
 
-const FEE_WARNING_MULTIPLIER = 2.0
+const FEE_WARNING_MULTIPLIER = 2.0;
 
 interface FeeEstimateDialogProps {
-  open: boolean
-  onConfirm: () => void
-  onCancel: () => void
-  fees: FeeBreakdown
-  action: string
-  averageFee?: number
-  isHighFee?: boolean
-  loading?: boolean
+  open: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  fees: FeeBreakdown;
+  action: string;
+  averageFee?: number;
+  isHighFee?: boolean;
+  loading?: boolean;
 }
 
 export function FeeEstimateDialog({
@@ -43,8 +36,8 @@ export function FeeEstimateDialog({
   isHighFee = false,
   loading = false,
 }: FeeEstimateDialogProps) {
-  const xlmAmount = (fees.totalEstimated / 1e7).toFixed(7)
-  const avgXlmAmount = averageFee ? (averageFee / 1e7).toFixed(7) : null
+  const xlmAmount = (fees.totalEstimated / 1e7).toFixed(7);
+  const avgXlmAmount = averageFee ? (averageFee / 1e7).toFixed(7) : null;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
@@ -66,7 +59,9 @@ export function FeeEstimateDialog({
                   High fee detected
                 </p>
                 <p className="text-xs text-yellow-600 dark:text-yellow-400/80">
-                  This fee is ~{(fees.totalEstimated / (averageFee || 1)).toFixed(1)}x higher than average ({avgXlmAmount} XLM)
+                  This fee is ~
+                  {(fees.totalEstimated / (averageFee || 1)).toFixed(1)}x higher
+                  than average ({avgXlmAmount} XLM)
                 </p>
               </div>
             </div>
@@ -97,29 +92,15 @@ export function FeeEstimateDialog({
             </p>
             <div className="space-y-2 rounded-lg border border-border p-3">
               <FeeRow
-                label="Network fee"
-                amount={fees.networkFee}
-                percentage={(fees.networkFee / fees.totalEstimated) * 100}
+                label="Base fee estimate"
+                amount={fees.minFee}
+                percentage={(fees.minFee / fees.totalEstimated) * 100}
               />
-              {fees.cpuFee > 0 && (
+              {fees.bufferFee > 0 && (
                 <FeeRow
-                  label="CPU resources"
-                  amount={fees.cpuFee}
-                  percentage={(fees.cpuFee / fees.totalEstimated) * 100}
-                />
-              )}
-              {fees.memoryFee > 0 && (
-                <FeeRow
-                  label="Memory resources"
-                  amount={fees.memoryFee}
-                  percentage={(fees.memoryFee / fees.totalEstimated) * 100}
-                />
-              )}
-              {fees.storageFee > 0 && (
-                <FeeRow
-                  label="Storage resources"
-                  amount={fees.storageFee}
-                  percentage={(fees.storageFee / fees.totalEstimated) * 100}
+                  label="Safety buffer (15%)"
+                  amount={fees.bufferFee}
+                  percentage={(fees.bufferFee / fees.totalEstimated) * 100}
                 />
               )}
             </div>
@@ -131,44 +112,42 @@ export function FeeEstimateDialog({
               ℹ️ About these fees
             </p>
             <ul className="text-xs text-blue-600 dark:text-blue-400/80 space-y-1">
-              <li>• Network fee is required for all transactions</li>
-              <li>• Resource fees depend on contract complexity</li>
+              <li>
+                • A 15% safety buffer is added to reduce the chance of rejection
+              </li>
               <li>• Actual fee may vary based on network conditions</li>
-              <li>• Fees are estimated from transaction simulation</li>
             </ul>
           </div>
         </div>
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-4 border-t border-border">
-          <Button
-            variant="ghost"
-            onClick={onCancel}
-            disabled={loading}
-          >
+          <Button variant="ghost" onClick={onCancel} disabled={loading}>
             Cancel
           </Button>
           <Button
             onClick={onConfirm}
             disabled={loading}
-            className={isHighFee ? 'bg-yellow-600 hover:bg-yellow-700 text-white' : ''}
+            className={
+              isHighFee ? "bg-yellow-600 hover:bg-yellow-700 text-white" : ""
+            }
           >
-            {loading ? 'Confirming…' : 'Confirm & pay'}
+            {loading ? "Confirming…" : "Confirm & pay"}
           </Button>
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }
 
 interface FeeRowProps {
-  label: string
-  amount: number
-  percentage: number
+  label: string;
+  amount: number;
+  percentage: number;
 }
 
 function FeeRow({ label, amount, percentage }: FeeRowProps) {
-  const xlm = (amount / 1e7).toFixed(7)
+  const xlm = (amount / 1e7).toFixed(7);
   return (
     <div className="flex items-center justify-between text-xs">
       <div className="flex items-center gap-2">
@@ -179,9 +158,11 @@ function FeeRow({ label, amount, percentage }: FeeRowProps) {
             style={{ width: `${Math.max(2, Math.min(100, percentage))}%` }}
           />
         </div>
-        <span className="text-muted-foreground w-8 text-right">{percentage.toFixed(0)}%</span>
+        <span className="text-muted-foreground w-8 text-right">
+          {percentage.toFixed(0)}%
+        </span>
       </div>
       <span className="font-mono text-foreground ml-2">{xlm} XLM</span>
     </div>
-  )
+  );
 }

@@ -8,6 +8,9 @@ jobs:
   contract-audit:
     name: Rust / Soroban Audit
     runs-on: ubuntu-latest
+    permissions:
+      issues: write # Required to comment on issues
+      pull-requests: write
     defaults:
       run:
         working-directory: contracts

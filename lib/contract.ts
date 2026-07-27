@@ -30,13 +30,14 @@ const FEE_BUFFER = 1.15 // 15% above minimum to ensure inclusion
 // ─── Retry / timeout ──────────────────────────────────────────────────────────
 
 const REQUEST_TIMEOUT_MS = 30_000
-const POLL_TIMEOUT_MS    = 60_000
-const MAX_RETRIES        = 3
-const RETRY_DELAYS_MS    = [1_000, 2_000, 4_000] as const
+const POLL_TIMEOUT_MS = 60_000
+const MAX_RETRIES = 3
+const RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const
 
 function isRetryableError(err: unknown): boolean {
   if (err instanceof TypeError) return true // network failure
-  if (err instanceof Error && (err.message.includes('503') || err.message.includes('429'))) return true
+  if (err instanceof Error && (err.message.includes('503') || err.message.includes('429')))
+    return true
   const status =
     (err as { status?: number })?.status ??
     (err as { response?: { status?: number } })?.response?.status
@@ -57,7 +58,8 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
     } finally {
       clearTimeout(timer)
     }
-    if (attempt < MAX_RETRIES) await new Promise<void>((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]))
+    if (attempt < MAX_RETRIES)
+      await new Promise<void>((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]))
   }
   throw lastErr
 }
@@ -71,7 +73,8 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
       lastErr = err
       if (!isRetryableError(err)) throw err
     }
-    if (attempt < MAX_RETRIES) await new Promise<void>((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]))
+    if (attempt < MAX_RETRIES)
+      await new Promise<void>((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]))
   }
   throw lastErr
 }
@@ -110,6 +113,8 @@ async function buildAndSimulate(
   return { prepared, estimatedFee, minFee }
 }
 
+export type TxStep = 'simulating' | 'signing' | 'submitting' | 'confirming'
+
 /** Build, simulate, sign, and submit a contract call. Returns the transaction hash. */
 async function invoke(
   network: NetworkName,
@@ -117,10 +122,14 @@ async function invoke(
   args: xdr.ScVal[],
   signerAddress: string,
   contractAddress: string,
+  onStep?: (step: TxStep) => void,
 ): Promise<string> {
   const config = getNetworkConfig(network)
+  onStep?.('simulating')
   const { prepared } = await buildAndSimulate(network, method, args, signerAddress, contractAddress)
+  onStep?.('signing')
   const signedXdr = await signTx(prepared.toXDR())
+  onStep?.('submitting')
   // Submit the signed XDR directly via the RPC JSON-RPC endpoint.
   // We bypass TransactionBuilder.fromXDR because Freighter may return a
   // FeeBumpTransaction envelope (type 4) which fromXDR can't handle.
@@ -134,7 +143,7 @@ async function invoke(
       params: { transaction: signedXdr },
     }),
   })
-  const rpcJson = await rpcResponse.json() as {
+  const rpcJson = (await rpcResponse.json()) as {
     result?: { hash: string; status: string; errorResultXdr?: string }
     error?: { message: string }
   }
@@ -150,6 +159,7 @@ async function invoke(
 
   // Poll until finalized (max 60 s)
   const hash = sendResult.hash
+  onStep?.('confirming')
   let pollStatus = 'PENDING'
   const pollDeadline = Date.now() + POLL_TIMEOUT_MS
 
@@ -166,7 +176,7 @@ async function invoke(
         params: { hash },
       }),
     })
-    const pollJson = await pollRes.json() as {
+    const pollJson = (await pollRes.json()) as {
       result?: { status: string; resultMetaXdr?: string }
       error?: { message: string }
     }
@@ -208,8 +218,9 @@ async function query(
   if (StellarRpc.Api.isSimulationError(sim)) {
     throw new Error(`Query failed: ${sim.error}`)
   }
-  return (sim as StellarRpc.Api.SimulateTransactionSuccessResponse).result?.retval
-    ?? xdr.ScVal.scvVoid()
+  return (
+    (sim as StellarRpc.Api.SimulateTransactionSuccessResponse).result?.retval ?? xdr.ScVal.scvVoid()
+  )
 }
 
 /** Map a contract Stream ScVal → StreamData. */
@@ -237,6 +248,8 @@ function scValToStreamData(network: NetworkName, val: xdr.ScVal): StreamData {
     cliffTime: BigInt(raw.cliff_time as string | number),
     cliffAmount: BigInt(raw.cliff_amount as string | number),
     amountPerSecond: BigInt(raw.amount_per_second as string | number),
+    linearAmount: BigInt(raw.linear_amount as string | number),
+    duration: BigInt(raw.duration as string | number),
     cancelled: Boolean(raw.cancelled),
   }
 }
@@ -249,6 +262,104 @@ export interface FeeEstimate {
   estimatedFeeXlm: string
 }
 
+export interface SimulationPreview {
+  success: boolean
+  estimatedFeeXlm: string
+  estimatedFeeUsd: string
+  cpuInstructions: number
+  memoryBytes: number
+  errorMessage?: string
+}
+
+/** Run a dry-run simulation and return a structured preview for display. */
+export async function simulateCreateStreamPreview(
+  network: NetworkName,
+  input: CreateStreamInput,
+  sender: string,
+): Promise<SimulationPreview> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    return {
+      success: true,
+      estimatedFeeXlm: '0.0115',
+      estimatedFeeUsd: '~$0.001',
+      cpuInstructions: 42_000,
+      memoryBytes: 128,
+    }
+  }
+
+  try {
+    const server = getServer(network)
+    const contract = new Contract(config.streamContractId)
+    const account = await withRetry(() => server.getAccount(sender))
+
+    const params = xdr.ScVal.scvMap(
+      [
+        ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
+        ['cliff_time', nativeToScVal(input.cliffTime, { type: 'u64' })],
+        ['end_time', nativeToScVal(input.endTime, { type: 'u64' })],
+        ['recipient', new Address(input.recipient).toScVal()],
+        ['start_time', nativeToScVal(input.startTime, { type: 'u64' })],
+        ['token', new Address(input.token.address).toScVal()],
+        ['total_amount', nativeToScVal(input.totalAmount, { type: 'i128' })],
+      ].map(
+        ([k, v]) =>
+          new xdr.ScMapEntry({
+            key: xdr.ScVal.scvSymbol(k as string),
+            val: v as xdr.ScVal,
+          }),
+      ),
+    )
+
+    const tx = new TransactionBuilder(account, {
+      fee: '100000',
+      networkPassphrase: config.passphrase,
+    })
+      .addOperation(contract.call('create_stream', new Address(sender).toScVal(), params))
+      .setTimeout(180)
+      .build()
+
+    const sim = await withRetry(() => server.simulateTransaction(tx))
+
+    if (StellarRpc.Api.isSimulationError(sim)) {
+      return {
+        success: false,
+        estimatedFeeXlm: '0',
+        estimatedFeeUsd: '—',
+        cpuInstructions: 0,
+        memoryBytes: 0,
+        errorMessage: sim.error,
+      }
+    }
+
+    const successSim = sim as StellarRpc.Api.SimulateTransactionSuccessResponse
+    const minFee = Number(successSim.minResourceFee ?? 0)
+    const estimatedFee = Math.ceil(minFee * FEE_BUFFER)
+    const feeXlm = (estimatedFee / 1e7).toFixed(4)
+    const feeUsd = `~$${((estimatedFee / 1e7) * 0.08).toFixed(4)}`
+    const resources = successSim.transactionData.build().resources()
+
+    return {
+      success: true,
+      estimatedFeeXlm: feeXlm,
+      estimatedFeeUsd: feeUsd,
+      cpuInstructions: resources.instructions(),
+      memoryBytes: resources.readBytes() + resources.writeBytes(),
+    }
+  } catch (err) {
+    return {
+      success: false,
+      estimatedFeeXlm: '0',
+      estimatedFeeUsd: '—',
+      cpuInstructions: 0,
+      memoryBytes: 0,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
 export async function estimateCreateStreamFee(
   network: NetworkName,
   input: CreateStreamInput,
@@ -256,7 +367,7 @@ export async function estimateCreateStreamFee(
 ): Promise<FeeEstimate> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
-  
+
   if (isMockMode) {
     return { minFee: 100000, estimatedFee: 115000, estimatedFeeXlm: '0.0115' }
   }
@@ -264,17 +375,18 @@ export async function estimateCreateStreamFee(
   const params = xdr.ScVal.scvMap(
     [
       ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
-      ['cliff_time',   nativeToScVal(input.cliffTime,   { type: 'u64' })],
-      ['end_time',     nativeToScVal(input.endTime,     { type: 'u64' })],
-      ['recipient',    new Address(input.recipient).toScVal()],
-      ['start_time',   nativeToScVal(input.startTime,   { type: 'u64' })],
-      ['token',        new Address(input.token.address).toScVal()],
+      ['cliff_time', nativeToScVal(input.cliffTime, { type: 'u64' })],
+      ['end_time', nativeToScVal(input.endTime, { type: 'u64' })],
+      ['recipient', new Address(input.recipient).toScVal()],
+      ['start_time', nativeToScVal(input.startTime, { type: 'u64' })],
+      ['token', new Address(input.token.address).toScVal()],
       ['total_amount', nativeToScVal(input.totalAmount, { type: 'i128' })],
-    ].map(([k, v]) =>
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(k as string),
-        val: v as xdr.ScVal,
-      }),
+    ].map(
+      ([k, v]) =>
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvSymbol(k as string),
+          val: v as xdr.ScVal,
+        }),
     ),
   )
 
@@ -293,14 +405,55 @@ export async function estimateCreateStreamFee(
   }
 }
 
+function buildCreateStreamInputScVal(input: CreateStreamInput): xdr.ScVal {
+  return xdr.ScVal.scvMap(
+    [
+      ['recipient', new Address(input.recipient).toScVal()],
+      ['token', new Address(input.token.address).toScVal()],
+      ['total_amount', nativeToScVal(input.totalAmount, { type: 'i128' })],
+      ['start_time', nativeToScVal(input.startTime, { type: 'u64' })],
+      ['end_time', nativeToScVal(input.endTime, { type: 'u64' })],
+      ['cliff_time', nativeToScVal(input.cliffTime, { type: 'u64' })],
+      ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
+    ].map(
+      ([k, v]) =>
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvSymbol(k as string),
+          val: v as xdr.ScVal,
+        }),
+    ),
+  )
+}
+
+function buildCreateStreamParamsScVal(input: CreateStreamInput): xdr.ScVal {
+  return xdr.ScVal.scvMap(
+    [
+      ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
+      ['cliff_time', nativeToScVal(input.cliffTime, { type: 'u64' })],
+      ['end_time', nativeToScVal(input.endTime, { type: 'u64' })],
+      ['recipient', new Address(input.recipient).toScVal()],
+      ['start_time', nativeToScVal(input.startTime, { type: 'u64' })],
+      ['token', new Address(input.token.address).toScVal()],
+      ['total_amount', nativeToScVal(input.totalAmount, { type: 'i128' })],
+    ].map(
+      ([k, v]) =>
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvSymbol(k as string),
+          val: v as xdr.ScVal,
+        }),
+    ),
+  )
+}
+
 export async function createStream(
   input: CreateStreamInput,
   sender: string,
   network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
 ): Promise<string> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
-  
+
   if (isMockMode) {
     await new Promise((r) => setTimeout(r, 700))
     return mockStore.create(input, sender).id
@@ -316,30 +469,32 @@ export async function createStream(
     network,
     'approve',
     [
-      new Address(sender).toScVal(),                              // from
-      new Address(config.streamContractId).toScVal(),                  // spender
-      nativeToScVal(input.totalAmount, { type: 'i128' }),        // amount
-      nativeToScVal(expirationLedger, { type: 'u32' }),          // expiration_ledger
+      new Address(sender).toScVal(), // from
+      new Address(config.streamContractId).toScVal(), // spender
+      nativeToScVal(input.totalAmount, { type: 'i128' }), // amount
+      nativeToScVal(expirationLedger, { type: 'u32' }), // expiration_ledger
     ],
     sender,
     input.token.address, // invoke on the token contract, not the streaming contract
+    onStep,
   )
 
   // Step 2: create the stream.
   const params = xdr.ScVal.scvMap(
     [
       ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
-      ['cliff_time',   nativeToScVal(input.cliffTime,   { type: 'u64' })],
-      ['end_time',     nativeToScVal(input.endTime,     { type: 'u64' })],
-      ['recipient',    new Address(input.recipient).toScVal()],
-      ['start_time',   nativeToScVal(input.startTime,   { type: 'u64' })],
-      ['token',        new Address(input.token.address).toScVal()],
+      ['cliff_time', nativeToScVal(input.cliffTime, { type: 'u64' })],
+      ['end_time', nativeToScVal(input.endTime, { type: 'u64' })],
+      ['recipient', new Address(input.recipient).toScVal()],
+      ['start_time', nativeToScVal(input.startTime, { type: 'u64' })],
+      ['token', new Address(input.token.address).toScVal()],
       ['total_amount', nativeToScVal(input.totalAmount, { type: 'i128' })],
-    ].map(([k, v]) =>
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol(k as string),
-        val: v as xdr.ScVal,
-      }),
+    ].map(
+      ([k, v]) =>
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvSymbol(k as string),
+          val: v as xdr.ScVal,
+        }),
     ),
   )
 
@@ -349,25 +504,111 @@ export async function createStream(
     [new Address(sender).toScVal(), params],
     sender,
     config.streamContractId,
+    onStep,
   )
 
   // SDK v13 can't parse TransactionMetaV4 (protocol 22+) so returnValue is void.
   // Instead, query the sender's stream list and return the highest ID — that's the new stream.
-  const sentResult = await query(network, 'get_sent_streams', [new Address(sender).toScVal(), nativeToScVal(0, { type: 'u32' }), nativeToScVal(1000, { type: 'u32' })], config.streamContractId)
+  const sentResult = await query(
+    network,
+    'get_sent_streams',
+    [
+      new Address(sender).toScVal(),
+      nativeToScVal(0, { type: 'u32' }),
+      nativeToScVal(1000, { type: 'u32' }),
+    ],
+    config.streamContractId,
+  )
   const ids = scValToNative(sentResult) as bigint[]
   if (!ids || ids.length === 0) throw new Error('Stream created but could not retrieve ID')
   const newId = ids.reduce((a, b) => (a > b ? a : b))
   return String(newId)
 }
 
+export async function createStreamsBatch(
+  inputs: CreateStreamInput[],
+  sender: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string[]> {
+  if (inputs.length === 0) throw new Error('No streams to create')
+
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    return inputs.map((input) => mockStore.create(input, sender).id)
+  }
+
+  const server = getServer(network)
+  const currentLedger = (await withRetry(() => server.getLatestLedger())).sequence
+  const expirationLedger = currentLedger + 500
+
+  const approvalsByToken = new Map<string, bigint>()
+  for (const input of inputs) {
+    const current = approvalsByToken.get(input.token.address) ?? 0n
+    approvalsByToken.set(input.token.address, current + input.totalAmount)
+  }
+
+  for (const [tokenAddress, totalAmount] of approvalsByToken.entries()) {
+    await invoke(
+      network,
+      'approve',
+      [
+        new Address(sender).toScVal(),
+        new Address(config.streamContractId).toScVal(),
+        nativeToScVal(totalAmount, { type: 'i128' }),
+        nativeToScVal(expirationLedger, { type: 'u32' }),
+      ],
+      sender,
+      tokenAddress,
+      onStep,
+    )
+  }
+
+  const params = xdr.ScVal.scvVec(inputs.map(buildCreateStreamInputScVal))
+
+  await invoke(
+    network,
+    'create_streams_batch',
+    [new Address(sender).toScVal(), params],
+    sender,
+    config.streamContractId,
+    onStep,
+  )
+
+  const sentResult = await query(
+    network,
+    'get_sent_streams',
+    [
+      new Address(sender).toScVal(),
+      nativeToScVal(0, { type: 'u32' }),
+      nativeToScVal(1000, { type: 'u32' }),
+    ],
+    config.streamContractId,
+  )
+  const ids = scValToNative(sentResult) as bigint[]
+  if (!ids || ids.length < inputs.length) {
+    throw new Error('Streams created but could not retrieve IDs')
+  }
+
+  const createdIds = [...ids]
+    .sort((a, b) => Number(a - b))
+    .slice(-inputs.length)
+    .map((id) => String(id))
+
+  return createdIds
+}
+
 export async function withdrawFromStream(
   id: string,
   amount: bigint,
   network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
 ): Promise<string | null> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
-  
+
   if (isMockMode) {
     await new Promise((r) => setTimeout(r, 700))
     mockStore.withdraw(id, amount)
@@ -379,22 +620,21 @@ export async function withdrawFromStream(
   return invoke(
     network,
     'withdraw',
-    [
-      nativeToScVal(BigInt(id), { type: 'u64' }),
-      nativeToScVal(amount,     { type: 'i128' }),
-    ],
+    [nativeToScVal(BigInt(id), { type: 'u64' }), nativeToScVal(amount, { type: 'i128' })],
     stream.recipient,
     config.streamContractId,
+    onStep,
   )
 }
 
 export async function cancelStream(
   id: string,
   network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
 ): Promise<string | null> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
-  
+
   if (isMockMode) {
     await new Promise((r) => setTimeout(r, 700))
     mockStore.cancel(id)
@@ -409,6 +649,7 @@ export async function cancelStream(
     [nativeToScVal(BigInt(id), { type: 'u64' })],
     stream.sender,
     config.streamContractId,
+    onStep,
   )
 }
 
@@ -435,10 +676,7 @@ export async function getTokenMetadata(
       return withRetry(() => server.simulateTransaction(tx))
     }
 
-    const [symSim, decSim] = await Promise.all([
-      buildSimTx('symbol'),
-      buildSimTx('decimals'),
-    ])
+    const [symSim, decSim] = await Promise.all([buildSimTx('symbol'), buildSimTx('decimals')])
 
     if (StellarRpc.Api.isSimulationError(symSim) || StellarRpc.Api.isSimulationError(decSim)) {
       return null
@@ -465,7 +703,7 @@ export async function getTokenBalance(
 ): Promise<bigint> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
-  
+
   if (isMockMode) return BigInt(1_000_000_0000000) // 1,000,000 units mock
 
   try {
@@ -499,7 +737,7 @@ export async function bumpStreamTtl(
 ): Promise<void> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
-  
+
   if (isMockMode) return
 
   await invoke(
@@ -511,19 +749,19 @@ export async function bumpStreamTtl(
   )
 }
 
-export async function fetchStream(
-  network: NetworkName,
-  id: string,
-): Promise<StreamData | null> {
+export async function fetchStream(network: NetworkName, id: string): Promise<StreamData | null> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
-  
+
   if (isMockMode) return mockStore.getById(id) ?? null
 
   try {
-    const result = await query(network, 'get_stream', [
-      nativeToScVal(BigInt(id), { type: 'u64' }),
-    ], config.streamContractId)
+    const result = await query(
+      network,
+      'get_stream',
+      [nativeToScVal(BigInt(id), { type: 'u64' })],
+      config.streamContractId,
+    )
     return scValToStreamData(network, result)
   } catch {
     return null
@@ -536,16 +774,32 @@ export async function fetchStreamsForAddress(
 ): Promise<StreamData[]> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
-  
+
   if (isMockMode) {
-    return mockStore
-      .getAll()
-      .filter((s) => s.sender === address || s.recipient === address)
+    return mockStore.getAll().filter((s) => s.sender === address || s.recipient === address)
   }
 
   const [sentIds, receivedIds] = await Promise.all([
-    query(network, 'get_sent_streams', [new Address(address).toScVal(), nativeToScVal(0, { type: 'u32' }), nativeToScVal(1000, { type: 'u32' })], config.streamContractId),
-    query(network, 'get_received_streams', [new Address(address).toScVal(), nativeToScVal(0, { type: 'u32' }), nativeToScVal(1000, { type: 'u32' })], config.streamContractId),
+    query(
+      network,
+      'get_sent_streams',
+      [
+        new Address(address).toScVal(),
+        nativeToScVal(0, { type: 'u32' }),
+        nativeToScVal(1000, { type: 'u32' }),
+      ],
+      config.streamContractId,
+    ),
+    query(
+      network,
+      'get_received_streams',
+      [
+        new Address(address).toScVal(),
+        nativeToScVal(0, { type: 'u32' }),
+        nativeToScVal(1000, { type: 'u32' }),
+      ],
+      config.streamContractId,
+    ),
   ])
 
   const allIds = [

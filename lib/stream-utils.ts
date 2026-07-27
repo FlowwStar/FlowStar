@@ -3,8 +3,12 @@ import type { StreamData, StreamStatus } from '@/types/stream'
 /**
  * Computes how much of the stream has unlocked as of `nowSeconds`.
  *
- * This is the client-side mirror of the contract's unlock math. Recompute it
- * every second for the live counter instead of polling the contract.
+ * This is the client-side mirror of the contract's unlock math. It must use
+ * the same multiply-then-divide over the raw `linearAmount`/`duration` that
+ * `unlocked_amount` in lib.rs uses — NOT `amountPerSecond`, which is a
+ * pre-divided, already-rounded rate and drifts from the on-chain value over
+ * long-running streams. This is still only a visual approximation between
+ * polls; withdraw amounts must come from `get_withdrawable` on-chain.
  */
 export function getUnlockedAmount(
   stream: StreamData,
@@ -15,7 +19,8 @@ export function getUnlockedAmount(
   if (now >= stream.endTime) return stream.depositedAmount
 
   const elapsed = now - stream.startTime
-  const linear = elapsed > 0n ? elapsed * stream.amountPerSecond : 0n
+  const linear =
+    elapsed > 0n && stream.duration > 0n ? (elapsed * stream.linearAmount) / stream.duration : 0n
   const unlocked = stream.cliffAmount + linear
 
   // Never report more than was deposited.
@@ -23,10 +28,7 @@ export function getUnlockedAmount(
 }
 
 /** Amount currently available for the recipient to withdraw. */
-export function getWithdrawableAmount(
-  stream: StreamData,
-  nowSeconds?: number,
-): bigint {
+export function getWithdrawableAmount(stream: StreamData, nowSeconds?: number): bigint {
   const unlocked = getUnlockedAmount(stream, nowSeconds)
   const available = unlocked - stream.withdrawnAmount
   return available > 0n ? available : 0n
@@ -64,11 +66,7 @@ function clamp(n: number, min: number, max: number) {
  * respecting the token's decimals. Keeps full precision but trims trailing
  * zeros down to `maxFractionDigits`.
  */
-export function formatTokenAmount(
-  raw: bigint,
-  decimals: number,
-  maxFractionDigits = 4,
-): string {
+export function formatTokenAmount(raw: bigint, decimals: number, maxFractionDigits = 4): string {
   const negative = raw < 0n
   const abs = negative ? -raw : raw
   const base = 10n ** BigInt(decimals)
@@ -85,6 +83,17 @@ export function formatTokenAmount(
   fracStr = fracStr.replace(/0+$/, '')
 
   return `${negative ? '-' : ''}${wholeStr}${fracStr ? '.' + fracStr : ''}`
+}
+
+/**
+ * Formats a raw bigint amount into a compact human-readable string (e.g. "1.2K", "3.4M").
+ */
+export function formatCompactAmount(raw: bigint, decimals: number): string {
+  const value = Number(raw) / Number(10n ** BigInt(decimals))
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(value)
 }
 
 /** Parses a human-typed decimal string into a raw bigint of smallest units. */
@@ -191,7 +200,7 @@ export function formatTimeRemaining(
   const parts: string[] = []
   if (days) parts.push(`${days}d`)
   if (hours || days) parts.push(`${hours}h`)
-  if (!days) parts.push(`${minutes}m`)
+  if (!days && (minutes || hours)) parts.push(`${minutes}m`)
   if (!days && !hours) parts.push(`${seconds}s`)
   return parts.join(' ')
 }

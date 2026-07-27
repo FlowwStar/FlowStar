@@ -2,19 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Bell } from 'lucide-react'
+import { formatTimeAgo } from '@/lib/date-utils'
 import { useWallet } from '@/hooks/use-wallet'
 import { useNotifications, type AppNotification } from '@/hooks/use-notifications'
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
 
 function NotificationItem({ notification }: { notification: AppNotification }) {
   return (
@@ -31,7 +21,7 @@ function NotificationItem({ notification }: { notification: AppNotification }) {
         )}
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground">{notification.body}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{timeAgo(notification.timestamp)}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{formatTimeAgo(notification.timestamp)}</p>
     </div>
   )
 }
@@ -41,6 +31,7 @@ export function NotificationBell() {
   const { notifications, unreadCount, markAllRead, clearAll } = useNotifications(address)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -48,8 +39,20 @@ export function NotificationBell() {
         setOpen(false)
       }
     }
-    if (open) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && open) {
+        setOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener('keydown', handleKeyDown)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [open])
 
   function handleToggle() {
@@ -62,9 +65,13 @@ export function NotificationBell() {
   return (
     <div className="relative" ref={ref}>
       <button
+        ref={triggerRef}
         onClick={handleToggle}
-        className="relative rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground"
+        aria-expanded={open}
+        aria-haspopup="true"
+        className="relative rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+        data-testid="notification-bell-trigger"
       >
         <Bell className="size-5" />
         {unreadCount > 0 && (
@@ -75,13 +82,17 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-border bg-card shadow-lg">
+        <div
+          role="dialog"
+          aria-label="Notifications"
+          className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-border bg-card shadow-lg"
+        >
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <h3 className="text-sm font-medium">Notifications</h3>
             {notifications.length > 0 && (
               <button
                 onClick={clearAll}
-                className="text-xs text-muted-foreground hover:text-foreground"
+                className="text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:rounded"
               >
                 Clear all
               </button>

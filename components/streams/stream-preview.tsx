@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import type { TokenInfo } from '@/types/stream'
 import { formatTokenAmount } from '@/lib/stream-utils'
 
@@ -61,6 +62,10 @@ export function StreamPreview({
     const perSecond = durationSec > 0 ? linearAmount / durationSec : 0
     const perDay = perSecond * 86400
     const perMonth = perSecond * 2592000
+    const perHour = perSecond * 3600
+
+    // Check for low rate (< 1 token/hour)
+    const isLowRate = linearAmount > 0 && perHour < 1
 
     const cliffFracX = durationSec > 0 ? (cliffUnix - startUnix) / durationSec : 0
     const cliffFracY = totalNum > 0 ? cliffAmt / totalNum : 0
@@ -86,6 +91,8 @@ export function StreamPreview({
       durationSec,
       perDay,
       perMonth,
+      perHour,
+      isLowRate,
       cliffAmt,
       cliffDurationSec: hasCliff ? cliffUnix - startUnix : 0,
       linePath,
@@ -106,6 +113,16 @@ export function StreamPreview({
       <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
         Stream preview
       </h2>
+
+      {/* Low rate warning */}
+      {preview.isLowRate && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            Unlock rate is very low ({preview.perHour.toFixed(6)} {token.symbol}/hour). Consider increasing the amount or reducing the duration.
+          </span>
+        </div>
+      )}
 
       {/* Mini chart */}
       <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full h-auto" aria-hidden="true">
@@ -133,9 +150,11 @@ export function StreamPreview({
         <div>
           <p className="text-xs text-muted-foreground">Unlock rate</p>
           <p className="font-mono font-medium">
-            {preview.perDay < 0.01
-              ? `${preview.perMonth.toFixed(2)} /mo`
-              : `${preview.perDay.toFixed(2)} /day`}
+            {preview.perHour < 0.01
+              ? `${preview.perMonth.toFixed(4)} /mo`
+              : preview.perDay < 0.01
+                ? `${preview.perHour.toFixed(4)} /hr`
+                : `${preview.perDay.toFixed(2)} /day`}
           </p>
         </div>
         {preview.cliffAmt > 0 && (
