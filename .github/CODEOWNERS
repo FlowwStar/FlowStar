@@ -1,0 +1,41 @@
+# Each line is a file pattern followed by one or more owners.
+#
+# Order matters: the last matching pattern takes precedence.
+# For more details: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repositorys/about-code-owners
+
+# Default owners — reviewed by any core maintainer
+* @FlowwStar/core-maintainers
+
+# Smart contract (Soroban / Rust) changes
+/contracts/ @FlowwStar/contract-maintainers
+
+# Next.js frontend application
+/app/ @FlowwStar/frontend-maintainers
+
+# Shared UI components
+/components/ @FlowwStar/frontend-maintainers
+
+# Library & utility code
+/lib/ @FlowwStar/frontend-maintainers
+
+# React hooks
+/hooks/ @FlowwStar/frontend-maintainers
+
+# End-to-end tests (Playwright)
+/e2e/ @FlowwStar/frontend-maintainers
+
+# Unit tests
+/__tests__/ @FlowwStar/frontend-maintainers
+
+# CI/CD workflows and configuration
+/.github/workflows/ @FlowwStar/devops-maintainers
+/.github/ @FlowwStar/devops-maintainers
+
+# Documentation
+/docs/ @FlowwStar/docs-maintainers
+
+# TypeScript definitions
+/types/ @FlowwStar/frontend-maintainers
+
+# Utility scripts
+/scripts/ @FlowwStar/devops-maintainers
