@@ -159,7 +159,7 @@ function WithdrawDialog({
   const estimatedFee = TYPICAL_FEES.withdraw.typical;
   const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined);
   const withdrawFeeHigh = isHighFee(
-    estimatedFee,
+    feeBreakdown.totalEstimated,
     TYPICAL_FEES.withdraw.typical,
   );
 
@@ -291,7 +291,7 @@ function CancelDialog({
 
   const estimatedFee = TYPICAL_FEES.cancel.typical;
   const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined);
-  const cancelFeeHigh = isHighFee(estimatedFee, TYPICAL_FEES.cancel.typical);
+  const cancelFeeHigh = isHighFee(feeBreakdown.totalEstimated, TYPICAL_FEES.cancel.typical);
 
   async function handleCancel() {
     try {

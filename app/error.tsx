@@ -21,7 +21,6 @@ function parseError(e: unknown) {
   if (
     lower.includes('failed to fetch') ||
     lower.includes('networkerror') ||
-    lower.includes('ec ónn') ||
     lower.includes('econnrefused') ||
     lower.includes('econnreset') ||
     lower.includes('timeout') ||
