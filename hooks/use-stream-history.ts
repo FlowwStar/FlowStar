@@ -31,63 +31,6 @@ function decodeEventType(topics: string[]): TimelineEventType | null {
   return null
 }
 
-interface HorizonOperation {
-  type: string
-  transaction_hash: string
-  created_at: string
-  amount?: string
-  from?: string
-  to?: string
-}
-
-interface HorizonEffect {
-  type: string
-  created_at: string
-  amount?: string
-  account?: string
-}
-
-interface HorizonTransaction {
-  hash: string
-  ledger: number
-  created_at: string
-  envelope_xdr?: string
-}
-
-async function fetchHorizonTransactions(
-  horizonUrl: string,
-  contractId: string,
-  streamId: string,
-): Promise<TimelineEvent[]> {
-  if (!contractId) return []
-
-  const events: TimelineEvent[] = []
-
-  try {
-    const res = await fetch(
-      `${horizonUrl}/accounts/${contractId}/transactions?limit=200&order=desc`,
-      { headers: { Accept: 'application/json' } },
-    )
-    if (!res.ok) return []
-    const data = await res.json() as { _embedded?: { records?: HorizonTransaction[] } }
-    const records = data._embedded?.records ?? []
-
-    for (const tx of records) {
-      events.push({
-        type: 'created',
-        txHash: tx.hash,
-        timestamp: new Date(tx.created_at).getTime(),
-        ledger: tx.ledger,
-        description: `Transaction on stream #${streamId}`,
-      })
-    }
-  } catch {
-    // Horizon may not index Soroban contract accounts — fall back to empty
-  }
-
-  return events
-}
-
 async function fetchRpcEvents(
   rpcUrl: string,
   contractId: string,

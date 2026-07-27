@@ -17,9 +17,11 @@ interface AnalyticsSnapshot {
   activeCount: number
   totalStreams: number
   averageDurationDays: number
-  tokenShares: Array<{ symbol: string; amount: bigint; count: number }>
+  /** Fix #367 — `decimals` is now included so amounts format correctly for any token. */
+  tokenShares: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>
   series: Array<{ label: string; count: number }>
-  topTokens: Array<{ symbol: string; amount: bigint; count: number }>
+  /** Fix #367 — `decimals` is now included so amounts format correctly for any token. */
+  topTokens: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>
 }
 
 const RANGE_OPTIONS = [
@@ -58,6 +60,8 @@ function buildSnapshot(streams: StreamData[], range: string): AnalyticsSnapshot 
     symbol,
     amount: entry.amount,
     count: entry.count,
+    // Fix #367 — preserve each token's real decimals instead of discarding them
+    decimals: entry.decimals,
   }))
 
   const seriesMap = new Map<string, number>()
@@ -128,7 +132,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total volume streamed</CardDescription>
-            <CardTitle className="text-2xl font-semibold">{snapshot.totalVolume > 0n ? formatCompactAmount(snapshot.totalVolume, 7) : '0'}</CardTitle>
+            <CardTitle className="text-2xl font-semibold">{snapshot.totalVolume > 0n ? formatCompactAmount(snapshot.totalVolume, snapshot.tokenShares[0]?.decimals ?? 7) : '0'}</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <Wallet2 className="size-4" /> Across the visible stream history
@@ -202,7 +206,7 @@ export default function AnalyticsPage() {
                   <p className="font-medium">{token.symbol}</p>
                   <p className="text-xs text-muted-foreground">{token.count} streams</p>
                 </div>
-                <Badge variant="secondary">{formatCompactAmount(token.amount, 7)} {token.symbol}</Badge>
+                <Badge variant="secondary">{formatCompactAmount(token.amount, token.decimals)} {token.symbol}</Badge>
               </div>
             ))}
           </CardContent>
@@ -222,7 +226,7 @@ export default function AnalyticsPage() {
               <div key={token.symbol} className="space-y-1">
                 <div className="flex items-center justify-between text-sm">
                   <span>{token.symbol}</span>
-                  <span className="font-medium">{formatCompactAmount(token.amount, 7)}</span>
+                  <span className="font-medium">{formatCompactAmount(token.amount, token.decimals)}</span>
                 </div>
                 <div className="h-2 rounded-full bg-muted">
                   <div className="h-2 rounded-full bg-secondary" style={{ width: `${Math.max(8, (Number(token.amount) / Math.max(1, Number(snapshot.totalVolume))) * 100) || 0}%` }} />
