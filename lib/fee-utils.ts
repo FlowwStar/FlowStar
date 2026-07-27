@@ -1,3 +1,11 @@
+// NOTE: There is intentionally NO hardcoded XLM_PRICE fallback constant in
+// this module. Prior versions used a default of 0.12, but that stale estimate
+// misled users when a live price was unavailable. The canonical XLM/USD price
+// now comes from the live `useTokenPrice('XLM')` hook and must be passed
+// explicitly to `calculateFeeBreakdown`. When the live price is unavailable,
+// `estimatedUsd` is simply omitted from the fee breakdown rather than showing
+// a fabricated estimate.
+
 export interface FeeBreakdown {
   minFee: number;
   bufferFee: number;
