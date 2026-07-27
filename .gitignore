@@ -26,8 +26,16 @@ contracts/streaming/test_snapshots/
 *.snap
 coverage/
 
+# Playwright
+playwright-report/
+test-results/
+
 # TypeScript build info
 tsconfig.tsbuildinfo
+
+# Logs
+*.log
+.eslintcache
 
 # Lock files (keep package-lock.json, ignore pnpm if using npm)
 pnpm-lock.yaml
