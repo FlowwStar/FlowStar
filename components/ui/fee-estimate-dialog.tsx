@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, TrendingUp } from "lucide-react";
+import { AlertTriangle, Loader2, TrendingUp } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -132,7 +132,14 @@ export function FeeEstimateDialog({
               isHighFee ? "bg-yellow-600 hover:bg-yellow-700 text-white" : ""
             }
           >
-            {loading ? "Confirming…" : "Confirm & pay"}
+            {loading ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Confirming…
+              </>
+            ) : (
+              "Confirm & pay"
+            )}
           </Button>
         </div>
       </DialogContent>
