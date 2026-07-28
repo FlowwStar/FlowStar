@@ -24,6 +24,7 @@ import {
   resolveCliffTime,
   type CsvBatchRow,
 } from "@/lib/csv-parser";
+import { isValidStellarAddressShape } from "@/lib/stellar";
 import type { TokenInfo } from "@/types/stream";
 
 function parseTimestamp(value: string): bigint | null {
@@ -41,10 +42,6 @@ function parseTimestamp(value: string): bigint | null {
 function formatTimestamp(value: bigint | null): string {
   if (value === null) return "-";
   return formatDateTime(value);
-}
-
-function isValidAddress(address: string) {
-  return address.trim().startsWith("G") && address.trim().length === 56;
 }
 
 function parseDecimalAmount(value: string, decimals: number): bigint | null {
@@ -124,7 +121,7 @@ export default function BatchCreatePage() {
           : null;
 
         const errors: string[] = [];
-        if (!recipient || !isValidAddress(recipient)) {
+        if (!recipient || !isValidStellarAddressShape(recipient)) {
           errors.push("Invalid recipient address");
         }
         if (

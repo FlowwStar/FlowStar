@@ -11,6 +11,15 @@ export interface NetworkConfig {
   knownTokens: readonly { address: string; symbol: string; decimals: number }[]
 }
 
+// ─── Address Validation ────────────────────────────────────────────────────────
+
+const STELLAR_ADDRESS_PREFIX = 'G'
+const STELLAR_ADDRESS_LENGTH = 56
+
+export function isValidStellarAddressShape(address: string): boolean {
+  return address.trim().startsWith(STELLAR_ADDRESS_PREFIX) && address.trim().length === STELLAR_ADDRESS_LENGTH
+}
+
 export const NETWORKS: Record<NetworkName, Omit<NetworkConfig, 'streamContractId'>> = {
   testnet: {
     name: 'testnet',

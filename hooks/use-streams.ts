@@ -5,6 +5,7 @@ import { fetchStreamsForAddress, fetchStream } from '@/lib/contract'
 import type { StreamData } from '@/types/stream'
 import { useWallet } from '@/hooks/use-wallet'
 import { useNetwork } from '@/components/providers/network-provider'
+import { captureError } from '@/lib/sentry'
 
 // ─── Refresh bus ─────────────────────────────────────────────────────────────
 // Components call `invalidateStreams()` after a write so all stream hooks
@@ -85,7 +86,7 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
       if (req !== requestIdRef.current) return
       // Suppress errors from intentionally aborted requests.
       if (e instanceof DOMException && e.name === 'AbortError') return
-      console.error('useStreams fetch error:', e)
+      captureError(e, { operation: 'use-streams:fetch' })
     } finally {
       if (req === requestIdRef.current) setLoading(false)
     }
@@ -153,7 +154,7 @@ export function useStream(id: string): { stream: StreamData | null; loading: boo
     } catch (e) {
       if (req !== requestIdRef.current) return
       if (e instanceof DOMException && e.name === 'AbortError') return
-      console.error('useStream fetch error:', e)
+      captureError(e, { operation: 'use-stream:fetch' })
     } finally {
       if (req === requestIdRef.current) setLoading(false)
     }
