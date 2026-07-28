@@ -52,11 +52,9 @@ function StreamsPage() {
   }, [router])
 
   const filtered = all.filter((s) => {
-    const matchesStatus =
-      statusFilter === 'all' || getStreamStatus(s, now) === statusFilter
+    const matchesStatus = statusFilter === 'all' || getStreamStatus(s, now) === statusFilter
     const matchesToken =
-      tokenFilter === 'all' ||
-      s.token.symbol.toUpperCase() === tokenFilter.toUpperCase()
+      tokenFilter === 'all' || s.token.symbol.toUpperCase() === tokenFilter.toUpperCase()
     const q = search.toLowerCase()
     const matchesSearch =
       !q ||
@@ -74,9 +72,7 @@ function StreamsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Streams</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            All streams you've sent or received.
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">All streams you've sent or received.</p>
         </div>
         <Button
           variant="outline"
@@ -112,6 +108,7 @@ function StreamsPage() {
               <button
                 key={t}
                 onClick={() => setParam('token', t)}
+                aria-pressed={tokenFilter === t}
                 className={
                   'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
                   (tokenFilter === t
@@ -149,10 +146,7 @@ function StreamsPage() {
         hasFilters ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
             <p className="text-sm font-medium">No streams match your filters</p>
-            <button
-              onClick={clearFilters}
-              className="mt-2 text-xs text-primary hover:underline"
-            >
+            <button onClick={clearFilters} className="mt-2 text-xs text-primary hover:underline">
               Clear filters
             </button>
           </div>
