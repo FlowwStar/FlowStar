@@ -589,6 +589,7 @@ function AutoWithdrawSection({
               <button
                 onClick={() => setShowHistory(!showHistory)}
                 className="text-xs text-primary hover:underline"
+                aria-expanded={showHistory}
               >
                 {showHistory ? "Hide" : "Show"} withdrawal history (
                 {withdrawalHistory.length})

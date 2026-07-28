@@ -160,7 +160,7 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
           </p>
         </div>
       ) : (
-        <div>
+        <div id={`timeline-events-${streamId}`}>
           {displayEvents.map((event, i) => (
             <TimelineItem
               key={`${event.txHash}-${event.timestamp}-${i}`}
@@ -175,6 +175,8 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
               type="button"
               onClick={() => setCollapsed((v) => !v)}
               className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              aria-expanded={!collapsed}
+              aria-controls={`timeline-events-${streamId}`}
             >
               {collapsed ? (
                 <>
