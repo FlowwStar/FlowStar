@@ -46,9 +46,7 @@ test.describe('Batch create — CSV upload flow', () => {
     await expect(page.locator('button:has-text("Execute batch")')).toBeEnabled()
   })
 
-  test('CSV with invalid rows surfaces per-row errors and disables execution', async ({
-    page,
-  }) => {
+  test('CSV with invalid rows surfaces per-row errors and disables execution', async ({ page }) => {
     const csv = [
       'recipient,amount,start_time,end_time',
       `not-a-valid-address,100,2025-01-01T00:00:00Z,2025-12-31T00:00:00Z`,
@@ -56,74 +54,48 @@ test.describe('Batch create — CSV upload flow', () => {
       `${RECIPIENT_A},100,2025-12-31T00:00:00Z,2025-01-01T00:00:00Z`,
     ].join('\n')
 
-    await page
-      .locator('#csvFile')
-      .setInputFiles(csvFile('invalid-batch.csv', csv))
+    await page.locator('#csvFile').setInputFiles(csvFile('invalid-batch.csv', csv))
 
     await expect(page.locator('text=3 row(s) loaded, 0 valid.')).toBeVisible()
     await expect(page.locator('text=Invalid recipient address')).toBeVisible()
     await expect(page.locator('text=Invalid amount')).toBeVisible()
-    await expect(
-      page.locator('text=end_time must be after start_time'),
-    ).toBeVisible()
-    await expect(
-      page.locator('button:has-text("Execute batch")'),
-    ).toBeDisabled()
+    await expect(page.locator('text=end_time must be after start_time')).toBeVisible()
+    await expect(page.locator('button:has-text("Execute batch")')).toBeDisabled()
   })
 
-  test('cliff_time column variant is parsed into the preview', async ({
-    page,
-  }) => {
+  test('cliff_time column variant is parsed into the preview', async ({ page }) => {
     const csv = [
       'recipient,amount,start_time,end_time,cliff_time',
       `${RECIPIENT_A},100,2025-01-01T00:00:00Z,2025-12-31T00:00:00Z,2025-03-01T00:00:00Z`,
     ].join('\n')
 
-    await page
-      .locator('#csvFile')
-      .setInputFiles(csvFile('cliff-time.csv', csv))
+    await page.locator('#csvFile').setInputFiles(csvFile('cliff-time.csv', csv))
 
     await expect(page.locator('text=1 row(s) loaded, 1 valid.')).toBeVisible()
-    const cliffCell = page
-      .locator('table tbody tr')
-      .first()
-      .locator('td')
-      .nth(5)
+    const cliffCell = page.locator('table tbody tr').first().locator('td').nth(5)
     await expect(cliffCell).not.toContainText('none')
   })
 
-  test('cliff_duration column variant resolves relative to start_time', async ({
-    page,
-  }) => {
+  test('cliff_duration column variant resolves relative to start_time', async ({ page }) => {
     const csv = [
       'recipient,amount,start_time,end_time,cliff_duration',
       `${RECIPIENT_A},100,2025-01-01T00:00:00Z,2025-12-31T00:00:00Z,30d`,
     ].join('\n')
 
-    await page
-      .locator('#csvFile')
-      .setInputFiles(csvFile('cliff-duration.csv', csv))
+    await page.locator('#csvFile').setInputFiles(csvFile('cliff-duration.csv', csv))
 
     await expect(page.locator('text=1 row(s) loaded, 1 valid.')).toBeVisible()
-    const cliffCell = page
-      .locator('table tbody tr')
-      .first()
-      .locator('td')
-      .nth(5)
+    const cliffCell = page.locator('table tbody tr').first().locator('td').nth(5)
     await expect(cliffCell).not.toContainText('none')
   })
 
-  test('an out-of-range cliff_duration is flagged as a row error', async ({
-    page,
-  }) => {
+  test('an out-of-range cliff_duration is flagged as a row error', async ({ page }) => {
     const csv = [
       'recipient,amount,start_time,end_time,cliff_duration',
       `${RECIPIENT_A},100,2025-01-01T00:00:00Z,2025-02-01T00:00:00Z,400d`,
     ].join('\n')
 
-    await page
-      .locator('#csvFile')
-      .setInputFiles(csvFile('cliff-duration-invalid.csv', csv))
+    await page.locator('#csvFile').setInputFiles(csvFile('cliff-duration-invalid.csv', csv))
 
     await expect(page.locator('text=1 row(s) loaded, 0 valid.')).toBeVisible()
     await expect(
@@ -139,5 +111,56 @@ test.describe('Batch create — CSV upload flow', () => {
     })
 
     await expect(page.locator('text=Please upload a .csv file.')).toBeVisible()
+  })
+
+  test('executing a valid batch runs sequentially and reports completion', async ({ page }) => {
+    const csv = [
+      'recipient,amount,start_time,end_time',
+      `${RECIPIENT_A},100,2025-01-01T00:00:00Z,2025-12-31T00:00:00Z`,
+      `${RECIPIENT_B},250,2025-02-01T00:00:00Z,2025-11-30T00:00:00Z`,
+    ].join('\n')
+
+    await page.locator('#csvFile').setInputFiles(csvFile('execute-batch.csv', csv))
+    await expect(page.locator('text=2 row(s) loaded, 2 valid.')).toBeVisible()
+
+    const executeButton = page.locator('button:has-text("Execute batch")')
+    await expect(executeButton).toBeEnabled()
+    await executeButton.click()
+
+    await expect(page.locator('text=2 / 2 completed')).toBeVisible()
+    await expect(page.locator('text=Batch create completed')).toBeVisible()
+    await expect(page.locator('text=2 streams created successfully.')).toBeVisible()
+    await expect(executeButton).toBeEnabled()
+  })
+
+  test('execute batch is disabled while there are no valid rows', async ({ page }) => {
+    const csv = [
+      'recipient,amount,start_time,end_time',
+      `not-a-valid-address,100,2025-01-01T00:00:00Z,2025-12-31T00:00:00Z`,
+    ].join('\n')
+
+    await page.locator('#csvFile').setInputFiles(csvFile('all-invalid.csv', csv))
+
+    await expect(page.locator('text=1 row(s) loaded, 0 valid.')).toBeVisible()
+    await expect(page.locator('button:has-text("Execute batch")')).toBeDisabled()
+  })
+
+  test('streams created by a batch execution appear in the streams list', async ({ page }) => {
+    const csv = [
+      'recipient,amount,start_time,end_time',
+      `${RECIPIENT_A},100,2025-01-01T00:00:00Z,2025-12-31T00:00:00Z`,
+    ].join('\n')
+
+    await page.locator('#csvFile').setInputFiles(csvFile('single-row.csv', csv))
+    await expect(page.locator('text=1 row(s) loaded, 1 valid.')).toBeVisible()
+
+    await page.locator('button:has-text("Execute batch")').click()
+    await expect(page.locator('text=1 / 1 completed')).toBeVisible()
+
+    await page.getByRole('link', { name: 'Streams' }).click()
+    await page.waitForURL('**/app/streams')
+    await page.locator('[data-testid="streams-search-input"]').fill(RECIPIENT_A)
+
+    await expect(page.locator('[data-testid^="stream-card-"]')).toHaveCount(1)
   })
 })
