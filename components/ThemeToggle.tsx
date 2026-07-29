@@ -23,9 +23,7 @@ export function ThemeToggle() {
     <button
       onClick={cycle}
       aria-label={`Current theme: ${theme}. Click to switch.`}
-      className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800
-                 min-h-[44px] min-w-[44px] flex items-center justify-center
-                 transition-colors"
+      className="p-2 rounded-lg hover:bg-muted min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors"
     >
       <span>{ICONS[(theme as keyof typeof ICONS) ?? 'system']}</span>
     </button>

@@ -18,18 +18,19 @@ interface DashboardStatsProps {
  * unnecessary re-renders on dashboards with only static streams.
  */
 export function DashboardStats({ sent, received }: DashboardStatsProps) {
+  const nowSec = Math.floor(Date.now() / 1000);
   const hasActiveStreams =
     sent.some(
       (s) =>
         !s.cancelled &&
-        Math.floor(Date.now() / 1000) < Number(s.endTime) &&
-        Math.floor(Date.now() / 1000) >= Number(s.startTime),
+        nowSec < Number(s.endTime) &&
+        nowSec >= Number(s.startTime),
     ) ||
     received.some(
       (s) =>
         !s.cancelled &&
-        Math.floor(Date.now() / 1000) < Number(s.endTime) &&
-        Math.floor(Date.now() / 1000) >= Number(s.startTime),
+        nowSec < Number(s.endTime) &&
+        nowSec >= Number(s.startTime),
     );
 
   const now = useNow(hasActiveStreams ? 1000 : 60000);

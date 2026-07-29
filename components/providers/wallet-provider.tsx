@@ -14,6 +14,22 @@ import { type NetworkName, getNetworkConfig } from "@/lib/stellar";
 import { setSentryUser } from "@/lib/sentry";
 import { useNetwork } from "./network-provider";
 
+// ─── Window wallet SDK type augmentation ─────────────────────────────────────
+
+declare global {
+  interface Window {
+    freighter?: unknown;
+    xBullSDK?: {
+      connect(): Promise<{ publicKey: string }>;
+      signXDR(xdr: string, opts: { networkPassphrase: string }): Promise<{ signedXDR: string }>;
+    };
+    lobstrSDK?: {
+      getPublicKey(): Promise<{ publicKey: string }>;
+      signTransaction(xdr: string, opts: { networkPassphrase: string }): Promise<{ signedXdr: string }>;
+    };
+  }
+}
+
 // ─── Wallet options ───────────────────────────────────────────────────────────
 
 export interface WalletOption {
@@ -45,7 +61,7 @@ export interface WalletAdapter {
 
 const freighterAdapter: WalletAdapter = {
   isAvailable: () =>
-    typeof window !== "undefined" && !!(window as any).freighter,
+    typeof window !== "undefined" && !!window.freighter,
 
   async connect() {
     const { isConnected, getAddress, requestAccess } =
@@ -73,10 +89,10 @@ const freighterAdapter: WalletAdapter = {
 
 const xbullAdapter: WalletAdapter = {
   isAvailable: () =>
-    typeof window !== "undefined" && !!(window as any).xBullSDK,
+    typeof window !== "undefined" && !!window.xBullSDK,
 
   async connect() {
-    const sdk = (window as any).xBullSDK;
+    const sdk = window.xBullSDK;
     if (!sdk)
       throw new Error(
         "xBull is not installed. Install the xBull extension and refresh.",
@@ -88,7 +104,7 @@ const xbullAdapter: WalletAdapter = {
   },
 
   async signTransaction(xdr, networkPassphrase) {
-    const sdk = (window as any).xBullSDK;
+    const sdk = window.xBullSDK;
     if (!sdk) throw new Error("xBull is not installed.");
     const result = await sdk.signXDR(xdr, { networkPassphrase });
     if (!result?.signedXDR) throw new Error("xBull signing failed.");
@@ -193,8 +209,8 @@ export const lobstrAdapter: WalletAdapter = {
   isAvailable: () => true, // WalletConnect available even without extension
 
   async connect() {
-    if (typeof window !== "undefined" && (window as any).lobstrSDK) {
-      const sdk = (window as any).lobstrSDK;
+    if (typeof window !== "undefined" && window.lobstrSDK) {
+      const sdk = window.lobstrSDK;
       const { publicKey } = await sdk.getPublicKey();
       if (!publicKey) throw new Error("LOBSTR did not return a public key.");
       return publicKey;
@@ -203,8 +219,8 @@ export const lobstrAdapter: WalletAdapter = {
   },
 
   async signTransaction(xdr, networkPassphrase) {
-    if (typeof window !== "undefined" && (window as any).lobstrSDK) {
-      const sdk = (window as any).lobstrSDK;
+    if (typeof window !== "undefined" && window.lobstrSDK) {
+      const sdk = window.lobstrSDK;
       const { signedXdr } = await sdk.signTransaction(xdr, {
         networkPassphrase,
       });
