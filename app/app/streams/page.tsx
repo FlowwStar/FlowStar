@@ -128,6 +128,7 @@ function StreamsPage() {
             <button
               key={f.value}
               onClick={() => setParam('status', f.value)}
+              aria-pressed={statusFilter === f.value}
               className={
                 'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
                 (statusFilter === f.value

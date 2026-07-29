@@ -24,14 +24,14 @@ export function getRecurringRules(): RecurringRule[] {
   }
 }
 
-export function saveRecurringRule(rule: RecurringRule) {
+export function saveRecurringRule(rule: RecurringRule): void {
   if (typeof window === 'undefined') return
   const rules = getRecurringRules().filter((item) => item.streamId !== rule.streamId)
   rules.unshift(rule)
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rules.slice(0, 25)))
 }
 
-export function removeRecurringRule(streamId: string) {
+export function removeRecurringRule(streamId: string): void {
   if (typeof window === 'undefined') return
   const rules = getRecurringRules().filter((item) => item.streamId !== streamId)
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rules))
@@ -76,7 +76,7 @@ export function getUpcomingRenewals(): RecurringRule[] {
  * buildNextRunAt(new Date('2025-01-31').getTime(), 'monthly');
  * // → 2025-02-28T00:00:00.000 (clamped — Feb has no 31st)
  */
-export function buildNextRunAt(startTime: number, cadence: Exclude<RecurrenceCadence, 'none'>) {
+export function buildNextRunAt(startTime: number, cadence: Exclude<RecurrenceCadence, 'none'>): number {
   if (cadence === 'weekly') {
     return startTime + 7 * 24 * 60 * 60 * 1000
   }
@@ -99,7 +99,7 @@ export function buildNextRunAt(startTime: number, cadence: Exclude<RecurrenceCad
   return date.getTime()
 }
 
-export function createRenewalPreset(stream: { id: string; recipient: string; token: { symbol: string }; depositedAmount: bigint }, cadence: Exclude<RecurrenceCadence, 'none'>) {
+export function createRenewalPreset(stream: { id: string; recipient: string; token: { symbol: string }; depositedAmount: bigint }, cadence: Exclude<RecurrenceCadence, 'none'>): RecurringRule {
   const preset = {
     streamId: stream.id,
     recipient: stream.recipient,

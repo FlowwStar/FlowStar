@@ -457,6 +457,7 @@ function AutoWithdrawSection({
                   key={opt.value}
                   type="button"
                   onClick={() => updateSettings({ strategy: opt.value })}
+                  aria-pressed={settings.strategy === opt.value}
                   className={
                     "w-full text-left p-3 rounded-lg border transition-colors " +
                     (settings.strategy === opt.value
@@ -482,6 +483,7 @@ function AutoWithdrawSection({
                     key={opt.hours}
                     type="button"
                     onClick={() => updateSettings({ intervalHours: opt.hours })}
+                    aria-pressed={settings.intervalHours === opt.hours}
                     className={
                       "rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
                       (settings.intervalHours === opt.hours
