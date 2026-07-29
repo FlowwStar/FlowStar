@@ -12,9 +12,10 @@ const ERROR_PATTERNS: Array<{
   mapped: Omit<MappedError, 'details'>
 }> = [
   // Soroban contract errors: Error(Contract, #N)
+  // Error codes from contracts/streaming/src/lib.rs StreamError enum
   // 1: InvalidAmount
   {
-    pattern: /Error\(Contract,\s*1\)/,
+    pattern: /Error\(Contract,\s*#?1\)/,
     mapped: {
       message: 'Invalid stream amount',
       suggestion: 'The amount is invalid. Check that it is positive and within valid bounds.',
@@ -23,7 +24,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 2: InvalidTimeRange
   {
-    pattern: /Error\(Contract,\s*2\)/,
+    pattern: /Error\(Contract,\s*#?2\)/,
     mapped: {
       message: 'Invalid time range',
       suggestion: 'The start and end times are invalid. End time must be after start time.',
@@ -32,7 +33,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 3: InvalidCliff
   {
-    pattern: /Error\(Contract,\s*3\)/,
+    pattern: /Error\(Contract,\s*#?3\)/,
     mapped: {
       message: 'Invalid cliff configuration',
       suggestion: 'The cliff time must be between start and end time.',
@@ -41,7 +42,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 4: SelfStream
   {
-    pattern: /Error\(Contract,\s*4\)/,
+    pattern: /Error\(Contract,\s*#?4\)/,
     mapped: {
       message: 'Cannot create self-directed stream',
       suggestion: 'You cannot create a stream to yourself. Specify a different recipient.',
@@ -50,7 +51,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 5: StreamNotFound
   {
-    pattern: /Error\(Contract,\s*5\)/,
+    pattern: /Error\(Contract,\s*#?5\)/,
     mapped: {
       message: 'Stream not found',
       suggestion: 'This stream does not exist. It may have been deleted or the ID is incorrect.',
@@ -59,7 +60,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 6: StreamCancelled
   {
-    pattern: /Error\(Contract,\s*6\)/,
+    pattern: /Error\(Contract,\s*#?6\)/,
     mapped: {
       message: 'Stream has been cancelled',
       suggestion: 'This stream was cancelled and no longer accepts withdrawals or modifications.',
@@ -68,7 +69,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 7: Unauthorized
   {
-    pattern: /Error\(Contract,\s*7\)/,
+    pattern: /Error\(Contract,\s*#?7\)/,
     mapped: {
       message: 'Unauthorized operation',
       suggestion: 'You do not have permission to perform this action. Only the stream owner can modify it.',
@@ -77,7 +78,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 8: InsufficientFunds
   {
-    pattern: /Error\(Contract,\s*8\)/,
+    pattern: /Error\(Contract,\s*#?8\)/,
     mapped: {
       message: 'Insufficient funds in stream',
       suggestion: 'The stream balance is too low for this operation. Top up the stream or reduce the amount.',
@@ -86,7 +87,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 9: StreamEnded
   {
-    pattern: /Error\(Contract,\s*9\)/,
+    pattern: /Error\(Contract,\s*#?9\)/,
     mapped: {
       message: 'Stream has ended',
       suggestion: 'This stream has completed its term. You can only withdraw remaining funds.',
@@ -95,7 +96,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 10: SameRecipient
   {
-    pattern: /Error\(Contract,\s*10\)/,
+    pattern: /Error\(Contract,\s*#?10\)/,
     mapped: {
       message: 'Recipient already set',
       suggestion: 'The recipient for this stream is already set and cannot be changed to the same address.',
@@ -104,7 +105,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 11: BatchSizeExceeded
   {
-    pattern: /Error\(Contract,\s*11\)/,
+    pattern: /Error\(Contract,\s*#?11\)/,
     mapped: {
       message: 'Batch size exceeds maximum',
       suggestion: 'You can create a maximum of 20 streams per batch. Split your request into smaller batches.',
@@ -113,7 +114,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 12: BatchEmpty
   {
-    pattern: /Error\(Contract,\s*12\)/,
+    pattern: /Error\(Contract,\s*#?12\)/,
     mapped: {
       message: 'Batch cannot be empty',
       suggestion: 'You must specify at least one stream to create in the batch.',
@@ -122,7 +123,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 13: ArithmeticOverflow
   {
-    pattern: /Error\(Contract,\s*13\)/,
+    pattern: /Error\(Contract,\s*#?13\)/,
     mapped: {
       message: 'Arithmetic overflow in calculation',
       suggestion: 'The stream parameters cause a calculation overflow. Try reducing the amount or duration.',
@@ -131,7 +132,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 14: AlreadyInitialized
   {
-    pattern: /Error\(Contract,\s*14\)/,
+    pattern: /Error\(Contract,\s*#?14\)/,
     mapped: {
       message: 'Contract already initialized',
       suggestion: 'The contract has already been set up. Initialization can only happen once.',
@@ -140,7 +141,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 15: NotInitialized
   {
-    pattern: /Error\(Contract,\s*15\)/,
+    pattern: /Error\(Contract,\s*#?15\)/,
     mapped: {
       message: 'Contract not initialized',
       suggestion: 'The contract has not been initialized yet. Please try again later.',
@@ -149,7 +150,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 16: ContractPaused
   {
-    pattern: /Error\(Contract,\s*16\)/,
+    pattern: /Error\(Contract,\s*#?16\)/,
     mapped: {
       message: 'Contract is paused',
       suggestion: 'The FlowStar contract is currently paused for maintenance. Please try again later.',
@@ -158,7 +159,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 17: DurationExceedsMaximum
   {
-    pattern: /Error\(Contract,\s*17\)/,
+    pattern: /Error\(Contract,\s*#?17\)/,
     mapped: {
       message: 'Stream duration exceeds maximum',
       suggestion: 'The stream duration is too long. Use a shorter duration or split into multiple streams.',
@@ -167,7 +168,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 18: InvalidRecipient
   {
-    pattern: /Error\(Contract,\s*18\)/,
+    pattern: /Error\(Contract,\s*#?18\)/,
     mapped: {
       message: 'Invalid recipient address',
       suggestion: 'The recipient address is invalid or cannot receive the stream. Check the address and try again.',
@@ -176,7 +177,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 19: RateIsZero
   {
-    pattern: /Error\(Contract,\s*19\)/,
+    pattern: /Error\(Contract,\s*#?19\)/,
     mapped: {
       message: 'Stream amount too small for duration',
       suggestion: 'The amount is too small relative to the duration. Increase the amount or reduce the duration.',
@@ -185,7 +186,7 @@ const ERROR_PATTERNS: Array<{
   },
   // 20: StreamNotEligibleForCleanup
   {
-    pattern: /Error\(Contract,\s*20\)/,
+    pattern: /Error\(Contract,\s*#?20\)/,
     mapped: {
       message: 'Stream not eligible for cleanup',
       suggestion: 'The stream must be fully cancelled or drained before cleanup. Wait until the stream ends.',
