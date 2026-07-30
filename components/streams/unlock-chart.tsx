@@ -25,13 +25,13 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * Math.max(0, Math.min(1, t))
 }
 
-function toX(time: bigint, start: bigint, end: bigint): number {
+export function toX(time: bigint, start: bigint, end: bigint): number {
   const duration = Number(end - start)
   if (duration <= 0) return PADDING.left
   return PADDING.left + (Number(time - start) / duration) * CHART_W
 }
 
-function toY(amount: bigint, total: bigint): number {
+export function toY(amount: bigint, total: bigint): number {
   if (total <= 0n) return PADDING.top + CHART_H
   const frac = Number(amount) / Number(total)
   return PADDING.top + CHART_H * (1 - frac)
