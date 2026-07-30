@@ -107,6 +107,7 @@ function StreamsPage() {
             {TOKEN_OPTIONS.map((t) => (
               <button
                 key={t}
+                type="button"
                 onClick={() => setParam('token', t)}
                 aria-pressed={tokenFilter === t}
                 className={
@@ -127,6 +128,7 @@ function StreamsPage() {
           {STATUS_FILTERS.map((f) => (
             <button
               key={f.value}
+              type="button"
               onClick={() => setParam('status', f.value)}
               className={
                 'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
@@ -146,7 +148,7 @@ function StreamsPage() {
         hasFilters ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
             <p className="text-sm font-medium">No streams match your filters</p>
-            <button onClick={clearFilters} className="mt-2 text-xs text-primary hover:underline">
+            <button type="button" onClick={clearFilters} className="mt-2 text-xs text-primary hover:underline">
               Clear filters
             </button>
           </div>

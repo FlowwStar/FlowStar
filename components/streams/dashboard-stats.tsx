@@ -70,7 +70,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
       <span>
         {formatUsd(totalUsd)}
         {stale && (
-          <span className="ml-1 text-base" title="Price may be outdated">
+          <span className="ml-1 text-base" role="img" aria-label="Price may be outdated">
             ⚠️
           </span>
         )}

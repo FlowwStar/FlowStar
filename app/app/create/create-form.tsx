@@ -692,6 +692,7 @@ export function CreateForm() {
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <button
                     type="button"
+                    aria-pressed={!usdInputMode}
                     onClick={() => {
                       setUsdInputMode(false);
                       setUsdAmount("");
@@ -702,6 +703,7 @@ export function CreateForm() {
                   </button>
                   <button
                     type="button"
+                    aria-pressed={usdInputMode}
                     onClick={() => setUsdInputMode(true)}
                     className={`rounded-full border px-2 py-0.5 transition-colors ${usdInputMode ? "border-primary bg-primary/10 text-foreground" : "border-border hover:border-foreground"}`}
                   >
