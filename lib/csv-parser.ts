@@ -1,5 +1,27 @@
 "use client";
 
+/**
+ * A single row parsed from a batch/airdrop CSV import.
+ *
+ * ### Accepted CSV column names & aliases
+ *
+ * | Field           | Required | Accepted aliases (case-insensitive)                                        |
+ * |-----------------|----------|---------------------------------------------------------------------------|
+ * | `recipient`     | yes      | `recipient`, `recipient_address`, `address`, `to`                         |
+ * | `amount`        | yes      | `amount`, `total_amount`, `stream_amount`                                 |
+ * | `start_time`    | yes *    | `start_time`, `start_date`, `start_timestamp`                            |
+ * | `end_time`      | yes *    | `end_time`, `end_date`, `end_timestamp`                                  |
+ * | `cliff_time`    | no       | `cliff_time`, `cliff_date`, `cliff_timestamp`                            |
+ * | `cliff_amount`  | no       | `cliff_amount`                                                            |
+ * | `cliff_duration`| no       | `cliff_duration`, `cliff_period` — accepts plain seconds or suffixes: `s`, `m`, `h`, `d`, `w` (e.g. `30d`) |
+ * | `start_date`    | no       | `start_date`, `start_time`                                                |
+ * | `end_date`      | no       | `end_date`, `end_time`                                                    |
+ *
+ * \* Either `start_time`/`start_date` **or** `end_time`/`end_date` is required.
+ *
+ * All string values are raw CSV cell text; conversion to the appropriate
+ * type (e.g. BigInt for timestamps) happens downstream.
+ */
 export interface CsvBatchRow {
   recipient: string;
   amount: string;
@@ -12,6 +34,14 @@ export interface CsvBatchRow {
   end_date?: string;
 }
 
+/**
+ * Result returned by {@link parseCsvBatch}.
+ *
+ * @property rows        – Successfully parsed rows (may be empty on header-only CSVs).
+ * @property errors      – Human-readable validation error messages, if any.
+ * @property headerMapping – Map of logical field names to zero-based column indices
+ *                           (auto-detected or provided via `customColumnMapping`).
+ */
 export interface CsvParseResult {
   rows: CsvBatchRow[];
   errors: string[];
@@ -43,7 +73,14 @@ export function parseDuration(value: string): bigint | null {
   return BigInt(match[1]) * DURATION_UNIT_SECONDS[match[2]];
 }
 
-// Flexible header mapping - supports multiple naming conventions
+/**
+ * Maps each logical CSV field to the list of accepted header aliases.
+ *
+ * During auto-detection, headers are matched case-insensitively against
+ * these lists in order; the first match wins.  This lets users write
+ * headers like `to`, `address`, or `recipient_address` and have them
+ * all resolve to the `recipient` field.
+ */
 const HEADER_ALIASES = {
   recipient: ["recipient", "recipient_address", "address", "to"],
   amount: ["amount", "total_amount", "stream_amount"],
@@ -56,6 +93,16 @@ const HEADER_ALIASES = {
   end_date: ["end_date", "end_time"],
 };
 
+/**
+ * Parses a single CSV line into an array of trimmed cell values.
+ *
+ * Handles quoted fields (double-quote escaping: `""` inside a quoted field
+ * represents a literal `"`) and respects the CSV spec where commas inside
+ * quoted fields are not treated as delimiters.
+ *
+ * @param line – One line of CSV text (without the line terminator).
+ * @returns    – Array of trimmed string values, one per column.
+ */
 function parseCsvLine(line: string): string[] {
   const values: string[] = [];
   let current = "";
@@ -88,6 +135,16 @@ function parseCsvLine(line: string): string[] {
   return values.map((value) => value.trim());
 }
 
+/**
+ * Finds the zero-based column index for a logical field name.
+ *
+ * Normalises every header to lowercase, then tries each alias for
+ * `fieldName` (from {@link HEADER_ALIASES}) in order.  Returns `-1`
+ * when no alias matches.
+ *
+ * @param headers   – Raw header row values (as returned by {@link parseCsvLine}).
+ * @param fieldName – Logical field name whose alias list to search.
+ */
 function findColumnIndex(headers: string[], fieldName: string): number {
   const normalized = headers.map((h) => h.trim().toLowerCase());
   const aliases =
