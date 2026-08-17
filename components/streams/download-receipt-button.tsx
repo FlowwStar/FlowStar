@@ -9,7 +9,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { buildReceiptData, generateReceiptCSV, generateReceiptHTML, downloadFile } from '@/lib/receipt-utils'
+import {
+  buildReceiptData,
+  generateReceiptCSV,
+  generateReceiptHTML,
+  downloadFile,
+} from '@/lib/receipt-utils'
 import type { StreamData } from '@/types/stream'
 import { toast } from 'sonner'
 
@@ -29,12 +34,7 @@ export function DownloadReceiptButton({
   withdrawalTxHashes,
   cancellationTxHash,
 }: DownloadReceiptButtonProps) {
-  const receipt = buildReceiptData(
-    stream,
-    creationTxHash,
-    withdrawalTxHashes,
-    cancellationTxHash,
-  )
+  const receipt = buildReceiptData(stream, creationTxHash, withdrawalTxHashes, cancellationTxHash)
 
   function downloadCSV() {
     const csv = generateReceiptCSV(receipt)
@@ -49,6 +49,11 @@ export function DownloadReceiptButton({
     const blob = new Blob([htmlContent], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     window.open(url, '_blank')
+    // The new tab needs the blob URL long enough to navigate; revoke after
+    // that so each "View & Print" does not leak a blob for the page lifetime.
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url)
+    }, 10_000)
     toast.success('Receipt opened', {
       description: 'A new window with your receipt has been opened. You can print it from there.',
     })
@@ -57,11 +62,7 @@ export function DownloadReceiptButton({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="gap-1.5"
-        >
+        <Button variant="secondary" size="sm" className="gap-1.5">
           <Download className="size-4" />
           <span className="hidden sm:inline">Download Receipt</span>
           <span className="sm:hidden">Receipt</span>
