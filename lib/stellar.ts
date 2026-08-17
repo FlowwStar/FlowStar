@@ -1,4 +1,4 @@
-import { rpc } from '@stellar/stellar-sdk'
+import { rpc, StrKey } from '@stellar/stellar-sdk'
 
 export type NetworkName = 'testnet' | 'mainnet'
 
@@ -13,11 +13,8 @@ export interface NetworkConfig {
 
 // ─── Address Validation ────────────────────────────────────────────────────────
 
-const STELLAR_ADDRESS_PREFIX = 'G'
-const STELLAR_ADDRESS_LENGTH = 56
-
-export function isValidStellarAddressShape(address: string): boolean {
-  return address.trim().startsWith(STELLAR_ADDRESS_PREFIX) && address.trim().length === STELLAR_ADDRESS_LENGTH
+export function isValidStellarAddress(address: string): boolean {
+  return StrKey.isValidEd25519PublicKey(address.trim())
 }
 
 export const NETWORKS: Record<NetworkName, Omit<NetworkConfig, 'streamContractId'>> = {

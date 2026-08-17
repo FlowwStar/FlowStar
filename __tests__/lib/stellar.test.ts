@@ -1,5 +1,46 @@
 import { describe, it, expect } from 'vitest'
-import { explorerUrl } from '@/lib/stellar'
+import { explorerUrl, isValidStellarAddress } from '@/lib/stellar'
+
+describe('isValidStellarAddress', () => {
+  it('accepts a valid ed25519 public key', () => {
+    expect(isValidStellarAddress('GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADI')).toBe(
+      true,
+    )
+  })
+
+  it('rejects a correctly-shaped address with a bad checksum', () => {
+    // Same length and prefix as a real key, but the checksum is wrong.
+    expect(isValidStellarAddress('G' + 'A'.repeat(55))).toBe(false)
+  })
+
+  it('rejects an address that is too short', () => {
+    expect(isValidStellarAddress('GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMAD')).toBe(
+      false,
+    )
+  })
+
+  it('rejects an address that is too long', () => {
+    expect(isValidStellarAddress('GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADIX')).toBe(
+      false,
+    )
+  })
+
+  it('rejects an address with the wrong prefix', () => {
+    expect(isValidStellarAddress('CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC')).toBe(
+      false,
+    )
+  })
+
+  it('rejects an empty string', () => {
+    expect(isValidStellarAddress('')).toBe(false)
+  })
+
+  it('trims surrounding whitespace before validating', () => {
+    expect(
+      isValidStellarAddress('  GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADI  '),
+    ).toBe(true)
+  })
+})
 
 describe('explorerUrl', () => {
   describe('testnet URL generation', () => {
@@ -50,7 +91,7 @@ describe('explorerUrl', () => {
     it('includes network segment (testnet or public)', () => {
       const testnetUrl = explorerUrl('testnet', 'account', 'GABC')
       const mainnetUrl = explorerUrl('mainnet', 'account', 'GXYZ')
-      
+
       expect(testnetUrl).toContain('/testnet/')
       expect(mainnetUrl).toContain('/public/')
     })
@@ -59,7 +100,7 @@ describe('explorerUrl', () => {
       const accountUrl = explorerUrl('testnet', 'account', 'GABC')
       const contractUrl = explorerUrl('testnet', 'contract', 'CABC')
       const txUrl = explorerUrl('testnet', 'tx', 'hash123')
-      
+
       expect(accountUrl).toContain('/account/')
       expect(contractUrl).toContain('/contract/')
       expect(txUrl).toContain('/tx/')
@@ -81,7 +122,7 @@ describe('explorerUrl', () => {
       for (const network of networks) {
         for (const type of types) {
           const url = explorerUrl(network, type, testId)
-          
+
           expect(url).toContain('https://stellar.expert/explorer/')
           expect(url).toContain(network === 'testnet' ? '/testnet/' : '/public/')
           expect(url).toContain(`/${type}/`)
