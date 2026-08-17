@@ -182,6 +182,16 @@ export function formatDateTime(unixSeconds: bigint | number): string {
   })
 }
 
+/** Returns "just now", "Xm ago", "Xh ago", "Xd ago", or a locale date for timestamps older than 7 days. */
+export function formatTimeAgo(timestamp: number): string {
+  const diff = Date.now() - timestamp
+  if (diff < 60_000) return 'just now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`
+  return new Date(timestamp).toLocaleDateString()
+}
+
 /** Returns a compact "2d 4h 13m" style duration from now until `target`. */
 export function formatTimeRemaining(
   targetSeconds: bigint,

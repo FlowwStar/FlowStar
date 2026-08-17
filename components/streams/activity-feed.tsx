@@ -11,7 +11,7 @@ import {
   Activity,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { formatTimeAgo } from '@/lib/date-utils'
+import { formatTimeAgo } from '@/lib/stream-utils'
 import { useActivityFeed, type ActivityEventType } from '@/hooks/use-activity-feed'
 
 const EVENT_ICONS: Record<ActivityEventType, React.ElementType> = {

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Bell } from 'lucide-react'
-import { formatTimeAgo } from '@/lib/date-utils'
+import { formatTimeAgo } from '@/lib/stream-utils'
 import { useWallet } from '@/hooks/use-wallet'
 import { useNotifications, type AppNotification } from '@/hooks/use-notifications'
 
