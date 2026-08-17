@@ -280,13 +280,7 @@ pub struct UnpauseEvent {
     pub timestamp: u64,
 }
 
-#[soroban_sdk::contractevent]
-pub struct PartialCancelEvent {
-    pub stream_id: u64,
-    pub reduce_amount: i128,
-    pub old_rate: i128,
-    pub new_rate: i128,
-}
+
 
 // ─── Contract ────────────────────────────────────────────────────────────────
 
@@ -981,109 +975,7 @@ impl StreamingContract {
         Ok(())
     }
 
-    // ── Write: Partial Cancel ────────────────────────────────────────────────
 
-    /// Partially reduce a stream's locked (not-yet-vested) balance.
-    ///
-    /// Releases up to `amount` tokens from the *locked* (not-yet-unlocked)
-    /// portion back to the sender, while leaving the vested and already-
-    /// withdrawn portions untouched so the recipient can still claim what has
-    /// already unlocked.
-    ///
-    /// If `amount` exceeds the current locked balance, the actual reduction is
-    /// capped at the locked balance — the call still succeeds. Calling on an
-    /// already-cancelled stream is a no-op (`Ok(())`).
-    ///
-    /// The unlock schedule is re-anchored at the current ledger time after the
-    /// reduction so that `unlocked_amount` continues to return correct values.
-    ///
-    /// Only the stream's sender may call this function.
-    pub fn partial_cancel(env: Env, stream_id: u64, amount: i128) -> Result<(), StreamError> {
-        let mut stream = Self::load_stream(&env, stream_id)?;
-        stream.sender.require_auth();
-        Self::require_not_paused(&env);
-
-        // No-op for streams that are already fully cancelled.
-        if stream.cancelled {
-            return Ok(());
-        }
-
-        if amount <= 0 {
-            return Err(StreamError::InvalidAmount);
-        }
-
-        let now = env.ledger().timestamp();
-        let unlocked = Self::unlocked_amount(&stream, now)?;
-        let locked = stream
-            .deposited_amount
-            .checked_sub(unlocked)
-            .unwrap_or(0);
-
-        // Cap the reduction at the available locked balance ("up to amount").
-        let actual_reduce = if amount > locked { locked } else { amount };
-
-        // Nothing locked to return.
-        if actual_reduce == 0 {
-            return Ok(());
-        }
-
-        let old_rate = stream.amount_per_second;
-
-        let remaining_seconds = if stream.end_time > now {
-            (stream.end_time - now) as i128
-        } else {
-            0
-        };
-
-        let new_locked = locked
-            .checked_sub(actual_reduce)
-            .unwrap_or(0);
-
-        let new_rate = if remaining_seconds > 0 {
-            new_locked / remaining_seconds
-        } else {
-            0
-        };
-
-        // Reduce total deposited amount.
-        stream.deposited_amount = stream
-            .deposited_amount
-            .checked_sub(actual_reduce)
-            .expect("deposited_amount underflow in partial_cancel");
-
-        // Re-anchor the vesting schedule at the current time so that
-        // unlocked_amount() and withdrawable_amount() stay consistent.
-        stream.cliff_time = now;
-        stream.cliff_amount = unlocked;
-        stream.start_time = now;
-        stream.linear_amount = new_locked;
-        stream.duration = remaining_seconds;
-        stream.amount_per_second = new_rate;
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::Stream(stream_id), &stream);
-
-        Self::extend_stream_ttl(&env, stream_id);
-
-        // Return the reduced locked amount to the sender.
-        let token_client = token::Client::new(&env, &stream.token);
-        token_client.transfer(
-            &env.current_contract_address(),
-            &stream.sender,
-            &actual_reduce,
-        );
-
-        PartialCancelEvent {
-            stream_id,
-            reduce_amount: actual_reduce,
-            old_rate,
-            new_rate,
-        }
-        .publish(&env);
-
-        Ok(())
-    }
 
     // ── Read: Stream data ────────────────────────────────────────────────────
 
