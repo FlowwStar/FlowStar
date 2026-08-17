@@ -1,5 +1,5 @@
 import type { StreamData } from '@/types/stream'
-import { formatTokenAmount, formatDateTime, shortenAddress } from '@/lib/stream-utils'
+import { formatTokenAmount, formatDateTime, shortenAddress, SECONDS_PER_DAY } from '@/lib/stream-utils'
 
 /**
  * Generate receipt data for a stream.
@@ -50,8 +50,8 @@ export function buildReceiptData(
 
   // Calculate duration
   const durationSecs = Number(stream.endTime - stream.startTime)
-  const days = Math.floor(durationSecs / 86400)
-  const hours = Math.floor((durationSecs % 86400) / 3600)
+  const days = Math.floor(durationSecs / SECONDS_PER_DAY)
+  const hours = Math.floor((durationSecs % SECONDS_PER_DAY) / 3600)
   const minutes = Math.floor((durationSecs % 3600) / 60)
   const durationStr =
     days > 0 ? `${days}d ${hours}h ${minutes}m` : hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`

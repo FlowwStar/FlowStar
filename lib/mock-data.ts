@@ -1,5 +1,6 @@
 import type { CreateStreamInput, StreamData } from '@/types/stream'
 import { NETWORKS } from '@/lib/stellar'
+import { SECONDS_PER_DAY } from '@/lib/stream-utils'
 
 /**
  * In-memory mock store standing in for on-chain state.
@@ -20,7 +21,7 @@ export const DEMO_ADDRESS = 'GBQ2X7KFY3R4VZ6N5LJ7WQH3M2PD8C9SAUTV4EXAMPLE0WALLET
 
 const now = Math.floor(Date.now() / 1000)
 const HOUR = 3600
-const DAY = 86400
+const DAY = SECONDS_PER_DAY
 
 function makeStream(partial: Partial<StreamData> & Pick<StreamData, 'id'>): StreamData {
   const start = partial.startTime ?? BigInt(now - DAY)

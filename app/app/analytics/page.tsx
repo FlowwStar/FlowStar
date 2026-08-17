@@ -29,7 +29,7 @@ import { SectionErrorBoundary } from "@/components/error-boundary/section-error-
 import { useStreams } from "@/hooks/use-streams";
 import { useNetwork } from "@/components/providers/network-provider";
 import { getAllTokens } from "@/lib/stellar";
-import { formatCompactAmount } from "@/lib/stream-utils";
+import { formatCompactAmount, SECONDS_PER_DAY } from "@/lib/stream-utils";
 import type { StreamData } from "@/types/stream";
 
 const AnalyticsCharts = dynamic(
@@ -107,7 +107,7 @@ function buildSnapshot(
     filtered.length > 0
       ? filtered.reduce(
           (sum, stream) =>
-            sum + Number(stream.endTime - stream.startTime) / 86400,
+            sum + Number(stream.endTime - stream.startTime) / SECONDS_PER_DAY,
           0,
         ) / filtered.length
       : 0;
