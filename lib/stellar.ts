@@ -1,7 +1,22 @@
 import { rpc, StrKey } from '@stellar/stellar-sdk'
 
+/**
+ * The two networks FlowStar supports.
+ * - `'testnet'` — Stellar Testnet (SDF-operated); used for development and QA.
+ * - `'mainnet'` — Stellar Public Network; used for real-value production streams.
+ */
 export type NetworkName = 'testnet' | 'mainnet'
 
+/**
+ * Full configuration for a single Stellar network, including the deployed
+ * FlowStar streaming contract address and the list of tokens shown in the UI
+ * by default.
+ *
+ * `streamContractId` is kept separate from {@link NETWORKS} so the static
+ * network map can be defined at build time while the contract ID is injected
+ * at runtime via `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` /
+ * `NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET`. See {@link getNetworkConfig}.
+ */
 export interface NetworkConfig {
   name: NetworkName
   passphrase: string
@@ -13,10 +28,37 @@ export interface NetworkConfig {
 
 // ─── Address Validation ────────────────────────────────────────────────────────
 
+const STELLAR_ADDRESS_PREFIX = 'G'
+const STELLAR_ADDRESS_LENGTH = 56
+
+/**
+ * Returns `true` when `address` has the shape of a valid Stellar public key
+ * (starts with `'G'` and is 56 characters long after trimming whitespace).
+ *
+ * This is a lightweight structural check only — it does not verify the
+ * base-32 checksum. Use it to give instant feedback in form fields before
+ * attempting an on-chain operation.
+ */
+export function isValidStellarAddressShape(address: string): boolean {
+  return address.trim().startsWith(STELLAR_ADDRESS_PREFIX) && address.trim().length === STELLAR_ADDRESS_LENGTH
 export function isValidStellarAddress(address: string): boolean {
   return StrKey.isValidEd25519PublicKey(address.trim())
 }
 
+/**
+ * Static per-network configuration map (RPC endpoints, Horizon URLs, network
+ * passphrases, and built-in known tokens). Does **not** include the streaming
+ * contract ID — call {@link getNetworkConfig} to get a complete
+ * {@link NetworkConfig} with the contract ID merged in from environment
+ * variables.
+ *
+ * ### Known tokens (per network)
+ * | Symbol | Network |
+ * |--------|---------|
+ * | XLM    | testnet + mainnet |
+ * | USDC   | testnet only |
+ * | EURC   | testnet + mainnet |
+ */
 export const NETWORKS: Record<NetworkName, Omit<NetworkConfig, 'streamContractId'>> = {
   testnet: {
     name: 'testnet',
@@ -61,6 +103,17 @@ export const NETWORKS: Record<NetworkName, Omit<NetworkConfig, 'streamContractId
   },
 }
 
+/**
+ * Returns the full {@link NetworkConfig} for the given network, merging the
+ * static entry from {@link NETWORKS} with the streaming contract ID read from
+ * environment variables at runtime:
+ *
+ * - **testnet** → `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET`
+ * - **mainnet** → `NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET`
+ *
+ * If the relevant env variable is absent, `streamContractId` is an empty
+ * string and the app runs in mock mode (see `lib/contract.ts`).
+ */
 export function getNetworkConfig(network: NetworkName): NetworkConfig {
   const base = NETWORKS[network]
   const contractId =
@@ -74,9 +127,38 @@ export function getNetworkConfig(network: NetworkName): NetworkConfig {
   }
 }
 
+/**
+ * Flat list of every known token across all networks (testnet ∪ mainnet).
+ * Used by {@link isVerifiedToken} and token-picker components to quickly
+ * validate or look up a token address without specifying a network.
+ */
 export const KNOWN_TOKENS = [...NETWORKS.testnet.knownTokens, ...NETWORKS.mainnet.knownTokens]
+
+/**
+ * The active network for the current deployment, resolved once at module
+ * load time from `NEXT_PUBLIC_STELLAR_NETWORK`.
+ *
+ * - Set `NEXT_PUBLIC_STELLAR_NETWORK=mainnet` in `.env.production` to point
+ *   the app at the Stellar Public Network.
+ * - Omit the variable (or set it to anything else) to default to `'testnet'`.
+ *
+ * Because this is a `NEXT_PUBLIC_` variable it is inlined by the Next.js
+ * compiler and cannot be changed at runtime without a rebuild.
+ */
 export const NETWORK: NetworkName =
   (process.env.NEXT_PUBLIC_STELLAR_NETWORK as NetworkName | undefined) ?? 'testnet'
+
+/**
+ * The FlowStar streaming contract ID for the active {@link NETWORK}.
+ *
+ * Resolved at module load time from:
+ * - `NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET` when `NETWORK === 'mainnet'`
+ * - `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` otherwise
+ *
+ * An empty string here means the contract ID was not configured and the app
+ * will operate in mock mode — all contract calls are simulated against the
+ * in-memory store in `lib/mock-data.ts`.
+ */
 export const STREAM_CONTRACT_ID =
   NETWORK === 'mainnet'
     ? (process.env.NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET ?? '')
@@ -112,10 +194,21 @@ async function loadVerifiedTokens(): Promise<VerifiedTokenEntry[]> {
   }
 }
 
+/**
+ * Returns `true` if `address` matches one of the tokens in {@link KNOWN_TOKENS}
+ * (the built-in set across all networks). Does not check user-added custom
+ * tokens — use {@link getAllTokens} for a network-aware full list.
+ */
 export function isVerifiedToken(address: string): boolean {
   return KNOWN_TOKENS.some((t) => t.address === address)
 }
 
+/**
+ * Looks up a token in the lazily-loaded verified-token list (`/lib/tokens.json`).
+ * Returns the full `VerifiedTokenEntry` if found, or `null` if the cache
+ * has not been populated yet (call `loadVerifiedTokens()` first) or the address
+ * is not in the list.
+ */
 export function getVerifiedTokenInfo(address: string): VerifiedTokenEntry | null {
   const entry = verifiedTokensCache?.find((t) => t.address === address)
   return entry || null
@@ -125,6 +218,11 @@ export function getVerifiedTokenInfo(address: string): VerifiedTokenEntry | null
 
 const CUSTOM_TOKENS_KEY_PREFIX = 'flowstar:custom-tokens:'
 
+/**
+ * Reads the user's custom token list for `network` from `localStorage`.
+ * Returns an empty array when called server-side (no `window`) or when no
+ * custom tokens have been saved yet.
+ */
 export function getCustomTokens(
   network: NetworkName,
 ): { address: string; symbol: string; decimals: number }[] {
@@ -137,6 +235,11 @@ export function getCustomTokens(
   }
 }
 
+/**
+ * Persists a new custom token for `network` to `localStorage`.
+ * Silently no-ops if the token address is already in the list.
+ * The list is capped at 10 entries (most-recently-added first).
+ */
 export function saveCustomToken(
   network: NetworkName,
   token: { address: string; symbol: string; decimals: number },
@@ -147,11 +250,24 @@ export function saveCustomToken(
   localStorage.setItem(`${CUSTOM_TOKENS_KEY_PREFIX}${network}`, JSON.stringify(updated))
 }
 
+/**
+ * Removes a previously saved custom token (identified by `address`) for
+ * `network` from `localStorage`. No-ops if the address is not found.
+ */
 export function removeCustomToken(network: NetworkName, address: string) {
   const updated = getCustomTokens(network).filter((t) => t.address !== address)
   localStorage.setItem(`${CUSTOM_TOKENS_KEY_PREFIX}${network}`, JSON.stringify(updated))
 }
 
+/**
+ * Builds a link to the [stellar.expert](https://stellar.expert) block explorer
+ * for the given `network`, `type`, and `id`.
+ *
+ * @param network - `'testnet'` or `'mainnet'`
+ * @param type    - `'account'`, `'contract'`, or `'tx'`
+ * @param id      - The Stellar address, contract ID, or transaction hash
+ * @returns A fully-qualified `https://stellar.expert/explorer/…` URL string
+ */
 export function explorerUrl(
   network: NetworkName,
   type: 'account' | 'contract' | 'tx',
@@ -160,8 +276,13 @@ export function explorerUrl(
   const explorerNetwork = network === 'testnet' ? 'testnet' : 'public'
   return `https://stellar.expert/explorer/${explorerNetwork}/${type}/${id}`
 }
+
 // ─── Token Favorites ──────────────────────────────────────────────────────────
 
+/**
+ * Reads the user's list of favourite token addresses from `localStorage`.
+ * Returns an empty array when called server-side or when nothing has been saved.
+ */
 export function getFavoriteTokens(): string[] {
   if (typeof window === 'undefined') return []
   try {
@@ -172,6 +293,10 @@ export function getFavoriteTokens(): string[] {
   }
 }
 
+/**
+ * Toggles `address` in the user's favourite token list (adds it if absent,
+ * removes it if present) and persists the updated list to `localStorage`.
+ */
 export function toggleFavoriteToken(address: string) {
   const favorites = getFavoriteTokens()
   const index = favorites.indexOf(address)
@@ -183,10 +308,19 @@ export function toggleFavoriteToken(address: string) {
   localStorage.setItem(FAVORITE_TOKENS_KEY, JSON.stringify(favorites))
 }
 
+/**
+ * Returns `true` if `address` is in the user's favourite token list.
+ */
 export function isFavoriteToken(address: string): boolean {
   return getFavoriteTokens().includes(address)
 }
 
+/**
+ * Returns the combined token list for `network`: the built-in
+ * {@link NetworkConfig.knownTokens} from {@link NETWORKS} plus any tokens the
+ * user has added via {@link saveCustomToken}. This is the canonical source of
+ * selectable tokens in the create-stream and token-picker UI.
+ */
 export function getAllTokens(
   network: NetworkName,
 ): { address: string; symbol: string; decimals: number }[] {
@@ -194,6 +328,12 @@ export function getAllTokens(
   return [...config.knownTokens, ...getCustomTokens(network)]
 }
 
+/**
+ * Creates and returns a Soroban RPC {@link rpc.Server} instance configured
+ * for `network`. Used by `lib/contract.ts` for all on-chain interactions.
+ * HTTP is disallowed (`allowHttp: false`) to prevent accidental plaintext RPC
+ * calls in production.
+ */
 export function getServer(network: NetworkName): rpc.Server {
   const config = getNetworkConfig(network)
   return new rpc.Server(config.rpcUrl, { allowHttp: false })
@@ -201,6 +341,16 @@ export function getServer(network: NetworkName): rpc.Server {
 
 // ─── Account Validation ────────────────────────────────────────────────────────
 
+/**
+ * Result returned by {@link checkAccountInfo}.
+ *
+ * - `exists`           — `true` if the account was found on Horizon.
+ * - `funded`           — `true` if the account exists and has been activated
+ *                        (synonymous with `exists` here).
+ * - `transactionCount` — number of data entries on the account (used as a
+ *                        rough activity proxy; not the true transaction count).
+ * - `error`            — human-readable error message, present only on failure.
+ */
 export interface AccountInfo {
   exists: boolean
   funded: boolean
@@ -221,6 +371,14 @@ interface HorizonAccountResponse {
   data: Record<string, string>
 }
 
+/**
+ * Queries the Horizon REST API to check whether `address` exists and has been
+ * funded on `network`. Useful for validating a recipient address before
+ * creating a stream (unfunded accounts cannot receive tokens).
+ *
+ * Returns an {@link AccountInfo} object. Never throws — network or HTTP errors
+ * are caught and surfaced through the `error` field.
+ */
 export async function checkAccountInfo(
   address: string,
   network: NetworkName,
@@ -250,8 +408,10 @@ export async function checkAccountInfo(
 }
 
 /**
- * Get the native XLM balance for an account.
- * Returns the balance in stroops (smallest unit, 1 XLM = 10,000,000 stroops).
+ * Fetches the native XLM balance for `address` on `network` via Horizon.
+ * Returns the balance as a `bigint` in **stroops** (1 XLM = 10,000,000 stroops),
+ * matching the precision used throughout the rest of the app for token amounts.
+ * Returns `null` if the account does not exist or a network error occurs.
  */
 export async function getXlmBalance(address: string, network: NetworkName): Promise<bigint | null> {
   const config = getNetworkConfig(network)
