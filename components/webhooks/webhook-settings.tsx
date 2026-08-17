@@ -6,7 +6,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { formatTimeAgo } from '@/lib/date-utils'
+import { formatTimeAgo } from '@/lib/stream-utils'
 import { useWebhooks, type WebhookEventType } from '@/hooks/use-webhooks'
 
 const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
