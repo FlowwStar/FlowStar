@@ -1,23 +1,25 @@
-'use client';
-import { useTheme } from 'next-themes';
-import { useEffect, useState } from 'react';
+'use client'
+import { useTheme } from 'next-themes'
+import { useEffect, useState } from 'react'
+import { Sun, Moon, Monitor } from 'lucide-react'
 
-const ICONS = { light: '☀️', dark: '🌙', system: '💻' };
-const MODES = ['light', 'dark', 'system'] as const;
+const ICONS = { light: Sun, dark: Moon, system: Monitor }
+const MODES = ['light', 'dark', 'system'] as const
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
 
   // Avoid hydration mismatch — only render after mount
-  useEffect(() => setMounted(true), []);
-  if (!mounted) return <div className="w-9 h-9" />;
+  useEffect(() => setMounted(true), [])
+  if (!mounted) return <div className="w-9 h-9" />
 
   const cycle = () => {
-    const idx  = MODES.indexOf((theme as typeof MODES[number]) ?? 'system');
-    const next = MODES[(idx + 1) % MODES.length];
-    setTheme(next);
-  };
+    const idx = MODES.indexOf((theme as (typeof MODES)[number]) ?? 'system')
+    const next = MODES[(idx + 1) % MODES.length]
+    setTheme(next)
+  }
+  const ThemeIcon = ICONS[(theme as keyof typeof ICONS) ?? 'system']
 
   return (
     <button
@@ -25,7 +27,7 @@ export function ThemeToggle() {
       aria-label={`Current theme: ${theme}. Click to switch.`}
       className="p-2 rounded-lg hover:bg-muted min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors"
     >
-      <span>{ICONS[(theme as keyof typeof ICONS) ?? 'system']}</span>
+      <ThemeIcon className="size-[1.2rem]" />
     </button>
-  );
+  )
 }
