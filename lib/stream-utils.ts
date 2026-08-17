@@ -1,5 +1,8 @@
 import type { StreamData, StreamStatus } from '@/types/stream'
 
+/** Seconds in one day — shared constant for all per-day calculations. */
+export const SECONDS_PER_DAY = 86400
+
 /**
  * Computes how much of the stream has unlocked as of `nowSeconds`.
  *
@@ -126,7 +129,7 @@ export function formatRate(
     perSecond,
     perMinute: perSecond * 60,
     perHour: perSecond * 3600,
-    perDay: perSecond * 86400,
+    perDay: perSecond * SECONDS_PER_DAY,
     perMonth: perSecond * 2_592_000,
     perYear: perSecond * 31_536_000,
   }
@@ -200,8 +203,8 @@ export function formatTimeRemaining(
   let diff = Number(targetSeconds) - nowSeconds
   if (diff <= 0) return 'Ended'
 
-  const days = Math.floor(diff / 86400)
-  diff -= days * 86400
+  const days = Math.floor(diff / SECONDS_PER_DAY)
+  diff -= days * SECONDS_PER_DAY
   const hours = Math.floor(diff / 3600)
   diff -= hours * 3600
   const minutes = Math.floor(diff / 60)

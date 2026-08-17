@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import type { StreamData } from '@/types/stream'
-import { formatTokenAmount } from '@/lib/stream-utils'
+import { formatTokenAmount, SECONDS_PER_DAY } from '@/lib/stream-utils'
 
 interface UnlockChartProps {
   stream: StreamData
@@ -106,7 +106,7 @@ export function UnlockChart({ stream, nowSeconds, className }: UnlockChartProps)
     const startNum = Number(start)
     const endNum = Number(end)
     const duration = endNum - startNum
-    const xTickCount = Math.min(4, Math.max(2, Math.floor(duration / 86400)))
+    const xTickCount = Math.min(4, Math.max(2, Math.floor(duration / SECONDS_PER_DAY)))
     const xTickValues: number[] = []
     for (let i = 0; i <= Math.min(xTickCount, 4); i++) {
       xTickValues.push(startNum + (duration * i) / Math.min(xTickCount, 4))

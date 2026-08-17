@@ -56,6 +56,7 @@ import {
   parseTokenAmount,
   shortenAddress,
   formatRate,
+  SECONDS_PER_DAY,
 } from "@/lib/stream-utils";
 import { explorerUrl } from "@/lib/stellar";
 import { useNetwork } from "@/components/providers/network-provider";
@@ -641,7 +642,7 @@ function estimateDaysSinceLastWrite(
       : stream.cancelled
         ? now
         : stream.startTime;
-  return Number(now - lastWrite) / 86400;
+  return Number(now - lastWrite) / SECONDS_PER_DAY;
 }
 
 function TtlWarning({
