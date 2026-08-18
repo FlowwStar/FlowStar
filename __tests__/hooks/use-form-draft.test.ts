@@ -80,6 +80,87 @@ describe('useFormDraft', () => {
     })
     expect(localStorage.getItem('flowstar_draft_discard-key')).toBeNull()
   })
+
+  it('does not persist before the debounce window elapses', () => {
+    const onChange = vi.fn()
+    renderHook(() => useFormDraft('debounce-key', { foo: 'bar' }, onChange))
+
+    act(() => {
+      vi.advanceTimersByTime(499)
+    })
+    expect(localStorage.getItem('flowstar_draft_debounce-key')).toBeNull()
+
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+    const raw = localStorage.getItem('flowstar_draft_debounce-key')
+    expect(raw).not.toBeNull()
+    expect(JSON.parse(raw!).data).toEqual({ foo: 'bar' })
+  })
+
+  it('loadDraft returns the stored data and savedAt for a fresh draft', () => {
+    const savedAt = Date.now()
+    localStorage.setItem(
+      'flowstar_draft_freshload-key',
+      JSON.stringify({ data: { foo: 'bar' }, savedAt }),
+    )
+    const onChange = vi.fn()
+    const { result } = renderHook(() =>
+      useFormDraft('freshload-key', { foo: 'baz' }, onChange),
+    )
+    expect(result.current.loadDraft()).toEqual({ data: { foo: 'bar' }, savedAt })
+  })
+
+  it('loadDraft returns null for corrupt JSON without throwing', () => {
+    localStorage.setItem('flowstar_draft_corrupt-key', '{not valid json')
+    const onChange = vi.fn()
+    const { result } = renderHook(() =>
+      useFormDraft('corrupt-key', { foo: 'bar' }, onChange),
+    )
+    expect(result.current.loadDraft()).toBeNull()
+  })
+
+  it('restore does nothing when there is no saved draft', () => {
+    const onChange = vi.fn()
+    const { result } = renderHook(() =>
+      useFormDraft('nodraft-key', { foo: 'bar' }, onChange),
+    )
+    act(() => {
+      result.current.restore()
+    })
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('does not re-save a restored draft back to storage', () => {
+    const savedAt = Date.now()
+    localStorage.setItem(
+      'flowstar_draft_norewrite-key',
+      JSON.stringify({ data: { foo: 'restored' }, savedAt }),
+    )
+    const onChange = vi.fn()
+    const { result, rerender } = renderHook(
+      ({ value }) => useFormDraft('norewrite-key', value, onChange),
+      { initialProps: { value: { foo: 'fresh' } } },
+    )
+
+    act(() => {
+      result.current.restore()
+    })
+    expect(onChange).toHaveBeenCalledWith({ foo: 'restored' })
+
+    // Simulate the parent adopting the restored value.
+    rerender({ value: { foo: 'restored' } })
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+
+    const entry = JSON.parse(
+      localStorage.getItem('flowstar_draft_norewrite-key')!,
+    )
+    expect(entry.data).toEqual({ foo: 'restored' })
+    // The restore guard prevented the debounced auto-save from rewriting it.
+    expect(entry.savedAt).toBe(savedAt)
+  })
 })
 
 describe('clearExpiredDrafts', () => {
@@ -99,5 +180,13 @@ describe('clearExpiredDrafts', () => {
     clearExpiredDrafts()
     expect(localStorage.getItem('flowstar_draft_fresh')).not.toBeNull()
     expect(localStorage.getItem('flowstar_draft_old')).toBeNull()
+  })
+
+  it('removes corrupt draft entries and leaves non-draft keys untouched', () => {
+    localStorage.setItem('flowstar_draft_corrupt', '{oops')
+    localStorage.setItem('unrelated-key', 'keep me')
+    clearExpiredDrafts()
+    expect(localStorage.getItem('flowstar_draft_corrupt')).toBeNull()
+    expect(localStorage.getItem('unrelated-key')).toBe('keep me')
   })
 })
