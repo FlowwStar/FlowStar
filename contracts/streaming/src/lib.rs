@@ -28,6 +28,7 @@
 //!
 //! ### TTL math
 //! Stellar produces a ledger roughly every 5 seconds.
+//! Time-To-Live (TTL) is measured in ledgers rather than seconds directly.
 //! ```text
 //! INSTANCE_TTL_LEDGERS  = 17_280  →  17_280 × 5s = 86_400s  = ~1 day
 //! PERSISTENT_TTL_LEDGERS = 518_400 → 518_400 × 5s = 2_592_000s = ~30 days
