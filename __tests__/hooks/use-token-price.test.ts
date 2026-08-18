@@ -55,6 +55,62 @@ describe('useTokenPrice', () => {
       expect(result.current.loading).toBe(false)
     })
   })
+
+  it('caches the fetched price', async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ price: 0.45 }),
+    } as Response)
+
+    const { result, unmount } = renderHook(() => useTokenPrice('XLM'))
+    await waitFor(() => {
+      expect(result.current.usdPrice).toBe(0.45)
+    })
+    
+    unmount()
+
+    // Second call should use cache, not call fetch
+    const { result: result2 } = renderHook(() => useTokenPrice('XLM'))
+    await waitFor(() => {
+      expect(result2.current.usdPrice).toBe(0.45)
+    })
+    
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('handles error fallback by retaining the previous price if available', async () => {
+    // 1. Initial successful fetch
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ price: 0.50 }),
+    } as Response)
+
+    const { result, unmount } = renderHook(() => useTokenPrice('XLM'))
+    await waitFor(() => {
+      expect(result.current.usdPrice).toBe(0.50)
+    })
+    unmount()
+
+    // 2. Mock Date.now to simulate time passing beyond the cache threshold
+    const realDateNow = Date.now.bind(global.Date)
+    const futureTime = realDateNow() + 5 * 60 * 1000 + 1000
+    global.Date.now = vi.fn(() => futureTime)
+
+    // 3. Make the next fetch fail
+    vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'))
+
+    const { result: result2 } = renderHook(() => useTokenPrice('XLM'))
+    
+    await waitFor(() => {
+      expect(result2.current.loading).toBe(false)
+    })
+
+    // The price should still be 0.50 from the previous successful fetch
+    expect(result2.current.usdPrice).toBe(0.50)
+
+    // Cleanup
+    global.Date.now = realDateNow
+  })
 })
 
 describe('usePortfolioValue', () => {
