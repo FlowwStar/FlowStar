@@ -14,19 +14,33 @@ import { type NetworkName, getNetworkConfig } from "@/lib/stellar";
 import { setSentryUser } from "@/lib/sentry";
 import { useNetwork } from "./network-provider";
 
+// ─── Wallet SDK Interfaces ───────────────────────────────────────────────────
+
+export interface FreighterApi {
+  isConnected(): Promise<{ isConnected: boolean }>;
+  getAddress(): Promise<{ address: string; error?: string }>;
+  requestAccess(): Promise<void>;
+  signTransaction(xdr: string, opts: { networkPassphrase: string }): Promise<{ signedTxXdr: string; error?: string }>;
+  getNetwork(): Promise<{ network?: string; error?: string }>;
+}
+
+export interface XBullApi {
+  connect(): Promise<{ publicKey: string }>;
+  signXDR(xdr: string, opts: { networkPassphrase: string }): Promise<{ signedXDR: string }>;
+}
+
+export interface LobstrApi {
+  getPublicKey(): Promise<{ publicKey: string }>;
+  signTransaction(xdr: string, opts: { networkPassphrase: string }): Promise<{ signedXdr: string }>;
+}
+
 // ─── Window wallet SDK type augmentation ─────────────────────────────────────
 
 declare global {
   interface Window {
-    freighter?: unknown;
-    xBullSDK?: {
-      connect(): Promise<{ publicKey: string }>;
-      signXDR(xdr: string, opts: { networkPassphrase: string }): Promise<{ signedXDR: string }>;
-    };
-    lobstrSDK?: {
-      getPublicKey(): Promise<{ publicKey: string }>;
-      signTransaction(xdr: string, opts: { networkPassphrase: string }): Promise<{ signedXdr: string }>;
-    };
+    freighter?: FreighterApi;
+    xBullSDK?: XBullApi;
+    lobstrSDK?: LobstrApi;
   }
 }
 
@@ -116,8 +130,17 @@ const xbullAdapter: WalletAdapter = {
 // Prefers the LOBSTR browser extension (window.lobstrSDK); falls back to
 // WalletConnect v2 so mobile users can connect via the LOBSTR app.
 
-let _lobstrWcClient: any = null;
-let _lobstrWcSession: any = null;
+export interface WalletConnectClient {
+  request(args: { topic: string; chainId: string; request: { method: string; params: { xdr: string } } }): Promise<{ signedXDR: string }>;
+}
+
+export interface WalletConnectSession {
+  topic: string;
+  namespaces: Record<string, { accounts: string[] }>;
+}
+
+let _lobstrWcClient: WalletConnectClient | null = null;
+let _lobstrWcSession: WalletConnectSession | null = null;
 
 async function connectLobstrViaWalletConnect(): Promise<string> {
   const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
@@ -162,8 +185,8 @@ async function connectLobstrViaWalletConnect(): Promise<string> {
 
       const session = await approval();
       modal.closeModal();
-      _lobstrWcClient = client;
-      _lobstrWcSession = session;
+      _lobstrWcClient = client as unknown as WalletConnectClient;
+      _lobstrWcSession = session as unknown as WalletConnectSession;
 
       const account = session.namespaces.stellar?.accounts[0];
       const address = account?.split(":")[2];
