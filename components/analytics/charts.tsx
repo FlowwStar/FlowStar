@@ -110,9 +110,6 @@ interface TokenShare {
   decimals: number
 }
 
-/** Scale factor: pixels per unit count for the bar chart width */
-const PIXELS_PER_COUNT = 20;
-
 /** Minimum bar width in pixels so very small values are still visible */
 const MIN_BAR_WIDTH_PX = 8;
 
@@ -136,17 +133,23 @@ export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }:
             <div className="space-y-3">
               {series.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No stream activity yet for this period.</p>
-              ) : series.map((point) => (
-                <div key={point.label} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>{point.label}</span>
-                    <span className="font-medium">{point.count}</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-muted">
-                    <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.min(100, point.count * PIXELS_PER_COUNT)}%` }} />
-                  </div>
-                </div>
-              ))}
+              ) : (() => {
+                const maxCount = Math.max(...series.map(p => p.count))
+                return series.map((point) => {
+                  const pct = maxCount > 0 ? Math.max(MIN_BAR_WIDTH_PX / 100, point.count / maxCount) * 100 : 0
+                  return (
+                    <div key={point.label} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span>{point.label}</span>
+                        <span className="font-medium">{point.count}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted">
+                        <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.min(100, pct)}%` }} />
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
             </div>
           </CardContent>
         </Card>
