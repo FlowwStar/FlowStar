@@ -23,7 +23,6 @@ import { ConnectWalletButton } from "@/components/layout/connect-wallet-button";
 import { StreamStatusBadge } from "@/components/streams/stream-status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { TokenAmount } from "@/components/ui/token-amount";
-import { CountdownTimer } from "@/components/ui/countdown-timer";
 import { AccessibleCountdownTimer } from "@/components/ui/accessible-countdown-timer";
 import { AccessibleUnlockAmount } from "@/components/ui/accessible-unlock-amount";
 import { Button } from "@/components/ui/button";

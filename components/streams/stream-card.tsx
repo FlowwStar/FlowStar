@@ -16,7 +16,6 @@ import {
 } from "@/lib/stream-utils";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { TokenAmount } from "@/components/ui/token-amount";
-import { CountdownTimer } from "@/components/ui/countdown-timer";
 import { AccessibleCountdownTimer } from "@/components/ui/accessible-countdown-timer";
 import { StreamStatusBadge } from "@/components/streams/stream-status-badge";
 import type { StreamData } from "@/types/stream";
