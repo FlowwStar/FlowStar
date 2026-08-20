@@ -3,7 +3,7 @@
 import { useMemo } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { TokenInfo } from '@/types/stream'
-import { formatTokenAmount } from '@/lib/stream-utils'
+import { formatTokenAmount, SECONDS_PER_DAY } from '@/lib/stream-utils'
 
 interface StreamPreviewProps {
   amount: string
@@ -22,8 +22,8 @@ function toUnix(dt: string): number {
 
 function formatDuration(seconds: number): string {
   if (seconds <= 0) return '—'
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
+  const days = Math.floor(seconds / SECONDS_PER_DAY)
+  const hours = Math.floor((seconds % SECONDS_PER_DAY) / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
   const parts: string[] = []
   if (days > 0) parts.push(`${days} day${days !== 1 ? 's' : ''}`)
@@ -60,7 +60,7 @@ export function StreamPreview({
     const linearAmount = totalNum - cliffAmt
 
     const perSecond = durationSec > 0 ? linearAmount / durationSec : 0
-    const perDay = perSecond * 86400
+    const perDay = perSecond * SECONDS_PER_DAY
     const perMonth = perSecond * 2592000
     const perHour = perSecond * 3600
 

@@ -2,19 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Bell } from 'lucide-react'
+import { formatTimeAgo } from '@/lib/stream-utils'
 import { useWallet } from '@/hooks/use-wallet'
 import { useNotifications, type AppNotification } from '@/hooks/use-notifications'
-
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
 
 function NotificationItem({ notification }: { notification: AppNotification }) {
   return (
@@ -31,7 +21,7 @@ function NotificationItem({ notification }: { notification: AppNotification }) {
         )}
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground">{notification.body}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{timeAgo(notification.timestamp)}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{formatTimeAgo(notification.timestamp)}</p>
     </div>
   )
 }
@@ -81,6 +71,7 @@ export function NotificationBell() {
         aria-haspopup="true"
         className="relative rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+        data-testid="notification-bell-trigger"
       >
         <Bell className="size-5" />
         {unreadCount > 0 && (

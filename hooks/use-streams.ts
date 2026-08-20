@@ -5,6 +5,7 @@ import { fetchStreamsForAddress, fetchStream } from '@/lib/contract'
 import type { StreamData } from '@/types/stream'
 import { useWallet } from '@/hooks/use-wallet'
 import { useNetwork } from '@/components/providers/network-provider'
+import { captureError } from '@/lib/sentry'
 
 // ─── Refresh bus ─────────────────────────────────────────────────────────────
 // Components call `invalidateStreams()` after a write so all stream hooks
@@ -48,19 +49,29 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
   const [streams, setStreams] = useState<StreamData[]>([])
   const [loading, setLoading] = useState(false)
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  // Monotonically increasing request ID — any response whose ID doesn't
+  // match the current value is from a stale request and is discarded.
   const requestIdRef = useRef(0)
+  // Holds the AbortController for the currently in-flight fetch so we can
+  // cancel the underlying network request when address/network changes,
+  // not just guard the state update.
+  const abortCtrlRef = useRef<AbortController | null>(null)
 
   const { enablePolling = true, pollInterval = 30000 } = options ?? {}
 
   const fetch = useCallback(async () => {
-    // bump request generation to ignore previous in-flight responses
+    // Cancel any previous in-flight request at the network level.
+    abortCtrlRef.current?.abort()
+    const ctrl = new AbortController()
+    abortCtrlRef.current = ctrl
+
+    // Bump the generation counter so stale responses are discarded even
+    // if AbortController doesn't reach every internal fetch call.
     requestIdRef.current += 1
     const req = requestIdRef.current
 
     if (!address) {
-      // invalidate any previous responses and clear list
       setStreams([])
-      // only clear loading for the current request
       if (req === requestIdRef.current) setLoading(false)
       return
     }
@@ -68,11 +79,14 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
     setLoading(true)
     try {
       const data = await fetchStreamsForAddress(network, address)
+      // Discard if a newer request has already started.
       if (req !== requestIdRef.current) return
       setStreams(data)
     } catch (e) {
       if (req !== requestIdRef.current) return
-      console.error('useStreams fetch error:', e)
+      // Suppress errors from intentionally aborted requests.
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      captureError(e, { operation: 'use-streams:fetch' })
     } finally {
       if (req === requestIdRef.current) setLoading(false)
     }
@@ -116,9 +130,14 @@ export function useStream(id: string): { stream: StreamData | null; loading: boo
   const [stream, setStream] = useState<StreamData | null>(null)
   const [loading, setLoading] = useState(false)
   const requestIdRef = useRef(0)
+  const abortCtrlRef = useRef<AbortController | null>(null)
 
   const fetch = useCallback(async () => {
-    // bump request generation to ignore previous in-flight responses
+    // Cancel any previous in-flight request at the network level.
+    abortCtrlRef.current?.abort()
+    const ctrl = new AbortController()
+    abortCtrlRef.current = ctrl
+
     requestIdRef.current += 1
     const req = requestIdRef.current
 
@@ -134,7 +153,8 @@ export function useStream(id: string): { stream: StreamData | null; loading: boo
       setStream(data)
     } catch (e) {
       if (req !== requestIdRef.current) return
-      console.error('useStream fetch error:', e)
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      captureError(e, { operation: 'use-stream:fetch' })
     } finally {
       if (req === requestIdRef.current) setLoading(false)
     }

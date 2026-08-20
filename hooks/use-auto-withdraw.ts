@@ -69,18 +69,31 @@ export function useAutoWithdraw(stream: StreamData | null) {
   const { network } = useNetwork();
   const [settings, setSettings] =
     useState<AutoWithdrawSettings>(DEFAULT_SETTINGS);
+  // Ref that always mirrors the latest settings so callbacks that need to
+  // persist to localStorage never read a stale closure value.
+  const settingsRef = useRef<AutoWithdrawSettings>(DEFAULT_SETTINGS);
   const [lastAutoWithdraw, setLastAutoWithdraw] = useState<number | null>(null);
   const [autoWithdrawPending, setAutoWithdrawPending] = useState(false);
   const autoWithdrawPendingRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (stream) setSettings(loadSettings(stream.id));
+    if (stream) {
+      const loaded = loadSettings(stream.id);
+      settingsRef.current = loaded;
+      setSettings(loaded);
+    }
   }, [stream?.id]);
 
   const updateSettings = useCallback(
     (update: Partial<AutoWithdrawSettings>) => {
       if (!stream) return;
+      setSettings((prev) => {
+        const next = { ...prev, ...update };
+        settingsRef.current = next;
+        saveSettings(stream.id, next);
+        return next;
+      });
       const next = { ...settings, ...update };
       if (update.intervalHours !== undefined) {
         next.intervalHours = clampIntervalHours(update.intervalHours);
@@ -88,7 +101,7 @@ export function useAutoWithdraw(stream: StreamData | null) {
       setSettings(next);
       saveSettings(stream.id, next);
     },
-    [stream, settings],
+    [stream],
   );
 
   const addWithdrawalHistory = useCallback(
@@ -99,6 +112,7 @@ export function useAutoWithdraw(stream: StreamData | null) {
           ...prev,
           withdrawalHistory: [entry, ...prev.withdrawalHistory.slice(0, 99)],
         } as AutoWithdrawSettings;
+        settingsRef.current = next;
         saveSettings(stream.id, next);
         return next;
       });
@@ -108,25 +122,27 @@ export function useAutoWithdraw(stream: StreamData | null) {
 
   const calculateWithdrawAmount = useCallback(
     (withdrawable: bigint, stream: StreamData): bigint => {
-      const minAmount = BigInt(settings.minAmountRaw || "0");
-      const maxLimit = BigInt(settings.maxSafetyLimitRaw || "0");
+      // Always read from the ref so this never uses a stale closure snapshot.
+      const s = settingsRef.current;
+      const minAmount = BigInt(s.minAmountRaw || "0");
+      const maxLimit = BigInt(s.maxSafetyLimitRaw || "0");
 
       if (withdrawable <= 0n) return 0n;
       if (minAmount > 0n && withdrawable < minAmount) return 0n;
 
       let amount = withdrawable;
 
-      switch (settings.strategy) {
+      switch (s.strategy) {
         case "threshold-based": {
           const threshold =
-            (stream.depositedAmount * BigInt(settings.thresholdPercentage)) /
+            (stream.depositedAmount * BigInt(s.thresholdPercentage)) /
             100n;
           if (withdrawable < threshold) return 0n;
           amount = withdrawable;
           break;
         }
         case "gas-optimized": {
-          const lastWithdraw = settings.withdrawalHistory[0];
+          const lastWithdraw = s.withdrawalHistory[0];
           const daysSinceLastWithdraw = lastWithdraw
             ? (Date.now() - lastWithdraw.timestamp) / (1000 * 60 * 60 * 24)
             : Infinity;
@@ -151,7 +167,8 @@ export function useAutoWithdraw(stream: StreamData | null) {
 
       return amount;
     },
-    [settings],
+    // No settings dependency — reads live value through ref instead.
+    [],
   );
 
   useEffect(() => {
@@ -210,6 +227,12 @@ export function useAutoWithdraw(stream: StreamData | null) {
     calculateWithdrawAmount,
     addWithdrawalHistory,
     network,
+    // NOTE: `autoWithdrawPending` is intentionally excluded from this array.
+    // The interval callback guards against concurrent withdrawals via
+    // `autoWithdrawPendingRef` (a ref), so the state counterpart — which
+    // exists only to trigger UI re-renders — must not be listed here.
+    // Including it would tear down and recreate the interval on every
+    // withdrawal, resetting the cadence instead of keeping a stable schedule.
   ]);
 
   return {

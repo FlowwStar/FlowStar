@@ -18,18 +18,19 @@ interface DashboardStatsProps {
  * unnecessary re-renders on dashboards with only static streams.
  */
 export function DashboardStats({ sent, received }: DashboardStatsProps) {
+  const nowSec = Math.floor(Date.now() / 1000);
   const hasActiveStreams =
     sent.some(
       (s) =>
         !s.cancelled &&
-        Math.floor(Date.now() / 1000) < Number(s.endTime) &&
-        Math.floor(Date.now() / 1000) >= Number(s.startTime),
+        nowSec < Number(s.endTime) &&
+        nowSec >= Number(s.startTime),
     ) ||
     received.some(
       (s) =>
         !s.cancelled &&
-        Math.floor(Date.now() / 1000) < Number(s.endTime) &&
-        Math.floor(Date.now() / 1000) >= Number(s.startTime),
+        nowSec < Number(s.endTime) &&
+        nowSec >= Number(s.startTime),
     );
 
   const now = useNow(hasActiveStreams ? 1000 : 60000);
@@ -69,7 +70,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
       <span>
         {formatUsd(totalUsd)}
         {stale && (
-          <span className="ml-1 text-base" title="Price may be outdated">
+          <span className="ml-1 text-base" role="img" aria-label="Price may be outdated">
             ⚠️
           </span>
         )}
@@ -89,6 +90,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
         showUsd && totalUsd !== null
           ? "locked across all streams"
           : "enable USD in settings",
+      testId: "stat-total-streaming",
     },
     {
       label: "Available to withdraw",
@@ -105,16 +107,19 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
         withdrawableByToken.size > 1
           ? `+${withdrawableByToken.size - 1} more token${withdrawableByToken.size > 2 ? "s" : ""}`
           : "across received streams",
+      testId: "stat-available-to-withdraw",
     },
     {
       label: "Receiving",
       value: <span>{received.length}</span>,
       hint: `${activeReceiving} streaming now`,
+      testId: "stat-receiving",
     },
     {
       label: "Sending",
       value: <span>{sent.length}</span>,
       hint: `${activeSending} streaming now`,
+      testId: "stat-sending",
     },
   ];
 
@@ -124,6 +129,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
         <div
           key={stat.label}
           className="rounded-2xl border border-border bg-card p-5"
+          data-testid={stat.testId}
         >
           <p className="text-sm text-muted-foreground">{stat.label}</p>
           <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">

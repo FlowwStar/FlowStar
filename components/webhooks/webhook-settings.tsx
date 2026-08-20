@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { formatTimeAgo } from '@/lib/stream-utils'
 import { useWebhooks, type WebhookEventType } from '@/hooks/use-webhooks'
 
 const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
@@ -16,14 +17,6 @@ const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
   { value: 'stream.topped_up', label: 'Topped Up' },
   { value: 'stream.transferred', label: 'Transferred' },
 ]
-
-function formatRelative(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
 
 export function WebhookSettings() {
   const { webhooks, history, addWebhook, removeWebhook, toggleWebhook, testWebhook } =
@@ -92,20 +85,24 @@ export function WebhookSettings() {
         <div className="space-y-2">
           <Label>Event types</Label>
           <div className="flex flex-wrap gap-2">
-            {ALL_EVENTS.map((ev) => (
-              <button
-                key={ev.value}
-                type="button"
-                onClick={() => toggleEvent(ev.value)}
-                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                  selectedEvents.includes(ev.value)
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border text-muted-foreground hover:border-foreground'
-                }`}
-              >
-                {ev.label}
-              </button>
-            ))}
+            {ALL_EVENTS.map((ev) => {
+              const isSelected = selectedEvents.includes(ev.value)
+              return (
+                <button
+                  key={ev.value}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => toggleEvent(ev.value)}
+                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                    isSelected
+                      ? 'border-primary bg-primary text-primary-foreground'
+                      : 'border-border text-muted-foreground hover:border-foreground'
+                  }`}
+                >
+                  {ev.label}
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -185,7 +182,7 @@ export function WebhookSettings() {
                 </div>
                 <div className="flex items-center gap-3 text-muted-foreground text-xs">
                   {d.statusCode && <span>{d.statusCode}</span>}
-                  <span>{formatRelative(d.deliveredAt)}</span>
+                  <span>{formatTimeAgo(d.deliveredAt)}</span>
                 </div>
               </div>
             ))}

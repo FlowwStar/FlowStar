@@ -138,16 +138,24 @@ export function usePortfolioValue(streams: StreamData[]): PortfolioValue {
   );
 
   let totalUsd: number | null = 0;
+  let hasKnownToken = false;
+
   for (const stream of streams) {
-    const tp = priceMap[stream.token.symbol];
-    if (!tp || tp.usdPrice === null) {
-      totalUsd = null;
-      break;
+    const symbol = stream.token.symbol;
+    const tp = priceMap[symbol];
+
+    // Only process known symbols with available prices
+    if (KNOWN_SYMBOLS.includes(symbol) && tp?.usdPrice !== null) {
+      hasKnownToken = true;
+      const locked = stream.depositedAmount - stream.withdrawnAmount;
+      const human = Number(locked) / Math.pow(10, stream.token.decimals);
+      totalUsd = (totalUsd ?? 0) + human * tp.usdPrice;
     }
-    const locked = stream.depositedAmount - stream.withdrawnAmount;
-    const human = Number(locked) / Math.pow(10, stream.token.decimals);
-    totalUsd = (totalUsd ?? 0) + human * tp.usdPrice;
+    // Skip unknown tokens — don't null out the entire portfolio
   }
 
-  return { totalUsd, loading, stale };
+  // Only return null if there are no known tokens (all are custom/unknown)
+  const finalTotalUsd = hasKnownToken ? totalUsd : null;
+
+  return { totalUsd: finalTotalUsd, loading, stale };
 }

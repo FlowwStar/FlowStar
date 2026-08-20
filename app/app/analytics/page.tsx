@@ -29,7 +29,7 @@ import { SectionErrorBoundary } from "@/components/error-boundary/section-error-
 import { useStreams } from "@/hooks/use-streams";
 import { useNetwork } from "@/components/providers/network-provider";
 import { getAllTokens } from "@/lib/stellar";
-import { formatCompactAmount } from "@/lib/stream-utils";
+import { formatCompactAmount, SECONDS_PER_DAY } from "@/lib/stream-utils";
 import type { StreamData } from "@/types/stream";
 
 const AnalyticsCharts = dynamic(
@@ -56,6 +56,15 @@ function ChartSkeleton() {
 }
 
 interface AnalyticsSnapshot {
+  totalVolume: bigint
+  activeCount: number
+  totalStreams: number
+  averageDurationDays: number
+  /** Fix #367 — `decimals` is now included so amounts format correctly for any token. */
+  tokenShares: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>
+  series: Array<{ label: string; count: number }>
+  /** Fix #367 — `decimals` is now included so amounts format correctly for any token. */
+  topTokens: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>
   totalVolume: bigint;
   activeCount: number;
   totalStreams: number;
@@ -98,7 +107,7 @@ function buildSnapshot(
     filtered.length > 0
       ? filtered.reduce(
           (sum, stream) =>
-            sum + Number(stream.endTime - stream.startTime) / 86400,
+            sum + Number(stream.endTime - stream.startTime) / SECONDS_PER_DAY,
           0,
         ) / filtered.length
       : 0;
@@ -108,6 +117,22 @@ function buildSnapshot(
     { amount: bigint; count: number; decimals: number }
   >();
   filtered.forEach((stream) => {
+    const key = stream.token.symbol
+    const entry = tokenGroups.get(key) ?? { amount: 0n, count: 0, decimals: stream.token.decimals }
+    entry.amount += stream.depositedAmount
+    entry.count += 1
+    tokenGroups.set(key, entry)
+  })
+
+  const tokenShares = Array.from(tokenGroups.entries()).map(([symbol, entry]) => ({
+    symbol,
+    amount: entry.amount,
+    count: entry.count,
+    // Fix #367 — preserve each token's real decimals instead of discarding them
+    decimals: entry.decimals,
+  }))
+
+  const seriesMap = new Map<string, number>()
     const key = stream.token.symbol;
     const entry = tokenGroups.get(key) ?? {
       amount: 0n,
@@ -209,6 +234,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total volume streamed</CardDescription>
+            <CardTitle className="text-2xl font-semibold">{snapshot.totalVolume > 0n ? formatCompactAmount(snapshot.totalVolume, snapshot.tokenShares[0]?.decimals ?? 7) : '0'}</CardTitle>
             <CardTitle className="text-2xl font-semibold">
               {snapshot.totalVolume > 0n
                 ? formatCompactAmount(snapshot.totalVolume, 7)
@@ -263,6 +289,46 @@ export default function AnalyticsPage() {
         />
       </SectionErrorBoundary>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>Top tokens by volume</CardTitle>
+            <CardDescription>Most-used tokens across created streams.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {snapshot.topTokens.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No volume data yet.</p>
+            ) : snapshot.topTokens.map((token) => (
+              <div key={token.symbol} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                <div>
+                  <p className="font-medium">{token.symbol}</p>
+                  <p className="text-xs text-muted-foreground">{token.count} streams</p>
+                </div>
+                <Badge variant="secondary">{formatCompactAmount(token.amount, token.decimals)} {token.symbol}</Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Token distribution</CardTitle>
+            <CardDescription>Visible token mix across the current dataset.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {snapshot.tokenShares.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No token distribution data available yet.</p>
+            ) : snapshot.tokenShares.map((token) => (
+              <div key={token.symbol} className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span>{token.symbol}</span>
+                  <span className="font-medium">{formatCompactAmount(token.amount, token.decimals)}</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted">
+                  <div className="h-2 rounded-full bg-secondary" style={{ width: `${Math.max(8, (Number(token.amount) / Math.max(1, Number(snapshot.totalVolume))) * 100) || 0}%` }} />
+                </div>
+              </div>
       <Card>
         <CardHeader>
           <CardTitle>Network context</CardTitle>

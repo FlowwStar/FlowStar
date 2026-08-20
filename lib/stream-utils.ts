@@ -1,5 +1,8 @@
 import type { StreamData, StreamStatus } from '@/types/stream'
 
+/** Seconds in one day — shared constant for all per-day calculations. */
+export const SECONDS_PER_DAY = 86400
+
 /**
  * Computes how much of the stream has unlocked as of `nowSeconds`.
  *
@@ -126,7 +129,7 @@ export function formatRate(
     perSecond,
     perMinute: perSecond * 60,
     perHour: perSecond * 3600,
-    perDay: perSecond * 86400,
+    perDay: perSecond * SECONDS_PER_DAY,
     perMonth: perSecond * 2_592_000,
     perYear: perSecond * 31_536_000,
   }
@@ -182,6 +185,16 @@ export function formatDateTime(unixSeconds: bigint | number): string {
   })
 }
 
+/** Returns "just now", "Xm ago", "Xh ago", "Xd ago", or a locale date for timestamps older than 7 days. */
+export function formatTimeAgo(timestamp: number): string {
+  const diff = Date.now() - timestamp
+  if (diff < 60_000) return 'just now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`
+  return new Date(timestamp).toLocaleDateString()
+}
+
 /** Returns a compact "2d 4h 13m" style duration from now until `target`. */
 export function formatTimeRemaining(
   targetSeconds: bigint,
@@ -190,8 +203,8 @@ export function formatTimeRemaining(
   let diff = Number(targetSeconds) - nowSeconds
   if (diff <= 0) return 'Ended'
 
-  const days = Math.floor(diff / 86400)
-  diff -= days * 86400
+  const days = Math.floor(diff / SECONDS_PER_DAY)
+  diff -= days * SECONDS_PER_DAY
   const hours = Math.floor(diff / 3600)
   diff -= hours * 3600
   const minutes = Math.floor(diff / 60)
