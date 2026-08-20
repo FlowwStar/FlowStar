@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Check, Copy, LogOut, Loader2, Wallet } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -40,11 +41,21 @@ export function ConnectWalletButton({ className }: { className?: string }) {
     }
   }
 
-  function copyAddress() {
+  async function copyAddress() {
     if (!address) return
-    navigator.clipboard.writeText(address)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    try {
+      await navigator.clipboard.writeText(address)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+      toast.success('Address copied', {
+        description: 'Wallet address copied to clipboard.',
+      })
+    } catch (error) {
+      console.error('Failed to copy address:', error)
+      toast.error('Copy failed', {
+        description: 'Could not copy the address. Please copy it manually.',
+      })
+    }
   }
 
   if (isConnected && address) {
