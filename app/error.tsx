@@ -93,7 +93,7 @@ function parseError(e: unknown) {
         }
       }
     }
-  } catch (err) {
+  } catch {
     // ignore JSON parse failures
   }
 
