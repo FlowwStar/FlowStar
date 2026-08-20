@@ -86,13 +86,18 @@ function CopyableAddress({
     <span className="inline-flex items-center gap-1">
       <button
         onClick={copy}
+        type="button"
+        aria-label={`Copy address ${address}`}
         className="group inline-flex items-center gap-1.5 font-mono text-sm hover:text-primary transition-colors"
       >
         <span className="truncate max-w-[200px] sm:max-w-xs">
           {shortenAddress(address, 6)}
         </span>
         {copied ? (
-          <Check className="size-3.5 text-primary shrink-0" />
+          <span role="status" aria-live="polite">
+            <Check className="size-3.5 text-primary shrink-0" />
+            <span className="sr-only">Copied</span>
+          </span>
         ) : (
           <Copy className="size-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
         )}
@@ -591,6 +596,7 @@ function AutoWithdrawSection({
             <div className="space-y-1.5 pt-2 border-t border-border">
               <button
                 onClick={() => setShowHistory(!showHistory)}
+                type="button"
                 className="text-xs text-primary hover:underline"
                 aria-expanded={showHistory}
               >
@@ -724,6 +730,8 @@ function RateDisplay({
     <div className="text-right">
       <button
         onClick={() => setExpanded((v) => !v)}
+        type="button"
+        aria-expanded={expanded}
         className="font-mono text-sm font-medium text-primary hover:underline"
       >
         {rate.best}
