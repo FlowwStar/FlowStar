@@ -69,9 +69,9 @@ interface AnalyticsSnapshot {
   activeCount: number;
   totalStreams: number;
   averageDurationDays: number;
-  tokenShares: Array<{ symbol: string; amount: bigint; count: number }>;
+  tokenShares: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>;
   series: Array<{ label: string; count: number }>;
-  topTokens: Array<{ symbol: string; amount: bigint; count: number }>;
+  topTokens: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>;
 }
 
 const RANGE_OPTIONS = [
@@ -149,6 +149,7 @@ function buildSnapshot(
       symbol,
       amount: entry.amount,
       count: entry.count,
+      decimals: entry.decimals,
     }),
   );
 
