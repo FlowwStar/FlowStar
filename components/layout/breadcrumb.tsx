@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ChevronRight } from 'lucide-react'
+import { shortenAddress } from '@/lib/stream-utils'
 
 const SEGMENT_LABELS: Record<string, string> = {
   app: 'Dashboard',
@@ -28,7 +29,7 @@ function buildCrumbs(pathname: string) {
       continue
     }
 
-    const label = SEGMENT_LABELS[seg] ?? `Stream #${seg}`
+    const label = SEGMENT_LABELS[seg] ?? `Stream #${shortenAddress(seg)}`
     crumbs.push({ label, href: path })
   }
 
