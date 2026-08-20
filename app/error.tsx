@@ -7,6 +7,14 @@ import { useRouter } from 'next/navigation'
 type Props = { error: Error; reset: () => void }
 
 /**
+ * Read the first defined string value among a candidate list of keys
+ * on an already-narrowed object. Used to safely traverse unknown-shaped
+ * RPC error payloads without resorting to `any`.
+ */
+function readField(obj: object, keys: string[]): unknown {
+  for (const key of keys) {
+    const value = (obj as Record<string, unknown>)[key]
+    if (value !== undefined && value !== null) return value
  * Safely extracts a string or number value from an unknown object by key.
  * Returns undefined if the value doesn't exist or isn't a string/number.
  */
@@ -71,6 +79,14 @@ function parseError(e: unknown) {
     const trimmed = message.trim()
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       const parsed: unknown = JSON.parse(trimmed)
+      if (parsed && typeof parsed === 'object') {
+        const code = readField(parsed, ['code', 'error_code', 'err'])
+        const detail = readField(parsed, [
+          'message',
+          'error',
+          'reason',
+          'detail',
+        ])
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         const obj = parsed as Record<string, unknown>
         const code =
