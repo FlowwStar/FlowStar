@@ -119,7 +119,10 @@ export function ConnectWalletButton({ className }: { className?: string }) {
                   </span>
                 </span>
                 {isPending && (
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <span className="relative" aria-live="polite">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    <span className="sr-only">Connecting to {wallet.name}...</span>
+                  </span>
                 )}
               </button>
             )
