@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { Plus, Trash2, ToggleLeft, ToggleRight, Send, CheckCircle2, XCircle } from 'lucide-react'
@@ -19,10 +19,11 @@ const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
 ]
 
 export function WebhookSettings() {
-  const { webhooks, history, addWebhook, removeWebhook, toggleWebhook, testWebhook } =
-    useWebhooks()
+  const { webhooks, history, addWebhook, removeWebhook, toggleWebhook, testWebhook } = useWebhooks()
 
   const [url, setUrl] = useState('')
+  const [urlError, setUrlError] = useState('')
+  const [eventsError, setEventsError] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<WebhookEventType[]>([
     'stream.created',
     'stream.withdrawal',
@@ -33,20 +34,25 @@ export function WebhookSettings() {
 
   function toggleEvent(event: WebhookEventType) {
     setSelectedEvents((prev) =>
-      prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event]
+      prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event],
     )
+    if (eventsError) setEventsError('')
   }
 
   function handleAdd() {
-    if (!url.trim()) return
+    if (!url.trim()) {
+      setUrlError('URL is required')
+      return
+    }
     try {
       new URL(url.trim())
+      setUrlError('')
     } catch {
-      toast.error('Invalid URL', { description: 'Please enter a valid webhook URL.' })
+      setUrlError('Please enter a valid webhook URL')
       return
     }
     if (selectedEvents.length === 0) {
-      toast.error('Select at least one event type.')
+      setEventsError('Select at least one event type')
       return
     }
     addWebhook(url.trim(), selectedEvents)
@@ -78,8 +84,12 @@ export function WebhookSettings() {
             type="url"
             placeholder="https://your-service.com/webhook"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={(e) => {
+              setUrl(e.target.value)
+              if (urlError) setUrlError('')
+            }}
           />
+          {urlError && <p className="text-sm text-destructive">{urlError}</p>}
         </div>
 
         <div className="space-y-2">
@@ -93,17 +103,18 @@ export function WebhookSettings() {
                   type="button"
                   aria-pressed={isSelected}
                   onClick={() => toggleEvent(ev.value)}
-                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                  className={
                     isSelected
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border text-muted-foreground hover:border-foreground'
-                  }`}
+                      ? 'rounded-full border border-primary bg-primary px-3 py-1 text-xs text-primary-foreground transition-colors'
+                      : 'rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-foreground'
+                  }
                 >
                   {ev.label}
                 </button>
               )
             })}
           </div>
+          {eventsError && <p className="text-sm text-destructive">{eventsError}</p>}
         </div>
 
         <Button onClick={handleAdd} className="gap-1.5">
@@ -122,7 +133,9 @@ export function WebhookSettings() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-mono">{hook.url}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {hook.events.map((e) => ALL_EVENTS.find((x) => x.value === e)?.label).join(', ')}
+                    {hook.events
+                      .map((e) => ALL_EVENTS.find((x) => x.value === e)?.label)
+                      .join(', ')}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
