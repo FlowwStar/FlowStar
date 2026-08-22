@@ -33,7 +33,7 @@ Inspired by [Streamflow](https://streamflow.finance) on Solana.
 | Frontend | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui |
 | Smart Contract | Rust, Soroban SDK v26 |
 | Blockchain | Stellar (Soroban) |
-| Wallet | Freighter via `@stellar/freighter-api` |
+| Wallet | Freighter, xBull, LOBSTR (with WalletConnect v2 fallback), Albedo |
 | RPC | Stellar Soroban Testnet RPC |
 
 ---
