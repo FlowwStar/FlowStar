@@ -12,7 +12,7 @@ export default defineConfig({
       provider: "v8",
       enabled: true,
       reporter: ["text", "lcov"],
-      include: ["hooks/**", "lib/**", "components/**"],
+      include: ["hooks/**", "lib/**", "components/**", "utils/**"],
       exclude: ["**/*.d.ts", "**/index.ts"],
       // Baseline from current coverage (`npm run test:coverage` on 2026-07-18).
       // Ratchet these up over time as more tests are added; never lower them
