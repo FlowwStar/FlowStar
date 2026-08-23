@@ -92,7 +92,7 @@ NEXT_PUBLIC_STREAM_CONTRACT_ID=<your-contract-id>
 Then start the app:
 
 ```bash
-npm install
+npm install --legacy-peer-deps
 npm run dev
 ```
 
