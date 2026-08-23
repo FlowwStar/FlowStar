@@ -12,7 +12,7 @@ This directory captures the significant technical decisions made in FlowStar —
 | [ADR-003](./ADR-003-mock-mode.md) | Mock Mode for Development | Accepted |
 | [ADR-004](./ADR-004-polling-vs-websocket.md) | Polling vs WebSocket for Updates | Accepted |
 | [ADR-005](./ADR-005-bigint-token-amounts.md) | BigInt for Token Amounts | Accepted |
-| [ADR-006](./ADR-006-freighter-wallet-strategy.md) | Freighter-Only Wallet Strategy | Accepted |
+| [ADR-006](./ADR-006-freighter-wallet-strategy.md) | Multi-Wallet Strategy (formerly Freighter-Only) | Accepted (Updated) |
 | [ADR-007](./ADR-007-integer-division-dust.md) | Integer Division Dust Handling | Accepted |
 
 ## How to add a new ADR

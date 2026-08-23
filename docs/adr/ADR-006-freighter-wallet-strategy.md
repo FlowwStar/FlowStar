@@ -1,21 +1,30 @@
-# ADR-006: Freighter-Only Wallet Strategy
+# ADR-006: Multi-Wallet Strategy (formerly Freighter-Only)
 
 ## Status
 
-Accepted
+Accepted (Updated)
+
+> **Note (Status Update):**
+> Multi-wallet support was expanded from the initial Freighter-only strategy. `components/providers/wallet-provider.tsx` now fully implements adapters for **Freighter**, **xBull**, **LOBSTR** (browser extension with WalletConnect v2 fallback for mobile), and **Albedo** (web signer).
 
 ## Context
 
-Stellar has several wallet options: Freighter (browser extension), LOBSTR, xBull, Albedo (web-based signer), and WalletConnect-compatible mobile wallets. Supporting all of them from day one requires integrating the Stellar Wallets Kit (SWK) or writing multiple adapter layers, and each wallet has different API surfaces for signing XDR envelopes.
+Stellar has several wallet options: Freighter (browser extension), LOBSTR, xBull, Albedo (web-based signer), and WalletConnect-compatible mobile wallets. Supporting all of them requires integrating multiple adapter layers or the Stellar Wallets Kit (SWK), as each wallet has different API surfaces for signing XDR envelopes.
 
-The immediate goal was to ship a working DeFi primitive on Soroban testnet. Breadth of wallet support was deferred to reduce scope.
+The immediate MVP goal was to ship a working DeFi primitive on Soroban testnet with Freighter support, while designing the modular structure to expand wallet options subsequently.
 
 ## Decision
 
-The initial release supports **Freighter only** via `@stellar/freighter-api`. The wallet provider (`components/providers/wallet-provider.tsx`) is structured around a `WALLET_OPTIONS` array to make adding new wallets straightforward — each option is an object with `id`, `name`, `detail`, and a `connect` function.
+The initial release launched with **Freighter** via `@stellar/freighter-api`. The wallet provider (`components/providers/wallet-provider.tsx`) was structured around a `WALLET_OPTIONS` array and a modular `WalletAdapter` interface (`connect`, `signTransaction`, `isAvailable`).
+
+As planned, multi-wallet support has been implemented by adding dedicated adapters for:
+1. **Freighter** via `@stellar/freighter-api`
+2. **xBull** via `window.xBullSDK`
+3. **LOBSTR** via `window.lobstrSDK` with `@walletconnect/sign-client` & `@walletconnect/modal` fallback for mobile users
+4. **Albedo** via `@albedo-link/intent` web signer
 
 ## Consequences
 
-- **Easier:** Single integration path, well-documented API, and Freighter is the most widely used Stellar browser wallet among developers.
-- **Harder:** Users without Freighter cannot use the app. Mobile users are blocked entirely.
-- **Roadmap:** The next wallet to add is xBull (also browser extension, similar API). After that, Albedo enables users without a browser extension. WalletConnect would unlock mobile. Each can be added as a new entry in `WALLET_OPTIONS` without changing the rest of the app.
+- **Easier:** Broad wallet coverage allowing desktop browser extension users, web signer users, and mobile app users (via WalletConnect) to interact with FlowStar. Modular adapter pattern keeps wallet-specific logic isolated in `wallet-provider.tsx`.
+- **Harder:** Maintenance of multiple SDK dependencies (`@albedo-link/intent`, `@walletconnect/modal`, `@walletconnect/sign-client`, `@stellar/freighter-api`).
+- **Shipped:** Freighter, xBull, LOBSTR (extension + WalletConnect v2), and Albedo are all fully supported in production.
