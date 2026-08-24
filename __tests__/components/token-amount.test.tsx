@@ -6,16 +6,16 @@ import type { TokenInfo } from '@/types/stream'
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 /** USDC-like token: 7 decimals, symbol "USDC" */
-const USDC: TokenInfo = { decimals: 7, symbol: 'USDC' }
+const USDC: TokenInfo = { address: 'CUSDC', decimals: 7, symbol: 'USDC' }
 
 /** XLM-like token: 7 decimals, symbol "XLM" */
-const XLM: TokenInfo = { decimals: 7, symbol: 'XLM' }
+const XLM: TokenInfo = { address: 'CXLM', decimals: 7, symbol: 'XLM' }
 
 /** EURC token: 7 decimals, symbol "EURC" */
-const EURC: TokenInfo = { decimals: 7, symbol: 'EURC' }
+const EURC: TokenInfo = { address: 'CEURC', decimals: 7, symbol: 'EURC' }
 
 /** Zero-decimal token (whole units only) */
-const WHOLE: TokenInfo = { decimals: 0, symbol: 'WHL' }
+const WHOLE: TokenInfo = { address: 'CWHOLE', decimals: 0, symbol: 'WHL' }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

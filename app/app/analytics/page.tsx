@@ -1,44 +1,32 @@
-"use client";
+'use client'
 
-import { useEffect, useMemo, useState, Suspense } from "react";
-import dynamic from "next/dynamic";
-import Link from "next/link";
-import {
-  ArrowLeft,
-  BarChart3,
-  Clock3,
-  TrendingUp,
-  Wallet2,
-} from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useEffect, useMemo, useState, Suspense } from 'react'
+import dynamic from 'next/dynamic'
+import Link from 'next/link'
+import { ArrowLeft, BarChart3, Clock3, TrendingUp, Wallet2 } from 'lucide-react'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { SectionErrorBoundary } from "@/components/error-boundary/section-error-boundary";
-import { useStreams } from "@/hooks/use-streams";
-import { useNetwork } from "@/components/providers/network-provider";
-import { getAllTokens } from "@/lib/stellar";
-import { formatCompactAmount, SECONDS_PER_DAY } from "@/lib/stream-utils";
-import type { StreamData } from "@/types/stream";
+} from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import { SectionErrorBoundary } from '@/components/error-boundary/section-error-boundary'
+import { useStreams } from '@/hooks/use-streams'
+import { useNetwork } from '@/components/providers/network-provider'
+import { getAllTokens } from '@/lib/stellar'
+import { formatCompactAmount, SECONDS_PER_DAY } from '@/lib/stream-utils'
+import type { StreamData } from '@/types/stream'
 
 const AnalyticsCharts = dynamic(
-  () => import("@/components/analytics/charts").then((m) => m.AnalyticsCharts),
+  () => import('@/components/analytics/charts').then((m) => m.AnalyticsCharts),
   {
     loading: () => <ChartSkeleton />,
     ssr: false,
   },
-);
+)
 
 function ChartSkeleton() {
   return (
@@ -52,7 +40,7 @@ function ChartSkeleton() {
         <div className="h-48 animate-pulse rounded-xl border border-border bg-card/50" />
       </div>
     </div>
-  );
+  )
 }
 
 interface AnalyticsSnapshot {
@@ -65,60 +53,46 @@ interface AnalyticsSnapshot {
   series: Array<{ label: string; count: number }>
   /** Fix #367 — `decimals` is now included so amounts format correctly for any token. */
   topTokens: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>
-  totalVolume: bigint;
-  activeCount: number;
-  totalStreams: number;
-  averageDurationDays: number;
-  tokenShares: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>;
-  series: Array<{ label: string; count: number }>;
-  topTokens: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>;
 }
 
 const RANGE_OPTIONS = [
-  { value: "7d", label: "7 days" },
-  { value: "30d", label: "30 days" },
-  { value: "90d", label: "90 days" },
-  { value: "all", label: "All time" },
-] as const;
+  { value: '7d', label: '7 days' },
+  { value: '30d', label: '30 days' },
+  { value: '90d', label: '90 days' },
+  { value: 'all', label: 'All time' },
+] as const
 
-function buildSnapshot(
-  streams: StreamData[],
-  range: string,
-): AnalyticsSnapshot {
-  const now = Math.floor(Date.now() / 1000);
+function buildSnapshot(streams: StreamData[], range: string): AnalyticsSnapshot {
+  const now = Math.floor(Date.now() / 1000)
   const cutoff =
-    range === "all"
+    range === 'all'
       ? 0
-      : Date.now() -
-        Number.parseInt(range.replace("d", ""), 10) * 24 * 60 * 60 * 1000;
+      : Date.now() - Number.parseInt(range.replace('d', ''), 10) * 24 * 60 * 60 * 1000
   const filtered = streams.filter(
-    (stream) => Number(stream.startTime) * 1000 >= cutoff || range === "all",
-  );
+    (stream) => Number(stream.startTime) * 1000 >= cutoff || range === 'all',
+  )
 
-  const totalVolume = filtered.reduce(
-    (sum, stream) => sum + stream.depositedAmount,
-    0n,
-  );
+  const totalVolume = filtered.reduce((sum, stream) => sum + stream.depositedAmount, 0n)
   const activeCount = filtered.filter(
     (stream) => !stream.cancelled && Number(stream.endTime) > now,
-  ).length;
-  const totalStreams = filtered.length;
+  ).length
+  const totalStreams = filtered.length
   const averageDurationDays =
     filtered.length > 0
       ? filtered.reduce(
-          (sum, stream) =>
-            sum + Number(stream.endTime - stream.startTime) / SECONDS_PER_DAY,
+          (sum, stream) => sum + Number(stream.endTime - stream.startTime) / SECONDS_PER_DAY,
           0,
         ) / filtered.length
-      : 0;
+      : 0
 
-  const tokenGroups = new Map<
-    string,
-    { amount: bigint; count: number; decimals: number }
-  >();
+  const tokenGroups = new Map<string, { amount: bigint; count: number; decimals: number }>()
   filtered.forEach((stream) => {
     const key = stream.token.symbol
-    const entry = tokenGroups.get(key) ?? { amount: 0n, count: 0, decimals: stream.token.decimals }
+    const entry = tokenGroups.get(key) ?? {
+      amount: 0n,
+      count: 0,
+      decimals: stream.token.decimals,
+    }
     entry.amount += stream.depositedAmount
     entry.count += 1
     tokenGroups.set(key, entry)
@@ -133,41 +107,16 @@ function buildSnapshot(
   }))
 
   const seriesMap = new Map<string, number>()
-    const key = stream.token.symbol;
-    const entry = tokenGroups.get(key) ?? {
-      amount: 0n,
-      count: 0,
-      decimals: stream.token.decimals,
-    };
-    entry.amount += stream.depositedAmount;
-    entry.count += 1;
-    tokenGroups.set(key, entry);
-  });
-
-  const tokenShares = Array.from(tokenGroups.entries()).map(
-    ([symbol, entry]) => ({
-      symbol,
-      amount: entry.amount,
-      count: entry.count,
-      decimals: entry.decimals,
-    }),
-  );
-
-  const seriesMap = new Map<string, number>();
   filtered.forEach((stream) => {
-    const day = new Date(Number(stream.startTime) * 1000)
-      .toISOString()
-      .slice(0, 10);
-    seriesMap.set(day, (seriesMap.get(day) ?? 0) + 1);
-  });
+    const day = new Date(Number(stream.startTime) * 1000).toISOString().slice(0, 10)
+    seriesMap.set(day, (seriesMap.get(day) ?? 0) + 1)
+  })
 
   const series = Array.from(seriesMap.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([label, count]) => ({ label, count }));
+    .map(([label, count]) => ({ label, count }))
 
-  const topTokens = [...tokenShares]
-    .sort((a, b) => Number(b.amount - a.amount))
-    .slice(0, 4);
+  const topTokens = [...tokenShares].sort((a, b) => Number(b.amount - a.amount)).slice(0, 4)
 
   return {
     totalVolume,
@@ -177,22 +126,22 @@ function buildSnapshot(
     tokenShares,
     series,
     topTokens,
-  };
+  }
 }
 
 export default function AnalyticsPage() {
-  const { all } = useStreams({ enablePolling: false });
-  const { network } = useNetwork();
-  const [range, setRange] = useState("30d");
-  const [mounted, setMounted] = useState(false);
+  const { all } = useStreams({ enablePolling: false })
+  const { network } = useNetwork()
+  const [range, setRange] = useState('30d')
+  const [mounted, setMounted] = useState(false)
 
-  useEffect(() => setMounted(true), []);
+  useEffect(() => setMounted(true), [])
 
-  const snapshot = useMemo(() => buildSnapshot(all, range), [all, range]);
+  const snapshot = useMemo(() => buildSnapshot(all, range), [all, range])
 
-  const tokens = useMemo(() => getAllTokens(network), [network]);
+  const tokens = useMemo(() => getAllTokens(network), [network])
 
-  if (!mounted) return null;
+  if (!mounted) return null
 
   return (
     <div className="space-y-6">
@@ -205,18 +154,13 @@ export default function AnalyticsPage() {
             <ArrowLeft className="size-4" />
             Back to dashboard
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight">
-            Platform analytics
-          </h1>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight">Platform analytics</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Public signals that highlight traction, usage, and stream growth.
           </p>
         </div>
         <div className="w-full max-w-[180px]">
-          <Select
-            value={range}
-            onValueChange={(v) => v !== null && setRange(v)}
-          >
+          <Select value={range} onValueChange={(v) => v !== null && setRange(v)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -235,11 +179,10 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total volume streamed</CardDescription>
-            <CardTitle className="text-2xl font-semibold">{snapshot.totalVolume > 0n ? formatCompactAmount(snapshot.totalVolume, snapshot.tokenShares[0]?.decimals ?? 7) : '0'}</CardTitle>
             <CardTitle className="text-2xl font-semibold">
               {snapshot.totalVolume > 0n
-                ? formatCompactAmount(snapshot.totalVolume, 7)
-                : "0"}
+                ? formatCompactAmount(snapshot.totalVolume, snapshot.tokenShares[0]?.decimals ?? 7)
+                : '0'}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -249,9 +192,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Active streams</CardDescription>
-            <CardTitle className="text-2xl font-semibold">
-              {snapshot.activeCount}
-            </CardTitle>
+            <CardTitle className="text-2xl font-semibold">{snapshot.activeCount}</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <TrendingUp className="size-4" /> Currently streaming now
@@ -260,9 +201,7 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total streams created</CardDescription>
-            <CardTitle className="text-2xl font-semibold">
-              {snapshot.totalStreams}
-            </CardTitle>
+            <CardTitle className="text-2xl font-semibold">{snapshot.totalStreams}</CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <BarChart3 className="size-4" /> All-time stream count
@@ -290,57 +229,15 @@ export default function AnalyticsPage() {
         />
       </SectionErrorBoundary>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Top tokens by volume</CardTitle>
-            <CardDescription>Most-used tokens across created streams.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {snapshot.topTokens.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No volume data yet.</p>
-            ) : snapshot.topTokens.map((token) => (
-              <div key={token.symbol} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                <div>
-                  <p className="font-medium">{token.symbol}</p>
-                  <p className="text-xs text-muted-foreground">{token.count} streams</p>
-                </div>
-                <Badge variant="secondary">{formatCompactAmount(token.amount, token.decimals)} {token.symbol}</Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_1fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Token distribution</CardTitle>
-            <CardDescription>Visible token mix across the current dataset.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {snapshot.tokenShares.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No token distribution data available yet.</p>
-            ) : snapshot.tokenShares.map((token) => (
-              <div key={token.symbol} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span>{token.symbol}</span>
-                  <span className="font-medium">{formatCompactAmount(token.amount, token.decimals)}</span>
-                </div>
-                <div className="h-2 rounded-full bg-muted">
-                  <div className="h-2 rounded-full bg-secondary" style={{ width: `${Math.max(8, (Number(token.amount) / Math.max(1, Number(snapshot.totalVolume))) * 100) || 0}%` }} />
-                </div>
-              </div>
       <Card>
         <CardHeader>
           <CardTitle>Network context</CardTitle>
-          <CardDescription>
-            Current public view and available tokens.
-          </CardDescription>
+          <CardDescription>Current public view and available tokens.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            This dashboard is built from the current app data and will be backed
-            by on-chain aggregation once a public index is available.
+            This dashboard is built from the current app data and will be backed by on-chain
+            aggregation once a public index is available.
           </p>
           <div className="flex flex-wrap gap-2">
             {tokens.map((token) => (
@@ -352,5 +249,5 @@ export default function AnalyticsPage() {
         </CardContent>
       </Card>
     </div>
-  );
+  )
 }

@@ -127,9 +127,16 @@ describe('useContract', () => {
   it('sets error and rethrows when createStream fails', async () => {
     vi.mocked(createStream).mockRejectedValueOnce(new Error('user rejected'))
     const { result } = renderHook(() => useContract())
-    await expect(act(() => result.current.createStream(makeInput()))).rejects.toThrow(
-      'user rejected',
-    )
+    let caught: unknown
+    await act(async () => {
+      try {
+        await result.current.createStream(makeInput())
+      } catch (err) {
+        caught = err
+      }
+    })
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toBe('user rejected')
     expect(result.current.error).toContain('Wallet error')
   })
 
@@ -154,7 +161,15 @@ describe('useContract', () => {
   it('sets error on withdraw failure', async () => {
     vi.mocked(withdrawFromStream).mockRejectedValueOnce(new Error('insufficient balance'))
     const { result } = renderHook(() => useContract())
-    await expect(act(() => result.current.withdraw('1', 100n))).rejects.toThrow()
+    let caught: unknown
+    await act(async () => {
+      try {
+        await result.current.withdraw('1', 100n)
+      } catch (err) {
+        caught = err
+      }
+    })
+    expect(caught).toBeInstanceOf(Error)
     expect(result.current.error).toContain('Input error')
   })
 

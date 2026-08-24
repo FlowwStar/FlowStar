@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
+import { renderHook, act } from '@testing-library/react'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 vi.mock('@/lib/contract', () => ({
@@ -177,13 +177,10 @@ describe('useAutoWithdraw', () => {
     })
 
     await act(async () => {
-      vi.advanceTimersByTime(60 * 60 * 1000 + 100)
-      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 100)
     })
 
-    await waitFor(() => {
-      expect(result.current.withdrawalHistory.length).toBeGreaterThan(0)
-    })
+    expect(result.current.withdrawalHistory.length).toBeGreaterThan(0)
     expect(result.current.withdrawalHistory[0].txHash).toBe('tx-success')
   })
 
@@ -196,13 +193,10 @@ describe('useAutoWithdraw', () => {
     })
 
     await act(async () => {
-      vi.advanceTimersByTime(60 * 60 * 1000 + 100)
-      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 100)
     })
 
-    await waitFor(() => {
-      expect(result.current.withdrawalHistory.length).toBeGreaterThan(0)
-    })
+    expect(result.current.withdrawalHistory.length).toBeGreaterThan(0)
     expect(result.current.withdrawalHistory[0].error).toContain('network timeout')
   })
 
@@ -285,11 +279,9 @@ describe('useAutoWithdraw', () => {
     })
 
     await act(async () => {
-      vi.advanceTimersByTime(60 * 60 * 1000 + 100)
-      await Promise.resolve()
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 100)
     })
 
-    await waitFor(() => expect(withdrawFromStream).toHaveBeenCalled())
     expect(withdrawFromStream).toHaveBeenCalledWith('stream-1', 200n, 'testnet')
   })
 })
