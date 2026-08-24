@@ -147,13 +147,18 @@ pub struct StreamMetadata {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+/// Parameters required to initialize and start a stream.
 pub struct CreateStreamParams {
+    /// Unique identifier for the stream recipient.
     pub recipient: Address,
     pub token: Address,
+    /// Total amount of tokens allocated for the stream duration.
     pub total_amount: i128,
+    /// Unix timestamp marking when token streaming begins.
     pub start_time: u64,
     pub end_time: u64,
     pub cliff_time: u64,
+    /// Amount of tokens unlocked immediately at start_time.
     pub cliff_amount: i128,
 }
 
@@ -281,8 +286,6 @@ pub struct UnpauseEvent {
     pub timestamp: u64,
 }
 
-
-
 // ─── Contract ────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -358,7 +361,11 @@ impl StreamingContract {
     /// Upgrade the contract wasm. Only callable by the admin.
     pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) -> Result<(), StreamError> {
         admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).ok_or(StreamError::NotInitialized)?;
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(StreamError::NotInitialized)?;
         if admin != stored_admin {
             return Err(StreamError::Unauthorized);
         }
@@ -975,8 +982,6 @@ impl StreamingContract {
 
         Ok(())
     }
-
-
 
     // ── Read: Stream data ────────────────────────────────────────────────────
 
