@@ -56,6 +56,7 @@ stellar keys fund deployer --network testnet
 ```
 
 The script will:
+
 1. Build the contract WASM (`stellar contract build`)
 2. Deploy to the specified network
 3. Print the new contract ID
@@ -113,14 +114,20 @@ You can also inspect the contract on [Stellar Expert](https://stellar.expert/exp
 
 ## Network configuration
 
-The network settings live in [lib/stellar.ts](lib/stellar.ts). For mainnet, update:
+Which network the app talks to is controlled by `NEXT_PUBLIC_STELLAR_NETWORK`
+(see `.env.local.example`). Set it to `mainnet` to point the app at the
+Stellar Public Network; omit it (or set it to anything else) to default to
+`testnet`. Because it's a `NEXT_PUBLIC_` variable, changing it requires a
+rebuild.
 
-| Field | Testnet | Mainnet |
-|---|---|---|
-| `name` | `testnet` | `mainnet` |
-| `passphrase` | `Test SDF Network ; September 2015` | `Public Global Stellar Network ; September 2015` |
-| `rpcUrl` | `https://soroban-testnet.stellar.org` | Your RPC provider URL |
-| `horizonUrl` | `https://horizon-testnet.stellar.org` | `https://horizon.stellar.org` |
+The per-network settings themselves live in [lib/stellar.ts](lib/stellar.ts). For mainnet, update:
+
+| Field        | Testnet                               | Mainnet                                          |
+| ------------ | ------------------------------------- | ------------------------------------------------ |
+| `name`       | `testnet`                             | `mainnet`                                        |
+| `passphrase` | `Test SDF Network ; September 2015`   | `Public Global Stellar Network ; September 2015` |
+| `rpcUrl`     | `https://soroban-testnet.stellar.org` | Your RPC provider URL                            |
+| `horizonUrl` | `https://horizon-testnet.stellar.org` | `https://horizon.stellar.org`                    |
 
 Update `KNOWN_TOKENS` addresses to match the mainnet token contracts.
 

@@ -40,7 +40,16 @@ const STELLAR_ADDRESS_LENGTH = 56
  * attempting an on-chain operation.
  */
 export function isValidStellarAddressShape(address: string): boolean {
-  return address.trim().startsWith(STELLAR_ADDRESS_PREFIX) && address.trim().length === STELLAR_ADDRESS_LENGTH
+  return (
+    address.trim().startsWith(STELLAR_ADDRESS_PREFIX) &&
+    address.trim().length === STELLAR_ADDRESS_LENGTH
+  )
+}
+
+/**
+ * Returns `true` when `address` is a structurally and checksum-valid
+ * Stellar Ed25519 public key (starts with `'G'`).
+ */
 export function isValidStellarAddress(address: string): boolean {
   return StrKey.isValidEd25519PublicKey(address.trim())
 }

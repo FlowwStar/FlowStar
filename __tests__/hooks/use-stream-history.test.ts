@@ -53,7 +53,7 @@ describe('useStreamHistory', () => {
       vi.mocked(global.fetch).mockReturnValue(fetchPromise as any)
 
       const { result } = renderHook(() => useStreamHistory('1'))
-      
+
       // Should be loading initially
       await waitFor(() => {
         expect(result.current.loading).toBe(true)
@@ -105,7 +105,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events).toHaveLength(1)
       expect(result.current.events[0].type).toBe('created')
       expect(result.current.events[0].description).toBe('Stream created')
@@ -132,7 +132,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events[0].type).toBe('created')
     })
 
@@ -157,7 +157,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events[0].type).toBe('withdrawal')
       expect(result.current.events[0].description).toBe('Withdrawal from stream')
     })
@@ -183,7 +183,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events[0].type).toBe('topup')
       expect(result.current.events[0].description).toBe('Stream topped up')
     })
@@ -209,7 +209,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events[0].type).toBe('topup')
     })
 
@@ -234,7 +234,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events[0].type).toBe('topup')
     })
 
@@ -259,7 +259,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events[0].type).toBe('transfer')
       expect(result.current.events[0].description).toBe('Stream transferred to new recipient')
     })
@@ -285,7 +285,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events[0].type).toBe('cancellation')
       expect(result.current.events[0].description).toBe('Stream cancelled')
     })
@@ -319,7 +319,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events).toHaveLength(1)
       expect(result.current.events[0].type).toBe('created')
     })
@@ -345,7 +345,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events[0].type).toBe('withdrawal')
     })
   })
@@ -373,14 +373,14 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       const event = result.current.events[0]
       expect(event).toHaveProperty('type')
       expect(event).toHaveProperty('txHash')
       expect(event).toHaveProperty('timestamp')
       expect(event).toHaveProperty('ledger')
       expect(event).toHaveProperty('description')
-      
+
       expect(event.type).toBe('created')
       expect(event.txHash).toBe('abc123')
       expect(event.timestamp).toBe(new Date(ledgerClosedAt).getTime())
@@ -390,7 +390,7 @@ describe('useStreamHistory', () => {
 
     it('handles missing ledgerClosedAt by using current time', async () => {
       const beforeTest = Date.now()
-      
+
       vi.mocked(global.fetch).mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -410,10 +410,10 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       const afterTest = Date.now()
       const event = result.current.events[0]
-      
+
       expect(event.timestamp).toBeGreaterThanOrEqual(beforeTest)
       expect(event.timestamp).toBeLessThanOrEqual(afterTest)
     })
@@ -438,7 +438,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events[0].txHash).toBe('')
     })
   })
@@ -481,7 +481,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events).toHaveLength(3)
       expect(result.current.events[0].type).toBe('withdrawal')
       expect(result.current.events[1].type).toBe('topup')
@@ -525,12 +525,12 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
-      const timestamps = result.current.events.map(e => e.timestamp)
+
+      const timestamps = result.current.events.map((e) => e.timestamp)
       for (let i = 0; i < timestamps.length - 1; i++) {
         expect(timestamps[i]).toBeGreaterThanOrEqual(timestamps[i + 1])
       }
-      
+
       expect(result.current.events[0].type).toBe('cancellation')
       expect(result.current.events[1].type).toBe('topup')
       expect(result.current.events[2].type).toBe('created')
@@ -548,7 +548,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events).toEqual([])
     })
 
@@ -562,7 +562,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events).toEqual([])
     })
 
@@ -574,7 +574,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events).toEqual([])
     })
   })
@@ -595,24 +595,22 @@ describe('useStreamHistory', () => {
         json: async () => {
           throw new Error('Invalid JSON')
         },
-      } as Response)
+      } as unknown as Response)
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events).toEqual([])
     })
 
     it('handles network timeout', async () => {
-      vi.mocked(global.fetch).mockImplementation(() => 
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('timeout')), 100)
-        )
+      vi.mocked(global.fetch).mockImplementation(
+        () => new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 100)),
       )
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false), { timeout: 2000 })
-      
+
       expect(result.current.events).toEqual([])
     })
 
@@ -625,7 +623,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events).toEqual([])
     })
 
@@ -638,7 +636,7 @@ describe('useStreamHistory', () => {
       // The hook should still call fetch with empty contractId
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(result.current.events).toEqual([])
     })
   })
@@ -652,19 +650,19 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       expect(global.fetch).toHaveBeenCalledWith(
         'https://rpc.testnet.example',
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: expect.stringContaining('"method":"getEvents"'),
-        })
+        }),
       )
 
       const callArgs = vi.mocked(global.fetch).mock.calls[0]
       const body = JSON.parse(callArgs[1]?.body as string)
-      
+
       expect(body.jsonrpc).toBe('2.0')
       expect(body.id).toBe(1)
       expect(body.method).toBe('getEvents')
@@ -699,7 +697,7 @@ describe('useStreamHistory', () => {
 
       const { result } = renderHook(() => useStreamHistory('1'))
       await waitFor(() => expect(result.current.loading).toBe(false))
-      
+
       const event = result.current.events[0]
       expect(event.ledger).toBe(12345)
       expect(event.txHash).toBe('abcdef123456')
@@ -714,16 +712,15 @@ describe('useStreamHistory', () => {
         json: async () => ({ result: { events: [] } }),
       } as Response)
 
-      const { result, rerender } = renderHook(
-        ({ id }) => useStreamHistory(id),
-        { initialProps: { id: '1' } }
-      )
-      
+      const { result, rerender } = renderHook(({ id }) => useStreamHistory(id), {
+        initialProps: { id: '1' },
+      })
+
       await waitFor(() => expect(result.current.loading).toBe(false))
       const firstCallCount = vi.mocked(global.fetch).mock.calls.length
 
       rerender({ id: '2' })
-      
+
       await waitFor(() => expect(result.current.loading).toBe(false))
       expect(vi.mocked(global.fetch).mock.calls.length).toBeGreaterThan(firstCallCount)
     })
@@ -734,18 +731,17 @@ describe('useStreamHistory', () => {
         json: async () => ({ result: { events: [] } }),
       } as Response)
 
-      const { result, rerender } = renderHook(
-        ({ id }) => useStreamHistory(id),
-        { initialProps: { id: '1' } }
-      )
-      
+      const { result, rerender } = renderHook(({ id }) => useStreamHistory(id), {
+        initialProps: { id: '1' },
+      })
+
       await waitFor(() => expect(result.current.loading).toBe(false))
       const callCount = vi.mocked(global.fetch).mock.calls.length
 
       rerender({ id: '1' })
-      
+
       // Small delay to ensure no additional calls
-      await new Promise(resolve => setTimeout(resolve, 50))
+      await new Promise((resolve) => setTimeout(resolve, 50))
       expect(vi.mocked(global.fetch).mock.calls.length).toBe(callCount)
     })
   })

@@ -78,20 +78,15 @@ describe('WebhookSettings – URL input', () => {
     expect(mockAddWebhook).not.toHaveBeenCalled()
   })
 
-  it('shows an error toast for an invalid URL', async () => {
-    const { toast } = await import('sonner')
+  it('shows an inline error for an invalid URL', async () => {
     setup()
     await userEvent.type(urlInput(), 'not-a-url')
     fireEvent.click(registerBtn())
     expect(mockAddWebhook).not.toHaveBeenCalled()
-    expect(toast.error).toHaveBeenCalledWith(
-      'Invalid URL',
-      expect.objectContaining({ description: expect.any(String) }),
-    )
+    expect(screen.getByText(/please enter a valid webhook url/i)).toBeInTheDocument()
   })
 
-  it('shows an error toast when no event type is selected', async () => {
-    const { toast } = await import('sonner')
+  it('shows an inline error when no event type is selected', async () => {
     setup()
     // Deselect all pre-selected events first
     const eventBtns = screen.getAllByRole('button', {
@@ -105,7 +100,7 @@ describe('WebhookSettings – URL input', () => {
     await userEvent.type(urlInput(), 'https://example.com/hook')
     fireEvent.click(registerBtn())
     expect(mockAddWebhook).not.toHaveBeenCalled()
-    expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/at least one event/i))
+    expect(screen.getByText(/at least one event/i)).toBeInTheDocument()
   })
 
   it('calls addWebhook with trimmed URL and selected events for a valid input', async () => {

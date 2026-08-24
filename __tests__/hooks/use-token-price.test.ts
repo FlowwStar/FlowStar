@@ -1,9 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { useTokenPrice, usePortfolioValue, formatUsd } from '@/hooks/use-token-price'
+import { formatUsd } from '@/hooks/use-token-price'
 import type { StreamData } from '@/types/stream'
 
 const originalFetch = global.fetch
+
+// The hook keeps its price cache in module-level state, so each test gets a
+// fresh module instance (and therefore an empty cache) instead of bleeding
+// cached prices into later tests.
+async function loadHook() {
+  const mod = await import('@/hooks/use-token-price')
+  return mod
+}
 
 describe('formatUsd', () => {
   it('formats sub-dollar values with 4 decimals', () => {
@@ -21,6 +29,7 @@ describe('formatUsd', () => {
 
 describe('useTokenPrice', () => {
   beforeEach(() => {
+    vi.resetModules()
     global.fetch = vi.fn()
   })
 
@@ -29,6 +38,7 @@ describe('useTokenPrice', () => {
   })
 
   it('returns a fixed $1 price for stablecoins without fetching', async () => {
+    const { useTokenPrice } = await loadHook()
     const { result } = renderHook(() => useTokenPrice('USDC'))
     await waitFor(() => {
       expect(result.current.usdPrice).toBe(1)
@@ -37,6 +47,7 @@ describe('useTokenPrice', () => {
   })
 
   it('returns null price for unknown, non-XLM symbols', async () => {
+    const { useTokenPrice } = await loadHook()
     const { result } = renderHook(() => useTokenPrice('SOME_UNKNOWN_TOKEN'))
     await waitFor(() => {
       expect(result.current.usdPrice).toBeNull()
@@ -45,6 +56,7 @@ describe('useTokenPrice', () => {
   })
 
   it('fetches and returns the XLM price', async () => {
+    const { useTokenPrice } = await loadHook()
     vi.mocked(global.fetch).mockResolvedValue({
       ok: true,
       json: async () => ({ price: 0.42 }),
@@ -57,6 +69,7 @@ describe('useTokenPrice', () => {
   })
 
   it('caches the fetched price', async () => {
+    const { useTokenPrice } = await loadHook()
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: true,
       json: async () => ({ price: 0.45 }),
@@ -66,7 +79,7 @@ describe('useTokenPrice', () => {
     await waitFor(() => {
       expect(result.current.usdPrice).toBe(0.45)
     })
-    
+
     unmount()
 
     // Second call should use cache, not call fetch
@@ -74,20 +87,22 @@ describe('useTokenPrice', () => {
     await waitFor(() => {
       expect(result2.current.usdPrice).toBe(0.45)
     })
-    
+
     expect(global.fetch).toHaveBeenCalledTimes(1)
   })
 
   it('handles error fallback by retaining the previous price if available', async () => {
+    const { useTokenPrice } = await loadHook()
+
     // 1. Initial successful fetch
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ price: 0.50 }),
+      json: async () => ({ price: 0.5 }),
     } as Response)
 
     const { result, unmount } = renderHook(() => useTokenPrice('XLM'))
     await waitFor(() => {
-      expect(result.current.usdPrice).toBe(0.50)
+      expect(result.current.usdPrice).toBe(0.5)
     })
     unmount()
 
@@ -100,13 +115,13 @@ describe('useTokenPrice', () => {
     vi.mocked(global.fetch).mockRejectedValueOnce(new Error('Network error'))
 
     const { result: result2 } = renderHook(() => useTokenPrice('XLM'))
-    
+
     await waitFor(() => {
       expect(result2.current.loading).toBe(false)
     })
 
     // The price should still be 0.50 from the previous successful fetch
-    expect(result2.current.usdPrice).toBe(0.50)
+    expect(result2.current.usdPrice).toBe(0.5)
 
     // Cleanup
     global.Date.now = realDateNow
@@ -115,6 +130,7 @@ describe('useTokenPrice', () => {
 
 describe('usePortfolioValue', () => {
   beforeEach(() => {
+    vi.resetModules()
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ price: 0.5 }),
@@ -126,12 +142,14 @@ describe('usePortfolioValue', () => {
   })
 
   it('returns totalUsd=0 for an empty stream list', async () => {
+    const { usePortfolioValue } = await loadHook()
     const { result } = renderHook(() => usePortfolioValue([]))
     expect(result.current.totalUsd).toBe(0)
     expect(result.current.loading).toBe(false)
   })
 
   it('sums locked USDC value across streams', async () => {
+    const { usePortfolioValue } = await loadHook()
     const streams: StreamData[] = [
       {
         id: '1',
@@ -157,6 +175,7 @@ describe('usePortfolioValue', () => {
   })
 
   it('shows USD value for known tokens and ignores unknown tokens', async () => {
+    const { usePortfolioValue } = await loadHook()
     const streams: StreamData[] = [
       {
         id: '1',
@@ -199,6 +218,7 @@ describe('usePortfolioValue', () => {
   })
 
   it('returns null when all streams use unknown tokens', async () => {
+    const { usePortfolioValue } = await loadHook()
     const streams: StreamData[] = [
       {
         id: '1',

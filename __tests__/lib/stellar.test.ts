@@ -109,7 +109,7 @@ describe('explorerUrl', () => {
     it('ends with the provided ID', () => {
       const id = 'GABC123XYZ'
       const url = explorerUrl('testnet', 'account', id)
-      expect(url).toEndWith(id)
+      expect(url.endsWith(id)).toBe(true)
     })
   })
 
@@ -126,7 +126,7 @@ describe('explorerUrl', () => {
           expect(url).toContain('https://stellar.expert/explorer/')
           expect(url).toContain(network === 'testnet' ? '/testnet/' : '/public/')
           expect(url).toContain(`/${type}/`)
-          expect(url).toEndWith(testId)
+          expect(url.endsWith(testId)).toBe(true)
         }
       }
     })
