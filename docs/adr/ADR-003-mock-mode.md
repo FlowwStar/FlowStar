@@ -10,9 +10,9 @@ Developing against the live Soroban testnet requires a funded Freighter wallet, 
 
 ## Decision
 
-The app supports a **mock contract layer** controlled by the `USE_MOCK` flag in `lib/contract.ts`. When enabled, all contract calls are intercepted and served from an in-memory store in `lib/mock-data.ts`. The mock layer implements the same TypeScript interface as the real contract integration so the rest of the app is unaware of the substitution.
+The app supports a **mock contract layer** that is automatically selected when the active network has no `NEXT_PUBLIC_STREAM_CONTRACT_ID_{NETWORK}` environment variable configured, as determined in `lib/contract.ts`. When no contract ID is set, contract calls are served from an in-memory store in `lib/mock-data.ts`. The mock layer implements the same TypeScript interface as the real contract integration so the rest of the app is unaware of the substitution.
 
-Mock mode is the default in development (`NODE_ENV === 'development'`) and is always disabled in production builds.
+Mock mode is active whenever the selected network has no contract ID configured, regardless of environment.
 
 ## Consequences
 

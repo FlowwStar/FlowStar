@@ -12,7 +12,7 @@ export function ThemeToggle() {
 
   // Avoid hydration mismatch — only render after mount
   useEffect(() => setMounted(true), [])
-  if (!mounted) return <div className="w-9 h-9" />
+  if (!mounted) return null
 
   const cycle = () => {
     const idx = MODES.indexOf((theme as (typeof MODES)[number]) ?? 'system')
