@@ -79,6 +79,7 @@ export function StreamTemplates({ onSelect, selectedId }: StreamTemplatesProps) 
               key={tpl.id}
               type="button"
               onClick={() => onSelect(tpl)}
+              aria-pressed={isSelected}
               className={
                 'flex flex-col items-start gap-2 rounded-xl border p-3 text-left transition-all hover:border-primary hover:shadow-sm ' +
                 (isSelected

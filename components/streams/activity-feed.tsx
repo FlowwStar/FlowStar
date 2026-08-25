@@ -11,6 +11,7 @@ import {
   Activity,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { formatTimeAgo } from '@/lib/stream-utils'
 import { useActivityFeed, type ActivityEventType } from '@/hooks/use-activity-feed'
 
 const EVENT_ICONS: Record<ActivityEventType, React.ElementType> = {
@@ -39,15 +40,6 @@ const ALL_TYPES: { value: ActivityEventType | 'all'; label: string }[] = [
   { value: 'stream.completed', label: 'Completed' },
 ]
 
-function relativeTime(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`
-  return new Date(ts).toLocaleDateString()
-}
-
 function absoluteTime(ts: number): string {
   return new Date(ts).toLocaleString()
 }
@@ -66,36 +58,44 @@ export function ActivityFeed({ walletAddress }: ActivityFeedProps) {
       {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="flex flex-wrap gap-1">
-          {ALL_TYPES.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              onClick={() => setFilter((f) => ({ ...f, eventType: t.value }))}
-              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                filter.eventType === t.value
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border text-muted-foreground hover:border-foreground'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+          {ALL_TYPES.map((t) => {
+            const isActive = filter.eventType === t.value
+            return (
+              <button
+                key={t.value}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => setFilter((f) => ({ ...f, eventType: t.value }))}
+                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                  isActive
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border text-muted-foreground hover:border-foreground'
+                }`}
+              >
+                {t.label}
+              </button>
+            )
+          })}
         </div>
         <div className="flex gap-1 ml-auto">
-          {(['all', 'sent', 'received'] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setFilter((f) => ({ ...f, role: r }))}
-              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                filter.role === r
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-border text-muted-foreground hover:border-foreground'
-              }`}
-            >
-              {r.charAt(0).toUpperCase() + r.slice(1)}
-            </button>
-          ))}
+          {(['all', 'sent', 'received'] as const).map((r) => {
+            const isActive = filter.role === r
+            return (
+              <button
+                key={r}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => setFilter((f) => ({ ...f, role: r }))}
+                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                  isActive
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border text-muted-foreground hover:border-foreground'
+                }`}
+              >
+                {r.charAt(0).toUpperCase() + r.slice(1)}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -125,7 +125,7 @@ export function ActivityFeed({ walletAddress }: ActivityFeedProps) {
                   title={absoluteTime(event.timestamp)}
                   className="text-xs text-muted-foreground shrink-0 tabular-nums"
                 >
-                  {relativeTime(event.timestamp)}
+                  {formatTimeAgo(event.timestamp)}
                 </time>
               </Link>
             )

@@ -13,7 +13,14 @@ interface TokenShare {
   symbol: string
   amount: bigint
   count: number
+  decimals: number
 }
+
+/** Scale factor: pixels per unit count for the bar chart width */
+const PIXELS_PER_COUNT = 20
+
+/** Minimum bar width in pixels so very small values are still visible */
+const MIN_BAR_WIDTH_PX = 8
 
 interface Props {
   series: SeriesPoint[]
@@ -29,23 +36,32 @@ export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }:
         <Card>
           <CardHeader>
             <CardTitle>Streams created over time</CardTitle>
-            <CardDescription>Daily stream creation activity for the selected window.</CardDescription>
+            <CardDescription>
+              Daily stream creation activity for the selected window.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {series.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No stream activity yet for this period.</p>
-              ) : series.map((point) => (
-                <div key={point.label} className="space-y-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <span>{point.label}</span>
-                    <span className="font-medium">{point.count}</span>
+                <p className="text-sm text-muted-foreground">
+                  No stream activity yet for this period.
+                </p>
+              ) : (
+                series.map((point) => (
+                  <div key={point.label} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span>{point.label}</span>
+                      <span className="font-medium">{point.count}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted">
+                      <div
+                        className="h-2 rounded-full bg-primary"
+                        style={{ width: `${Math.min(100, point.count * PIXELS_PER_COUNT)}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full bg-muted">
-                    <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.min(100, point.count * 20)}%` }} />
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
@@ -58,15 +74,22 @@ export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }:
           <CardContent className="space-y-3">
             {topTokens.length === 0 ? (
               <p className="text-sm text-muted-foreground">No volume data yet.</p>
-            ) : topTokens.map((token) => (
-              <div key={token.symbol} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                <div>
-                  <p className="font-medium">{token.symbol}</p>
-                  <p className="text-xs text-muted-foreground">{token.count} streams</p>
+            ) : (
+              topTokens.map((token) => (
+                <div
+                  key={token.symbol}
+                  className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
+                >
+                  <div>
+                    <p className="font-medium">{token.symbol}</p>
+                    <p className="text-xs text-muted-foreground">{token.count} streams</p>
+                  </div>
+                  <Badge variant="secondary">
+                    {formatTokenAmount(token.amount, token.decimals)} {token.symbol}
+                  </Badge>
                 </div>
-                <Badge variant="secondary">{formatTokenAmount(token.amount, 7)} {token.symbol}</Badge>
-              </div>
-            ))}
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
@@ -79,23 +102,29 @@ export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }:
           </CardHeader>
           <CardContent className="space-y-3">
             {tokenShares.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No token distribution data available yet.</p>
-            ) : tokenShares.map((token) => (
-              <div key={token.symbol} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span>{token.symbol}</span>
-                  <span className="font-medium">{formatTokenAmount(token.amount, 7)}</span>
+              <p className="text-sm text-muted-foreground">
+                No token distribution data available yet.
+              </p>
+            ) : (
+              tokenShares.map((token) => (
+                <div key={token.symbol} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>{token.symbol}</span>
+                    <span className="font-medium">
+                      {formatTokenAmount(token.amount, token.decimals)}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted">
+                    <div
+                      className="h-2 rounded-full bg-secondary"
+                      style={{
+                        width: `${Math.max(MIN_BAR_WIDTH_PX, (Number(token.amount) / Math.max(1, Number(totalVolume))) * 100) || 0}%`,
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 rounded-full bg-muted">
-                  <div
-                    className="h-2 rounded-full bg-secondary"
-                    style={{
-                      width: `${Math.max(8, (Number(token.amount) / Math.max(1, Number(totalVolume))) * 100) || 0}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </CardContent>
         </Card>
       </div>

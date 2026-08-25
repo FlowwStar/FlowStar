@@ -28,9 +28,8 @@ export default function SettingsPage() {
           <h2 className="text-lg font-medium mb-4">Webhooks</h2>
           <p className="text-sm text-muted-foreground mb-6">
             Register webhook URLs to receive HTTP POST notifications when stream events occur.
-            Webhooks are stored per-wallet in your browser. Use{' '}
-            <code className="text-xs bg-muted px-1 py-0.5 rounded">--no-verify</code> or the
-            toggle to temporarily disable a webhook without deleting it.
+            Webhooks are stored per-wallet in your browser. Use the toggle to temporarily
+            disable a webhook without deleting it.
           </p>
           <WebhookSettings />
         </section>

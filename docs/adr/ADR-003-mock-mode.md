@@ -19,6 +19,9 @@ const isMockMode = !config.streamContractId
 `config.streamContractId` is populated from `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` (or `_MAINNET` on mainnet). When that env var is absent or empty, `isMockMode` is `true` and all contract calls are intercepted and served from an in-memory store in `lib/mock-data.ts`. The mock layer implements the same TypeScript interface as the real contract integration so the rest of the app is unaware of the substitution.
 
 Mock mode is not tied to `NODE_ENV`. It activates whenever the contract ID env var is missing — in any environment, including production if the var is not set.
+The app supports a **mock contract layer** that is automatically selected when the active network has no `NEXT_PUBLIC_STREAM_CONTRACT_ID_{NETWORK}` environment variable configured, as determined in `lib/contract.ts`. When no contract ID is set, contract calls are served from an in-memory store in `lib/mock-data.ts`. The mock layer implements the same TypeScript interface as the real contract integration so the rest of the app is unaware of the substitution.
+
+Mock mode is active whenever the selected network has no contract ID configured, regardless of environment.
 
 ## Consequences
 

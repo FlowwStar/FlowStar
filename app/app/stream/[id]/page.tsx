@@ -56,10 +56,12 @@ import {
   parseTokenAmount,
   shortenAddress,
   formatRate,
+  SECONDS_PER_DAY,
 } from "@/lib/stream-utils";
 import { explorerUrl } from "@/lib/stellar";
 import { useNetwork } from "@/components/providers/network-provider";
 import { useAutoWithdraw } from "@/hooks/use-auto-withdraw";
+import { useTokenPrice } from "@/hooks/use-token-price";
 import { UnlockChart } from "@/components/streams/unlock-chart";
 import { StreamTimeline } from "@/components/streams/stream-timeline";
 import { DownloadReceiptButton } from "@/components/streams/download-receipt-button";
@@ -144,6 +146,7 @@ function WithdrawDialog({
 }) {
   const { withdraw, pending, error } = useContract();
   const { network } = useNetwork();
+  const { usdPrice: xlmPrice } = useTokenPrice("XLM");
   const [inputAmount, setInputAmount] = useState("");
   const [showFeeEstimate, setShowFeeEstimate] = useState(false);
 
@@ -155,9 +158,9 @@ function WithdrawDialog({
 
   // Calculate estimated fees
   const estimatedFee = TYPICAL_FEES.withdraw.typical;
-  const feeBreakdown = calculateFeeBreakdown(estimatedFee);
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined);
   const withdrawFeeHigh = isHighFee(
-    estimatedFee,
+    feeBreakdown.totalEstimated,
     TYPICAL_FEES.withdraw.typical,
   );
 
@@ -284,11 +287,12 @@ function CancelDialog({
   const { cancel, pending, error } = useContract();
   const { network } = useNetwork();
   const router = useRouter();
+  const { usdPrice: xlmPrice } = useTokenPrice("XLM");
   const [showFeeEstimate, setShowFeeEstimate] = useState(false);
 
   const estimatedFee = TYPICAL_FEES.cancel.typical;
-  const feeBreakdown = calculateFeeBreakdown(estimatedFee);
-  const cancelFeeHigh = isHighFee(estimatedFee, TYPICAL_FEES.cancel.typical);
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined);
+  const cancelFeeHigh = isHighFee(feeBreakdown.totalEstimated, TYPICAL_FEES.cancel.typical);
 
   async function handleCancel() {
     try {
@@ -454,6 +458,7 @@ function AutoWithdrawSection({
                   key={opt.value}
                   type="button"
                   onClick={() => updateSettings({ strategy: opt.value })}
+                  aria-pressed={settings.strategy === opt.value}
                   className={
                     "w-full text-left p-3 rounded-lg border transition-colors " +
                     (settings.strategy === opt.value
@@ -479,6 +484,7 @@ function AutoWithdrawSection({
                     key={opt.hours}
                     type="button"
                     onClick={() => updateSettings({ intervalHours: opt.hours })}
+                    aria-pressed={settings.intervalHours === opt.hours}
                     className={
                       "rounded-full border px-3 py-1 text-xs font-medium transition-colors " +
                       (settings.intervalHours === opt.hours
@@ -586,6 +592,7 @@ function AutoWithdrawSection({
               <button
                 onClick={() => setShowHistory(!showHistory)}
                 className="text-xs text-primary hover:underline"
+                aria-expanded={showHistory}
               >
                 {showHistory ? "Hide" : "Show"} withdrawal history (
                 {withdrawalHistory.length})
@@ -635,7 +642,7 @@ function estimateDaysSinceLastWrite(
       : stream.cancelled
         ? now
         : stream.startTime;
-  return Number(now - lastWrite) / 86400;
+  return Number(now - lastWrite) / SECONDS_PER_DAY;
 }
 
 function TtlWarning({

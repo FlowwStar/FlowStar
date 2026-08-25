@@ -31,22 +31,6 @@ function decodeEventType(topics: string[]): TimelineEventType | null {
   return null
 }
 
-interface HorizonOperation {
-  type: string
-  transaction_hash: string
-  created_at: string
-  amount?: string
-  from?: string
-  to?: string
-}
-
-interface HorizonEffect {
-  type: string
-  created_at: string
-  amount?: string
-  account?: string
-}
-
 interface HorizonTransaction {
   hash: string
   ledger: number

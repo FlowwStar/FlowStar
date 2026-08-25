@@ -39,9 +39,7 @@ export function Navbar() {
         <nav className="hidden items-center gap-1 md:flex">
           {NAV_LINKS.map((link) => {
             const active =
-              link.href === '/app'
-                ? pathname === '/app'
-                : pathname.startsWith(link.href)
+              link.href === '/app' ? pathname === '/app' : pathname.startsWith(link.href)
             return (
               <Link
                 key={link.href}
@@ -60,33 +58,38 @@ export function Navbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="gap-1.5"
-            disabled={networkMismatch}
-          >
-            <Link href="/app/create">
+          {networkMismatch ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5"
+              disabled
+              aria-label="New stream (unavailable — wallet is on the wrong network)"
+            >
               <Plus className="size-4" />
               <span className="hidden sm:inline">New stream</span>
-            </Link>
-          </Button>
+            </Button>
+          ) : (
+            <Button asChild variant="ghost" size="sm" className="gap-1.5">
+              <Link href="/app/create">
+                <Plus className="size-4" />
+                <span className="hidden sm:inline">New stream</span>
+              </Link>
+            </Button>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="gap-1.5">
                 <Network className="size-4" />
-                <span className="hidden sm:inline">{network === 'mainnet' ? 'Mainnet' : 'Testnet'}</span>
+                <span className="hidden sm:inline">
+                  {network === 'mainnet' ? 'Mainnet' : 'Testnet'}
+                </span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => setNetwork('testnet')}>
-                Testnet
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setNetwork('mainnet')}>
-                Mainnet
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setNetwork('testnet')}>Testnet</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setNetwork('mainnet')}>Mainnet</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -125,7 +128,8 @@ export function Navbar() {
           <AlertTriangle className="size-4 shrink-0" />
           <span>
             Your wallet is on <strong>{walletNetwork}</strong> — please switch to{' '}
-            <strong>{network}</strong> in Freighter settings. Transactions are disabled until you switch.
+            <strong>{network}</strong> in Freighter settings. Transactions are disabled until you
+            switch.
           </span>
         </div>
       )}
@@ -133,10 +137,7 @@ export function Navbar() {
       {/* Mobile nav */}
       <nav className="flex items-center gap-1 border-t border-border px-4 py-2 md:hidden">
         {NAV_LINKS.map((link) => {
-          const active =
-            link.href === '/app'
-              ? pathname === '/app'
-              : pathname.startsWith(link.href)
+          const active = link.href === '/app' ? pathname === '/app' : pathname.startsWith(link.href)
           return (
             <Link
               key={link.href}

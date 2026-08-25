@@ -1,7 +1,7 @@
 import type { StreamData } from '@/types/stream'
-import { formatTokenAmount, getStreamStatus } from '@/lib/stream-utils'
+import { formatTokenAmount, getStreamStatus, SECONDS_PER_DAY } from '@/lib/stream-utils'
 
-const SECONDS_PER_DAY = BigInt(86400)
+const SECONDS_PER_DAY_BIGINT = BigInt(SECONDS_PER_DAY)
 const DAYS_PER_MONTH = BigInt(30)
 
 function unixToISO(seconds: bigint): string {
@@ -36,6 +36,10 @@ const HEADERS = [
   'Rate (per month)',
 ]
 
+/**
+ * Convert streams to CSV with identity, token, amount, date, cliff, and rate columns.
+ * A zero cliff time or cliff amount is represented by an empty CSV field.
+ */
 export function streamsToCSV(
   streams: StreamData[],
   nowSeconds: number = Math.floor(Date.now() / 1000),
@@ -47,9 +51,9 @@ export function streamsToCSV(
     const status = getStreamStatus(s, nowSeconds)
     const remaining = s.depositedAmount - s.withdrawnAmount
 
-    const ratePerDay = formatTokenAmount(s.amountPerSecond * SECONDS_PER_DAY, decimals, 6)
+    const ratePerDay = formatTokenAmount(s.amountPerSecond * SECONDS_PER_DAY_BIGINT, decimals, 6)
     const ratePerMonth = formatTokenAmount(
-      s.amountPerSecond * SECONDS_PER_DAY * DAYS_PER_MONTH,
+      s.amountPerSecond * SECONDS_PER_DAY_BIGINT * DAYS_PER_MONTH,
       decimals,
       6,
     )
@@ -78,6 +82,7 @@ export function streamsToCSV(
   return lines.join('\n')
 }
 
+/** Download CSV content as a file in the browser. */
 export function downloadCSV(csv: string, filename: string): void {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)

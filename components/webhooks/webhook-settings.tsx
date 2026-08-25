@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { Plus, Trash2, ToggleLeft, ToggleRight, Send, CheckCircle2, XCircle } from 'lucide-react'
@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { formatTimeAgo } from '@/lib/stream-utils'
 import { useWebhooks, type WebhookEventType } from '@/hooks/use-webhooks'
 
 const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
@@ -17,19 +18,12 @@ const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
   { value: 'stream.transferred', label: 'Transferred' },
 ]
 
-function formatRelative(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
-
 export function WebhookSettings() {
-  const { webhooks, history, addWebhook, removeWebhook, toggleWebhook, testWebhook } =
-    useWebhooks()
+  const { webhooks, history, addWebhook, removeWebhook, toggleWebhook, testWebhook } = useWebhooks()
 
   const [url, setUrl] = useState('')
+  const [urlError, setUrlError] = useState('')
+  const [eventsError, setEventsError] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<WebhookEventType[]>([
     'stream.created',
     'stream.withdrawal',
@@ -40,20 +34,25 @@ export function WebhookSettings() {
 
   function toggleEvent(event: WebhookEventType) {
     setSelectedEvents((prev) =>
-      prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event]
+      prev.includes(event) ? prev.filter((e) => e !== event) : [...prev, event],
     )
+    if (eventsError) setEventsError('')
   }
 
   function handleAdd() {
-    if (!url.trim()) return
+    if (!url.trim()) {
+      setUrlError('URL is required')
+      return
+    }
     try {
       new URL(url.trim())
+      setUrlError('')
     } catch {
-      toast.error('Invalid URL', { description: 'Please enter a valid webhook URL.' })
+      setUrlError('Please enter a valid webhook URL')
       return
     }
     if (selectedEvents.length === 0) {
-      toast.error('Select at least one event type.')
+      setEventsError('Select at least one event type')
       return
     }
     addWebhook(url.trim(), selectedEvents)
@@ -85,28 +84,37 @@ export function WebhookSettings() {
             type="url"
             placeholder="https://your-service.com/webhook"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={(e) => {
+              setUrl(e.target.value)
+              if (urlError) setUrlError('')
+            }}
           />
+          {urlError && <p className="text-sm text-destructive">{urlError}</p>}
         </div>
 
         <div className="space-y-2">
           <Label>Event types</Label>
           <div className="flex flex-wrap gap-2">
-            {ALL_EVENTS.map((ev) => (
-              <button
-                key={ev.value}
-                type="button"
-                onClick={() => toggleEvent(ev.value)}
-                className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                  selectedEvents.includes(ev.value)
-                    ? 'border-primary bg-primary text-primary-foreground'
-                    : 'border-border text-muted-foreground hover:border-foreground'
-                }`}
-              >
-                {ev.label}
-              </button>
-            ))}
+            {ALL_EVENTS.map((ev) => {
+              const isSelected = selectedEvents.includes(ev.value)
+              return (
+                <button
+                  key={ev.value}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => toggleEvent(ev.value)}
+                  className={
+                    isSelected
+                      ? 'rounded-full border border-primary bg-primary px-3 py-1 text-xs text-primary-foreground transition-colors'
+                      : 'rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-foreground'
+                  }
+                >
+                  {ev.label}
+                </button>
+              )
+            })}
           </div>
+          {eventsError && <p className="text-sm text-destructive">{eventsError}</p>}
         </div>
 
         <Button onClick={handleAdd} className="gap-1.5">
@@ -125,7 +133,9 @@ export function WebhookSettings() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-mono">{hook.url}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {hook.events.map((e) => ALL_EVENTS.find((x) => x.value === e)?.label).join(', ')}
+                    {hook.events
+                      .map((e) => ALL_EVENTS.find((x) => x.value === e)?.label)
+                      .join(', ')}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -185,7 +195,7 @@ export function WebhookSettings() {
                 </div>
                 <div className="flex items-center gap-3 text-muted-foreground text-xs">
                   {d.statusCode && <span>{d.statusCode}</span>}
-                  <span>{formatRelative(d.deliveredAt)}</span>
+                  <span>{formatTimeAgo(d.deliveredAt)}</span>
                 </div>
               </div>
             ))}

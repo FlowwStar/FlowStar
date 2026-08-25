@@ -13,7 +13,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { useStreamHistory, type TimelineEvent, type TimelineEventType } from '@/hooks/use-stream-history'
-import { explorerUrl } from '@/lib/stellar'
+import { explorerUrl, type NetworkName } from '@/lib/stellar'
 import { useNetwork } from '@/components/providers/network-provider'
 
 function eventIcon(type: TimelineEventType) {
@@ -64,10 +64,10 @@ function shortenHash(hash: string): string {
 interface TimelineItemProps {
   event: TimelineEvent
   isLast: boolean
-  explorerBase: string
+  network: NetworkName
 }
 
-function TimelineItem({ event, isLast, explorerBase }: TimelineItemProps) {
+function TimelineItem({ event, isLast, network }: TimelineItemProps) {
   return (
     <div className="flex gap-3">
       {/* Icon + line */}
@@ -98,7 +98,7 @@ function TimelineItem({ event, isLast, explorerBase }: TimelineItemProps) {
             </span>
             {event.txHash && (
               <a
-                href={explorerBase + event.txHash}
+                href={explorerUrl(network, 'tx', event.txHash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-mono"
@@ -122,8 +122,6 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
   const { events, loading, refetch } = useStreamHistory(streamId)
   const { network } = useNetwork()
   const [collapsed, setCollapsed] = useState(false)
-
-  const explorerBase = `https://stellar.expert/explorer/${network === 'testnet' ? 'testnet' : 'public'}/tx/`
 
   const displayEvents = collapsed ? events.slice(0, 3) : events
 
@@ -162,13 +160,13 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
           </p>
         </div>
       ) : (
-        <div>
+        <div id={`timeline-events-${streamId}`}>
           {displayEvents.map((event, i) => (
             <TimelineItem
               key={`${event.txHash}-${event.timestamp}-${i}`}
               event={event}
               isLast={i === displayEvents.length - 1}
-              explorerBase={explorerBase}
+              network={network}
             />
           ))}
 
@@ -177,6 +175,8 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
               type="button"
               onClick={() => setCollapsed((v) => !v)}
               className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              aria-expanded={!collapsed}
+              aria-controls={`timeline-events-${streamId}`}
             >
               {collapsed ? (
                 <>

@@ -24,7 +24,7 @@ environment. Thanks for your interest in contributing!
 ```bash
 git clone https://github.com/FlowwStar/FlowStar.git
 cd FlowStar
-npm install   # also installs Husky pre-commit hooks via prepare script
+npm install --legacy-peer-deps   # also installs Husky pre-commit hooks via prepare script
 ```
 
 ### 2. Configure environment variables
@@ -97,7 +97,7 @@ chore: bump soroban-sdk to v26 (#101)
 
 1. Fork the repo (external contributors) or create a branch (maintainers).
 2. Open a pull request against `main`.
-3. Fill in the PR template — summary, what was tested, any caveats.
+3. Write a clear PR description — summary, what was tested, any caveats.
 4. A maintainer will review. Address feedback by pushing new commits (don't
    force-push during review).
 5. PRs are squash-merged once approved and CI passes.
@@ -120,7 +120,6 @@ utility functions.
 
 ```bash
 npm run test:e2e       # headless
-npm run test:e2e:ui    # interactive UI mode
 ```
 
 E2E tests require a running dev server (`npm run dev` in a separate terminal)
@@ -228,7 +227,7 @@ if any HIGH-severity issue is found. Fix all `❌ HIGH` findings before merging;
 ### TypeScript
 
 - Linting: ESLint (`npm run lint`) with config in `eslint.config.mjs`
-- Formatting: Prettier (`npm run format`) with config in `.lintstagedrc`
+- Formatting: Prettier with config in `.lintstagedrc`
 - Hooks in `hooks/`, utilities in `lib/`, page components in `app/`, shared
   components in `components/` under the appropriate subdirectory (`ui/`,
   `streams/`, `layout/`, `landing/`)
