@@ -1,8 +1,8 @@
 'use client'
 
-import { Suspense, useCallback } from 'react'
+import { Suspense, useCallback, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Search, Download } from 'lucide-react'
+import { Search, Download, ListChecks, ArrowDownToLine, Ban, X } from 'lucide-react'
 import { RequireWallet } from '@/components/layout/require-wallet'
 import { Button } from '@/components/ui/button'
 import { streamsToCSV, downloadCSV } from '@/lib/export'
@@ -11,7 +11,11 @@ import { EmptyStreams } from '@/components/streams/empty-state'
 import { Input } from '@/components/ui/input'
 import { useStreams } from '@/hooks/use-streams'
 import { useNow } from '@/hooks/use-now'
-import { getStreamStatus } from '@/lib/stream-utils'
+import { useWallet } from '@/hooks/use-wallet'
+import { useContract } from '@/hooks/use-contract'
+import { useBulkSelect } from '@/hooks/use-bulk-select'
+import { useBulkActions } from '@/hooks/use-bulk-actions'
+import { getStreamStatus, getWithdrawableAmount } from '@/lib/stream-utils'
 import type { StreamStatus } from '@/types/stream'
 
 const STATUS_FILTERS: { label: string; value: StreamStatus | 'all' }[] = [
@@ -29,6 +33,9 @@ function StreamsPage() {
   const searchParams = useSearchParams()
   const { all } = useStreams()
   const now = useNow(5000)
+  const { address } = useWallet()
+  const { withdraw, cancel } = useContract()
+  const [selectMode, setSelectMode] = useState(false)
 
   const search = searchParams.get('q') ?? ''
   const statusFilter = (searchParams.get('status') ?? 'all') as StreamStatus | 'all'
@@ -67,6 +74,49 @@ function StreamsPage() {
 
   const hasFilters = search || statusFilter !== 'all' || tokenFilter !== 'all'
 
+  const { selected, selectedItems, allSelected, someSelected, toggle, toggleAll, clear } =
+    useBulkSelect(filtered)
+  const {
+    status: bulkStatus,
+    results: bulkResults,
+    succeeded,
+    failed,
+    runBulk,
+    reset,
+  } = useBulkActions()
+
+  const eligibleWithdrawIds = selectedItems
+    .filter((s) => s.recipient === address && getWithdrawableAmount(s, now) > 0n)
+    .map((s) => s.id)
+  const eligibleCancelIds = selectedItems
+    .filter((s) => s.sender === address && !s.cancelled && getStreamStatus(s, now) !== 'completed')
+    .map((s) => s.id)
+
+  const isBulkRunning = bulkStatus === 'running'
+  const showBulkResults = bulkStatus === 'done' && bulkResults.length > 0
+
+  const exitSelectMode = () => {
+    setSelectMode(false)
+    clear()
+    reset()
+  }
+
+  const handleBulkWithdraw = async () => {
+    reset()
+    await runBulk(eligibleWithdrawIds, async (id) => {
+      const stream = filtered.find((s) => s.id === id)
+      if (!stream) return
+      await withdraw(id, getWithdrawableAmount(stream, now))
+    })
+  }
+
+  const handleBulkCancel = async () => {
+    reset()
+    await runBulk(eligibleCancelIds, async (id) => {
+      await cancel(id)
+    })
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -88,6 +138,84 @@ function StreamsPage() {
           Download CSV
         </Button>
       </div>
+
+      {/* Bulk select toggle */}
+      <div className="flex items-center justify-between gap-3">
+        <Button
+          variant={selectMode ? 'default' : 'outline'}
+          size="sm"
+          className="gap-1.5"
+          disabled={filtered.length === 0}
+          onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+          data-testid="bulk-select-toggle"
+        >
+          <ListChecks className="size-4" />
+          {selectMode ? 'Done selecting' : 'Select'}
+        </Button>
+
+        {selectMode && (
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+              className="size-4 accent-primary"
+              data-testid="bulk-select-all"
+            />
+            Select all ({filtered.length})
+          </label>
+        )}
+      </div>
+
+      {/* Bulk action bar */}
+      {selectMode && someSelected && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3">
+          <span className="text-sm font-medium" data-testid="bulk-selected-count">
+            {selected.size} selected
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={eligibleWithdrawIds.length === 0 || isBulkRunning}
+            onClick={handleBulkWithdraw}
+            data-testid="bulk-withdraw-button"
+          >
+            <ArrowDownToLine className="size-4" />
+            Withdraw ({eligibleWithdrawIds.length})
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={eligibleCancelIds.length === 0 || isBulkRunning}
+            onClick={handleBulkCancel}
+            data-testid="bulk-cancel-button"
+          >
+            <Ban className="size-4" />
+            Cancel ({eligibleCancelIds.length})
+          </Button>
+          <Button size="sm" variant="ghost" className="gap-1.5" onClick={clear}>
+            <X className="size-4" />
+            Clear
+          </Button>
+        </div>
+      )}
+
+      {/* Bulk action results */}
+      {showBulkResults && (
+        <div
+          className="flex items-center justify-between rounded-xl border border-border bg-card p-3 text-sm"
+          data-testid="bulk-results"
+        >
+          <span>
+            {succeeded} succeeded, {failed} failed
+          </span>
+          <Button size="sm" variant="ghost" onClick={reset}>
+            Dismiss
+          </Button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col gap-3">
@@ -149,7 +277,11 @@ function StreamsPage() {
         hasFilters ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
             <p className="text-sm font-medium">No streams match your filters</p>
-            <button type="button" onClick={clearFilters} className="mt-2 text-xs text-primary hover:underline">
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="mt-2 text-xs text-primary hover:underline"
+            >
               Clear filters
             </button>
           </div>
@@ -159,7 +291,13 @@ function StreamsPage() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {filtered.map((s) => (
-            <StreamCard key={s.id} stream={s} />
+            <StreamCard
+              key={s.id}
+              stream={s}
+              selectable={selectMode}
+              selected={selected.has(s.id)}
+              onToggleSelect={toggle}
+            />
           ))}
         </div>
       )}
