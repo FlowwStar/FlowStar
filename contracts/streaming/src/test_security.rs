@@ -1221,7 +1221,7 @@ fn test_top_up_dust_returns_rate_is_zero() {
 
 /// Reject stream with contract's own address as recipient.
 #[test]
-#[should_panic(expected = "recipient cannot be the contract itself")]
+#[should_panic(expected = "Error(Contract, #18)")]
 fn test_recipient_is_contract_rejected() {
     let ctx = Ctx::new();
     let now = 1_000_000u64;

@@ -1170,6 +1170,8 @@ impl StreamingContract {
         env.storage()
             .persistent()
             .remove(&DataKey::Delegate(stream_id));
+
+        Ok(())
     }
 
     // ── Write: Bump TTL ──────────────────────────────────────────────────────
