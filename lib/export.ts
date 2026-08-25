@@ -36,6 +36,10 @@ const HEADERS = [
   'Rate (per month)',
 ]
 
+/**
+ * Convert streams to CSV with identity, token, amount, date, cliff, and rate columns.
+ * A zero cliff time or cliff amount is represented by an empty CSV field.
+ */
 export function streamsToCSV(
   streams: StreamData[],
   nowSeconds: number = Math.floor(Date.now() / 1000),
@@ -78,6 +82,7 @@ export function streamsToCSV(
   return lines.join('\n')
 }
 
+/** Download CSV content as a file in the browser. */
 export function downloadCSV(csv: string, filename: string): void {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)

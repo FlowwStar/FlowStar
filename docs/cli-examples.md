@@ -27,13 +27,7 @@ soroban contract invoke \
   -- \
   create_stream \
   --sender GXXXXXX... \
-  --recipient GYYYYYY... \
-  --token CTOKEN... \
-  --total_amount 1000000000 \
-  --start_time 1700000000 \
-  --end_time 1702592000 \
-  --cliff_time 1700000000 \
-  --cliff_amount 100000000
+  --params '{"recipient":"GYYYYYY...","token":"CTOKEN...","total_amount":1000000000,"start_time":1700000000,"end_time":1702592000,"cliff_time":1700000000,"cliff_amount":100000000}'
 ```
 
 ### 30-Day Monthly Salary Stream
@@ -54,13 +48,7 @@ soroban contract invoke \
   -- \
   create_stream \
   --sender $SENDER \
-  --recipient $RECIPIENT \
-  --token $TOKEN \
-  --total_amount $MONTHLY_SALARY \
-  --start_time $START \
-  --end_time $END \
-  --cliff_time $CLIFF \
-  --cliff_amount $((MONTHLY_SALARY / 4))
+  --params "{\"recipient\":\"$RECIPIENT\",\"token\":\"$TOKEN\",\"total_amount\":$MONTHLY_SALARY,\"start_time\":$START,\"end_time\":$END,\"cliff_time\":$CLIFF,\"cliff_amount\":$((MONTHLY_SALARY / 4))}"
 ```
 
 ### 1-Year Vesting with 6-Month Cliff
@@ -341,7 +329,7 @@ soroban contract invoke \
 # Process each row
 while IFS=',' read -r recipient amount start end cliff cliff_amt; do
   echo "Creating stream for $recipient..."
-  
+
   soroban contract invoke \
     --id $CONTRACT_ID \
     --source $USER_KEYPAIR \
@@ -355,7 +343,7 @@ while IFS=',' read -r recipient amount start end cliff cliff_amt; do
     --end_time $end \
     --cliff_time $cliff \
     --cliff_amount $cliff_amt
-  
+
   # Delay to avoid rate limiting
   sleep 2
 done < streams.csv
@@ -370,7 +358,7 @@ WITHDRAWAL_AMOUNT=100000000
 
 for STREAM_ID in "${STREAM_IDS[@]}"; do
   echo "Withdrawing from stream $STREAM_ID..."
-  
+
   soroban contract invoke \
     --id $CONTRACT_ID \
     --source $USER_KEYPAIR \
@@ -378,7 +366,7 @@ for STREAM_ID in "${STREAM_IDS[@]}"; do
     withdraw \
     --stream_id $STREAM_ID \
     --amount $WITHDRAWAL_AMOUNT
-  
+
   sleep 2
 done
 ```
@@ -488,24 +476,24 @@ while true; do
   echo "=== Stream #$STREAM_ID ==="
   echo "Updated at: $(date)"
   echo ""
-  
+
   STREAM=$(soroban contract invoke \
     --id $CONTRACT_ID \
     -- \
     get_stream \
     --stream_id $STREAM_ID)
-  
+
   echo "$STREAM" | jq '.'
-  
+
   echo ""
   WITHDRAWABLE=$(soroban contract invoke \
     --id $CONTRACT_ID \
     -- \
     get_withdrawable \
     --stream_id $STREAM_ID)
-  
+
   echo "Currently withdrawable: $WITHDRAWABLE"
-  
+
   sleep $INTERVAL
 done
 ```
