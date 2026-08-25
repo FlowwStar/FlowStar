@@ -1286,7 +1286,7 @@ fn test_version() {
 }
 
 #[test]
-#[should_panic(expected = "already initialized")]
+#[should_panic(expected = "Error(Contract, #14)")]
 fn test_initialize_twice_panics() {
     let t = TestEnv::setup();
     let client = t.client();
@@ -1341,7 +1341,7 @@ fn test_contract_name() {
 // ─── Max Stream Duration Tests ─────────────────────────────────────────────────
 
 #[test]
-#[should_panic(expected = "stream duration exceeds maximum")]
+#[should_panic(expected = "Error(Contract, #17)")]
 fn test_create_stream_exceeds_max_duration() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
