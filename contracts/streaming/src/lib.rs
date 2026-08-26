@@ -136,11 +136,18 @@ pub struct Stream {
     pub duration: i128,
 }
 
+/// Optional metadata attached to a stream.
+///
+/// Metadata does not affect stream mechanics — it is purely for off-chain
+/// indexing and UI display by frontends. All fields are user-defined strings.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct StreamMetadata {
+    /// Human-readable name for the stream (e.g., "Q3 Salary").
     pub name: soroban_sdk::String,
+    /// Category or type tag (e.g., "salary", "vesting", "grant", "scholarship").
     pub category: soroban_sdk::String,
+    /// Optional memo or description (e.g., "Monthly payroll for engineering team").
     pub memo: soroban_sdk::String,
 }
 
@@ -178,15 +185,25 @@ pub struct CreateStreamInput {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum StreamError {
+    /// The amount is zero, negative, or the top-up amount is insufficient.
     InvalidAmount = 1,
+    /// The end_time is not strictly greater than start_time, or duration exceeds 10 years.
     InvalidTimeRange = 2,
+    /// The cliff_time is outside the [start_time, end_time] range or cliff_amount is invalid.
     InvalidCliff = 3,
+    /// The sender and recipient addresses are the same.
     SelfStream = 4,
+    /// The requested stream ID does not exist or has expired from storage.
     StreamNotFound = 5,
+    /// The stream has already been cancelled and cannot be modified.
     StreamCancelled = 6,
+    /// The caller is not authorized for this operation (wrong sender/recipient/delegate/admin).
     Unauthorized = 7,
+    /// Insufficient withdrawable or locked balance, or transfer would fail.
     InsufficientFunds = 8,
+    /// The stream has already ended (current time >= end_time), cannot perform operation.
     StreamEnded = 9,
+    /// The transfer_stream recipient is identical to the current recipient.
     SameRecipient = 10,
     /// Batch size exceeds the maximum allowed (20 streams per batch).
     BatchSizeExceeded = 11,
