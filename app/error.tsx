@@ -3,6 +3,8 @@
 import React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
 type Props = { error: Error; reset: () => void }
 
@@ -118,81 +120,37 @@ export default function AppError({ error, reset }: Props) {
   const { title, message } = parseError(error)
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px',
-        background: 'linear-gradient(180deg,#0f172a, #071030)',
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 760,
-          width: '100%',
-          background: 'white',
-          borderRadius: 12,
-          padding: 24,
-          boxShadow: '0 8px 30px rgba(2,6,23,0.6)',
-        }}
-      >
-        <h1 style={{ margin: 0, fontSize: 22 }}>{title}</h1>
-        <p style={{ color: '#334155' }}>{message}</p>
+    <div className="flex min-h-screen items-center justify-center p-6 bg-background">
+      <Card className="w-full max-w-2xl border-border">
+        <CardHeader>
+          <CardTitle className="text-xl">{title}</CardTitle>
+          <CardDescription className="text-sm">
+            {message}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={() => reset()}>
+              Try again
+            </Button>
+            <Button variant="secondary" onClick={() => router.refresh()}>
+              Refresh
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/">Go home</Link>
+            </Button>
+          </div>
 
-        <div style={{ display: 'flex', gap: 12, marginTop: 18 }}>
-          <button
-            onClick={() => reset()}
-            style={{
-              padding: '8px 14px',
-              background: '#0ea5a2',
-              color: 'white',
-              border: 'none',
-              borderRadius: 8,
-              cursor: 'pointer',
-            }}
-          >
-            Try again
-          </button>
-
-          <button
-            onClick={() => router.refresh()}
-            style={{
-              padding: '8px 14px',
-              background: '#e2e8f0',
-              color: '#0f172a',
-              border: 'none',
-              borderRadius: 8,
-              cursor: 'pointer',
-            }}
-          >
-            Refresh
-          </button>
-
-          <Link
-            href="/"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              textDecoration: 'none',
-              padding: '8px 14px',
-              borderRadius: 8,
-              background: '#f8fafc',
-              color: '#0f172a',
-            }}
-          >
-            Go home
-          </Link>
-        </div>
-
-        <details style={{ marginTop: 18 }}>
-          <summary style={{ cursor: 'pointer' }}>Show technical details</summary>
-          <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginTop: 8 }}>
-            {String(error?.stack ?? error)}
-          </pre>
-        </details>
-      </div>
+          <details className="group rounded-lg border border-border bg-muted/40 p-3 text-xs">
+            <summary className="cursor-pointer font-medium text-muted-foreground transition-colors hover:text-foreground select-none">
+              Show technical details
+            </summary>
+            <pre className="mt-3 overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs text-foreground whitespace-pre-wrap break-all">
+              {String(error?.stack ?? error)}
+            </pre>
+          </details>
+        </CardContent>
+      </Card>
     </div>
   )
 }
