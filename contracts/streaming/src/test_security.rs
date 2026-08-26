@@ -165,6 +165,28 @@ fn test_auth_non_admin_cannot_upgrade() {
     ctx.client().upgrade(&ctx.attacker, &fake_hash);
 }
 
+/// Non-admin cannot call migrate.
+///
+/// Regression test for the bug fixed in commit 7fe0b2e where `migrate()` did
+/// not check authorization at all. Presenting attacker auth for `migrate`
+/// must be rejected — `require_auth()` inside `migrate` expects the stored
+/// admin, so impersonating a non-admin address must panic.
+#[test]
+#[should_panic]
+fn test_auth_non_admin_cannot_migrate() {
+    let ctx = Ctx::new();
+    ctx.env.mock_auths(&[MockAuth {
+        address: &ctx.attacker,
+        invoke: &MockAuthInvoke {
+            contract: &ctx.contract_id,
+            fn_name: "migrate",
+            args: ().into_val(&ctx.env),
+            sub_invokes: &[],
+        },
+    }]);
+    ctx.client().migrate();
+}
+
 /// Sender cannot withdraw from their own outgoing stream.
 #[test]
 #[should_panic]
