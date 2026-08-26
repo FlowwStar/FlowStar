@@ -137,11 +137,18 @@ pub struct Stream {
     pub duration: i128,
 }
 
+/// Optional metadata attached to a stream.
+///
+/// Metadata does not affect stream mechanics — it is purely for off-chain
+/// indexing and UI display by frontends. All fields are user-defined strings.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct StreamMetadata {
+    /// Human-readable name for the stream (e.g., "Q3 Salary").
     pub name: soroban_sdk::String,
+    /// Category or type tag (e.g., "salary", "vesting", "grant", "scholarship").
     pub category: soroban_sdk::String,
+    /// Optional memo or description (e.g., "Monthly payroll for engineering team").
     pub memo: soroban_sdk::String,
 }
 
@@ -184,15 +191,25 @@ pub struct CreateStreamInput {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum StreamError {
+    /// The amount is zero, negative, or the top-up amount is insufficient.
     InvalidAmount = 1,
+    /// The end_time is not strictly greater than start_time, or duration exceeds 10 years.
     InvalidTimeRange = 2,
+    /// The cliff_time is outside the [start_time, end_time] range or cliff_amount is invalid.
     InvalidCliff = 3,
+    /// The sender and recipient addresses are the same.
     SelfStream = 4,
+    /// The requested stream ID does not exist or has expired from storage.
     StreamNotFound = 5,
+    /// The stream has already been cancelled and cannot be modified.
     StreamCancelled = 6,
+    /// The caller is not authorized for this operation (wrong sender/recipient/delegate/admin).
     Unauthorized = 7,
+    /// Insufficient withdrawable or locked balance, or transfer would fail.
     InsufficientFunds = 8,
+    /// The stream has already ended (current time >= end_time), cannot perform operation.
     StreamEnded = 9,
+    /// The transfer_stream recipient is identical to the current recipient.
     SameRecipient = 10,
     /// Batch size exceeds the maximum allowed (20 streams per batch).
     BatchSizeExceeded = 11,
@@ -223,6 +240,11 @@ pub enum StreamError {
 
 // ─── Events ───────────────────────────────────────────────────────────────────
 
+/// Emitted when a new stream is created via `create_stream` or `create_streams_batch`.
+///
+/// Indexers should record this to show stream origination time and initial terms.
+/// The `cliff_time` field indicates when the first unlock (cliff) occurs; before
+/// this time, `withdrawable_amount` will be zero.
 #[soroban_sdk::contractevent]
 pub struct StreamCreatedEvent {
     pub stream_id: u64,
@@ -236,6 +258,11 @@ pub struct StreamCreatedEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the recipient (or delegate) withdraws unlocked tokens via `withdraw`.
+///
+/// The `remaining_withdrawable` is the amount still available to withdraw at this
+/// moment (after the withdrawal is recorded). Frontends can use this to update
+/// live counters and show "you have X more to withdraw".
 #[soroban_sdk::contractevent]
 pub struct WithdrawEvent {
     pub stream_id: u64,
@@ -245,6 +272,11 @@ pub struct WithdrawEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the sender cancels a stream via `cancel`.
+///
+/// The stream is moved to cancelled state; the recipient receives `recipient_amount`
+/// (all unlocked tokens as of the cancellation moment) and the sender receives
+/// `sender_refund` (all remaining locked tokens). Both amounts are non-negative.
 #[soroban_sdk::contractevent]
 pub struct CancelEvent {
     pub stream_id: u64,
@@ -255,6 +287,11 @@ pub struct CancelEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the recipient transfers stream rights to a new address via `transfer_stream`.
+///
+/// After this event, `new_recipient` becomes the new owner of the stream and can
+/// withdraw or transfer further. The `old_recipient` loses all rights to the stream.
+/// Any delegate set on the stream is cleared on transfer.
 #[soroban_sdk::contractevent]
 pub struct StreamTransferEvent {
     pub stream_id: u64,
@@ -262,6 +299,11 @@ pub struct StreamTransferEvent {
     pub new_recipient: Address,
 }
 
+/// Emitted when the sender adds additional funds to an active stream via `top_up`.
+///
+/// The `additional_amount` is added to the stream's total; the rate per second
+/// (`new_amount_per_second`) is recalculated based on the remaining time. The new
+/// rate applies from the top-up moment onward (vesting is re-anchored).
 #[soroban_sdk::contractevent]
 pub struct TopUpEvent {
     pub stream_id: u64,
@@ -270,17 +312,30 @@ pub struct TopUpEvent {
     pub new_amount_per_second: i128,
 }
 
+/// Emitted when anyone calls `bump_stream` to extend a stream's ledger TTL.
+///
+/// This event indicates the stream's storage was kept alive. Streams are
+/// automatically bumped on write; this is for explicit manual bumps to prevent
+/// expiry of long-idle streams. Indexers can use this to track which streams
+/// are still actively maintained.
 #[soroban_sdk::contractevent]
 pub struct StreamBumpedEvent {
     pub stream_id: u64,
     pub timestamp: u64,
 }
 
+/// Emitted when the contract admin calls `pause` to stop new stream creation.
+///
+/// All write operations (create_stream, withdraw, etc.) are blocked while paused.
+/// Read operations remain available. Use `unpause` to resume normal operations.
 #[soroban_sdk::contractevent]
 pub struct PauseEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the contract admin calls `unpause` to resume normal operations.
+///
+/// After this event, all write operations are once again available.
 #[soroban_sdk::contractevent]
 pub struct UnpauseEvent {
     pub timestamp: u64,
