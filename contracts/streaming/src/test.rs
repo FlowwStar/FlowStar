@@ -1692,3 +1692,219 @@ fn test_cleanup_stream_works_without_optional_entries() {
     assert_eq!(client.get_stream_metadata(&stream_id), None);
     assert_eq!(client.get_delegate(&stream_id), None);
 }
+
+#[test]
+fn test_cleanup_after_cancellation_removes_indexes() {
+    // After a cancel, either party can call cleanup_stream and all index entries
+    // (active + archive) must be gone for both sender and recipient.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Advance halfway and cancel so the stream is eligible for cleanup.
+    t.set_time(now + 500);
+    client.cancel(&stream_id);
+
+    // Pre-cleanup: stream appears in the archive index (cancel moves it there).
+    let archived_sent = client.get_archived_sent_streams(&t.sender, &0, &100);
+    assert!(
+        archived_sent.contains(stream_id),
+        "cancelled stream should appear in archive-sent index before cleanup"
+    );
+    let archived_received = client.get_archived_received_streams(&t.recipient, &0, &100);
+    assert!(
+        archived_received.contains(stream_id),
+        "cancelled stream should appear in archive-received index before cleanup"
+    );
+
+    // Cleanup called by the sender.
+    let result = client.try_cleanup_stream(&t.sender, &stream_id);
+    assert_eq!(result, Ok(Ok(())));
+
+    // Post-cleanup: all index entries must be gone.
+    assert!(
+        !client
+            .get_sent_streams(&t.sender, &0, &100)
+            .contains(stream_id),
+        "active sent index must be empty after cleanup"
+    );
+    assert!(
+        !client
+            .get_received_streams(&t.recipient, &0, &100)
+            .contains(stream_id),
+        "active received index must be empty after cleanup"
+    );
+    assert!(
+        !client
+            .get_archived_sent_streams(&t.sender, &0, &100)
+            .contains(stream_id),
+        "archive sent index must be empty after cleanup"
+    );
+    assert!(
+        !client
+            .get_archived_received_streams(&t.recipient, &0, &100)
+            .contains(stream_id),
+        "archive received index must be empty after cleanup"
+    );
+}
+
+#[test]
+fn test_cleanup_after_completion_removes_indexes() {
+    // A stream is "fully drained" when withdrawn_amount >= deposited_amount AND
+    // the current time is >= end_time. cleanup_stream must succeed and wipe all
+    // storage/index entries in that state.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Advance past end time and withdraw everything so the stream is complete.
+    t.set_time(now + 1000);
+    let withdrawable = client.get_withdrawable(&stream_id);
+    assert_eq!(
+        withdrawable, total,
+        "full amount should be withdrawable after stream end"
+    );
+    client.withdraw(&stream_id, &withdrawable);
+
+    // Verify the recipient received the funds.
+    assert_eq!(t.token().balance(&t.recipient), total);
+
+    // Cleanup called by the recipient this time.
+    let result = client.try_cleanup_stream(&t.recipient, &stream_id);
+    assert_eq!(result, Ok(Ok(())));
+
+    // All index entries must be removed.
+    assert!(
+        !client
+            .get_sent_streams(&t.sender, &0, &100)
+            .contains(stream_id),
+        "active sent index must be empty after completion cleanup"
+    );
+    assert!(
+        !client
+            .get_received_streams(&t.recipient, &0, &100)
+            .contains(stream_id),
+        "active received index must be empty after completion cleanup"
+    );
+    assert!(
+        !client
+            .get_archived_sent_streams(&t.sender, &0, &100)
+            .contains(stream_id),
+        "archive sent index must be empty after completion cleanup"
+    );
+    assert!(
+        !client
+            .get_archived_received_streams(&t.recipient, &0, &100)
+            .contains(stream_id),
+        "archive received index must be empty after completion cleanup"
+    );
+    // Stream data itself must also be gone (get_stream returns StreamNotFound).
+    let get_result = client.try_get_stream(&stream_id);
+    assert_eq!(
+        get_result,
+        Err(Ok(StreamError::StreamNotFound)),
+        "stream data must be deleted after cleanup"
+    );
+}
+
+#[test]
+fn test_cleanup_rejected_by_third_party() {
+    // A caller that is neither the sender nor the recipient must receive
+    // StreamError::Unauthorized — the stream must remain intact.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Cancel so the stream would otherwise be eligible.
+    client.cancel(&stream_id);
+
+    // Third party attempts cleanup.
+    let outsider = Address::generate(&t.env);
+    let result = client.try_cleanup_stream(&outsider, &stream_id);
+    assert_eq!(
+        result,
+        Err(Ok(StreamError::Unauthorized)),
+        "third party must be rejected with Unauthorized"
+    );
+
+    // Stream data must still exist.
+    let stream = client.get_stream(&stream_id);
+    assert!(
+        stream.cancelled,
+        "stream must still be present after rejected cleanup attempt"
+    );
+}
+
+#[test]
+fn test_cleanup_rejected_when_stream_still_active() {
+    // cleanup_stream must return StreamNotEligibleForCleanup when the stream
+    // has neither been cancelled nor fully drained.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Stream is active — no cancel, no full withdrawal.
+    t.set_time(now + 500); // midway, still running
+
+    let result = client.try_cleanup_stream(&t.sender, &stream_id);
+    assert_eq!(
+        result,
+        Err(Ok(StreamError::StreamNotEligibleForCleanup)),
+        "active stream must be rejected with StreamNotEligibleForCleanup"
+    );
+
+    // Stream must still be present and unchanged.
+    let stream = client.get_stream(&stream_id);
+    assert!(
+        !stream.cancelled,
+        "stream must still be active after rejected cleanup attempt"
+    );
+    assert_eq!(
+        stream.deposited_amount, total,
+        "stream funds must be untouched after rejected cleanup attempt"
+    );
+}
