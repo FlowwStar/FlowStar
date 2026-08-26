@@ -128,7 +128,7 @@ export function TestnetFaucetBanner({ onClose }: TestnetFaucetBannerProps) {
           {fundingStatus === 'success' && (
             <p className="text-sm text-green-600 dark:text-green-400 mt-2 flex items-center gap-1">
               <Check className="size-4" />
-              Account funded successfully! Reloading...
+              Account funded successfully! Closing in a moment…
             </p>
           )}
 

@@ -105,7 +105,9 @@ describe('TestnetFaucetBanner', () => {
       vi.advanceTimersByTime(5000) // CONFIRMATION_DELAY_MS + network request
     })
 
-    expect(screen.getByText('Account funded successfully! Reloading...')).toBeInTheDocument()
+    expect(
+      screen.getByText('Account funded successfully! Closing in a moment…'),
+    ).toBeInTheDocument()
   })
 
   it('shows error message on fetch failure', async () => {
