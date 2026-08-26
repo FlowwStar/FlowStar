@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import { fetchStream } from "@/lib/contract";
 import { NETWORK } from "@/lib/stellar";
+import { shortenAddress } from "@/lib/stream-utils";
 
 export async function generateMetadata({
   params,
@@ -34,8 +35,6 @@ export async function generateMetadata({
       stream.cancelled ? "cancelled" : "active",
     );
 
-    const shortenAddress = (addr: string) =>
-      addr.slice(0, 6) + "..." + addr.slice(-4);
     const amount = (
       stream.depositedAmount /
       10n ** BigInt(stream.token.decimals)
