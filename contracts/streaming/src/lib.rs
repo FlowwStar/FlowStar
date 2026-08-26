@@ -112,8 +112,11 @@ pub enum DataKey {
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stream {
+    /// Unique identifier for the stream.
     pub id: u64,
+    /// Address of the stream sender.
     pub sender: Address,
+    /// Address of the stream recipient.
     pub recipient: Address,
     /// Token contract address (SEP-41 compatible).
     pub token: Address,
@@ -133,7 +136,9 @@ pub struct Stream {
     pub amount_per_second: i128,
     /// Whether the stream has been cancelled.
     pub cancelled: bool,
+    /// Total amount to be streamed linearly after cliff (total - cliff).
     pub linear_amount: i128,
+    /// Total duration of the stream in seconds (end_time - start_time).
     pub duration: i128,
 }
 
