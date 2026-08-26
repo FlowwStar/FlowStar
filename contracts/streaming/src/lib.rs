@@ -234,6 +234,11 @@ pub enum StreamError {
 
 // ─── Events ───────────────────────────────────────────────────────────────────
 
+/// Emitted when a new stream is created via `create_stream` or `create_streams_batch`.
+///
+/// Indexers should record this to show stream origination time and initial terms.
+/// The `cliff_time` field indicates when the first unlock (cliff) occurs; before
+/// this time, `withdrawable_amount` will be zero.
 #[soroban_sdk::contractevent]
 pub struct StreamCreatedEvent {
     pub stream_id: u64,
@@ -247,6 +252,11 @@ pub struct StreamCreatedEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the recipient (or delegate) withdraws unlocked tokens via `withdraw`.
+///
+/// The `remaining_withdrawable` is the amount still available to withdraw at this
+/// moment (after the withdrawal is recorded). Frontends can use this to update
+/// live counters and show "you have X more to withdraw".
 #[soroban_sdk::contractevent]
 pub struct WithdrawEvent {
     pub stream_id: u64,
@@ -256,6 +266,11 @@ pub struct WithdrawEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the sender cancels a stream via `cancel`.
+///
+/// The stream is moved to cancelled state; the recipient receives `recipient_amount`
+/// (all unlocked tokens as of the cancellation moment) and the sender receives
+/// `sender_refund` (all remaining locked tokens). Both amounts are non-negative.
 #[soroban_sdk::contractevent]
 pub struct CancelEvent {
     pub stream_id: u64,
@@ -266,6 +281,11 @@ pub struct CancelEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the recipient transfers stream rights to a new address via `transfer_stream`.
+///
+/// After this event, `new_recipient` becomes the new owner of the stream and can
+/// withdraw or transfer further. The `old_recipient` loses all rights to the stream.
+/// Any delegate set on the stream is cleared on transfer.
 #[soroban_sdk::contractevent]
 pub struct StreamTransferEvent {
     pub stream_id: u64,
@@ -273,6 +293,11 @@ pub struct StreamTransferEvent {
     pub new_recipient: Address,
 }
 
+/// Emitted when the sender adds additional funds to an active stream via `top_up`.
+///
+/// The `additional_amount` is added to the stream's total; the rate per second
+/// (`new_amount_per_second`) is recalculated based on the remaining time. The new
+/// rate applies from the top-up moment onward (vesting is re-anchored).
 #[soroban_sdk::contractevent]
 pub struct TopUpEvent {
     pub stream_id: u64,
@@ -281,17 +306,30 @@ pub struct TopUpEvent {
     pub new_amount_per_second: i128,
 }
 
+/// Emitted when anyone calls `bump_stream` to extend a stream's ledger TTL.
+///
+/// This event indicates the stream's storage was kept alive. Streams are
+/// automatically bumped on write; this is for explicit manual bumps to prevent
+/// expiry of long-idle streams. Indexers can use this to track which streams
+/// are still actively maintained.
 #[soroban_sdk::contractevent]
 pub struct StreamBumpedEvent {
     pub stream_id: u64,
     pub timestamp: u64,
 }
 
+/// Emitted when the contract admin calls `pause` to stop new stream creation.
+///
+/// All write operations (create_stream, withdraw, etc.) are blocked while paused.
+/// Read operations remain available. Use `unpause` to resume normal operations.
 #[soroban_sdk::contractevent]
 pub struct PauseEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the contract admin calls `unpause` to resume normal operations.
+///
+/// After this event, all write operations are once again available.
 #[soroban_sdk::contractevent]
 pub struct UnpauseEvent {
     pub timestamp: u64,
