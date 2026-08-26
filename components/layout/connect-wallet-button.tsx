@@ -22,6 +22,7 @@ import { useWallet } from '@/hooks/use-wallet'
 import { WALLET_OPTIONS } from '@/components/providers/wallet-provider'
 import { shortenAddress } from '@/lib/stream-utils'
 import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
 
 export function ConnectWalletButton({ className }: { className?: string }) {
   const { address, isConnected, connecting, connect, disconnect, walletId } =
@@ -40,11 +41,20 @@ export function ConnectWalletButton({ className }: { className?: string }) {
     }
   }
 
-  function copyAddress() {
+  async function copyAddress() {
     if (!address) return
-    navigator.clipboard.writeText(address)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    try {
+      await navigator.clipboard.writeText(address)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+      toast.success('Address copied', {
+        description: 'Wallet address copied to clipboard',
+      })
+    } catch {
+      toast.error('Failed to copy', {
+        description: 'Could not copy address to clipboard',
+      })
+    }
   }
 
   if (isConnected && address) {
@@ -99,6 +109,9 @@ export function ConnectWalletButton({ className }: { className?: string }) {
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2 pt-2">
+          <div className="sr-only" aria-live="polite" aria-atomic="true">
+            {connecting && `Connecting to ${WALLET_OPTIONS.find((w) => w.id === pendingId)?.name || 'wallet'}…`}
+          </div>
           {WALLET_OPTIONS.map((wallet) => {
             const isPending = connecting && pendingId === wallet.id
             return (
