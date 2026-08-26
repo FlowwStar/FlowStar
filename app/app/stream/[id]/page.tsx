@@ -85,7 +85,9 @@ function CopyableAddress({
   return (
     <span className="inline-flex items-center gap-1">
       <button
+        type="button"
         onClick={copy}
+        aria-label="Copy address"
         className="group inline-flex items-center gap-1.5 font-mono text-sm hover:text-primary transition-colors"
       >
         <span className="truncate max-w-[200px] sm:max-w-xs">
@@ -97,6 +99,9 @@ function CopyableAddress({
           <Copy className="size-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
         )}
       </button>
+      <span className="sr-only" role="status" aria-live="polite">
+        {copied ? "Copied" : ""}
+      </span>
       {href && (
         <a
           href={href}
