@@ -590,15 +590,20 @@ function AutoWithdrawSection({
           {withdrawalHistory.length > 0 && (
             <div className="space-y-1.5 pt-2 border-t border-border">
               <button
+                type="button"
                 onClick={() => setShowHistory(!showHistory)}
                 className="text-xs text-primary hover:underline"
                 aria-expanded={showHistory}
+                aria-controls="stream-withdrawal-history"
               >
                 {showHistory ? "Hide" : "Show"} withdrawal history (
                 {withdrawalHistory.length})
               </button>
               {showHistory && (
-                <div className="space-y-1 max-h-32 overflow-y-auto">
+                <div
+                  id="stream-withdrawal-history"
+                  className="space-y-1 max-h-32 overflow-y-auto"
+                >
                   {withdrawalHistory.map((entry, idx) => (
                     <div
                       key={idx}
