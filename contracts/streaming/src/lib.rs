@@ -1263,8 +1263,8 @@ impl StreamingContract {
             .set(&DataKey::StreamMetadata(stream_id), &metadata);
         env.storage().persistent().extend_ttl(
             &DataKey::StreamMetadata(stream_id),
-            518_400,
-            518_400,
+            PERSISTENT_TTL_LEDGERS,
+            PERSISTENT_TTL_LEDGERS,
         );
 
         Ok(())
