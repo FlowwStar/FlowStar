@@ -56,6 +56,7 @@ use soroban_sdk::{
 const CONTRACT_VERSION: u32 = 1;
 const CONTRACT_NAME: &str = "FlowStar Streaming";
 const MAX_STREAM_DURATION: u64 = 315_360_000; // 10 years in seconds
+const MAX_BATCH_SIZE: u32 = 20;
 
 /// TTL for instance storage entries (~1 day).
 ///
@@ -601,8 +602,6 @@ impl StreamingContract {
     ) -> Result<Vec<u64>, StreamError> {
         sender.require_auth();
         Self::require_not_paused(&env)?;
-
-        const MAX_BATCH_SIZE: u32 = 20;
 
         if streams.is_empty() {
             return Err(StreamError::BatchEmpty);
