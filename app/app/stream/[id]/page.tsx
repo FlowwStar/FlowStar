@@ -723,13 +723,16 @@ function RateDisplay({
   return (
     <div className="text-right">
       <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls="rate-breakdown"
         onClick={() => setExpanded((v) => !v)}
         className="font-mono text-sm font-medium text-primary hover:underline"
       >
         {rate.best}
       </button>
       {expanded && (
-        <div className="mt-1 space-y-0.5 text-xs text-muted-foreground font-mono">
+        <div id="rate-breakdown" className="mt-1 space-y-0.5 text-xs text-muted-foreground font-mono">
           <p>{rate.perMinute}</p>
           <p>{rate.perHour}</p>
           <p>{rate.perDay}</p>
