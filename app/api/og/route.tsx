@@ -1,4 +1,5 @@
 import { ImageResponse } from '@vercel/og'
+import { shortenAddress } from '@/lib/stream-utils'
 
 export const runtime = 'edge'
 
@@ -20,11 +21,6 @@ export async function GET(request: Request) {
       recipient: searchParams.get('recipient') || '',
       sender: searchParams.get('sender') || '',
       status: searchParams.get('status') || 'active',
-    }
-
-    const shortenAddress = (addr: string) => {
-      if (!addr) return ''
-      return addr.slice(0, 6) + '...' + addr.slice(-4)
     }
 
     return new ImageResponse(
