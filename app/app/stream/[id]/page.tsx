@@ -45,6 +45,7 @@ import {
 } from "@/lib/fee-utils";
 import { useStream } from "@/hooks/use-streams";
 import { useContract } from "@/hooks/use-contract";
+import { useUndoableCancel, useIsStreamCancelling } from "@/hooks/use-undo-cancel";
 import { useWallet } from "@/hooks/use-wallet";
 import { useNow } from "@/hooks/use-now";
 import {
@@ -296,9 +297,7 @@ function CancelDialog({
   onClose: () => void;
   streamId: string;
 }) {
-  const { cancel, pending, error } = useContract();
-  const { network } = useNetwork();
-  const router = useRouter();
+  const { scheduleCancel } = useUndoableCancel();
   const { usdPrice: xlmPrice } = useTokenPrice("XLM");
   const [showFeeEstimate, setShowFeeEstimate] = useState(false);
 
@@ -306,25 +305,13 @@ function CancelDialog({
   const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined);
   const cancelFeeHigh = isHighFee(feeBreakdown.totalEstimated, TYPICAL_FEES.cancel.typical);
 
-  async function handleCancel() {
-    try {
-      const hash = await cancel(streamId);
-      toast.success("Stream cancelled", {
-        description:
-          "Unlocked funds sent to recipient. Remainder returned to you.",
-        ...(hash && {
-          action: {
-            label: "View transaction",
-            onClick: () =>
-              window.open(explorerUrl(network, "tx", hash), "_blank"),
-          },
-        }),
-      });
-      onClose();
-      router.push("/app");
-    } catch {
-      // error shown inline
-    }
+  function handleCancel() {
+    // Don't submit immediately — schedule an undoable cancellation. The
+    // actual `cancel` transaction (and its success/error toast) fires from
+    // useUndoableCancel once the countdown expires without being undone.
+    scheduleCancel(streamId);
+    setShowFeeEstimate(false);
+    onClose();
   }
 
   return (
@@ -338,7 +325,8 @@ function CancelDialog({
             <DialogTitle>Cancel stream</DialogTitle>
             <DialogDescription>
               Unlocked funds will be sent to the recipient. Any remaining locked
-              tokens will be returned to your wallet. This cannot be undone.
+              tokens will be returned to your wallet. You&apos;ll have a few
+              seconds to undo before this is submitted.
             </DialogDescription>
           </DialogHeader>
 
@@ -352,17 +340,15 @@ function CancelDialog({
             </p>
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={onClose} disabled={pending}>
+            <Button variant="ghost" onClick={onClose}>
               Keep stream
             </Button>
             <Button
               variant="destructive"
               onClick={() => setShowFeeEstimate(true)}
-              disabled={pending}
             >
-              {pending ? "Cancelling…" : "Review & cancel"}
+              Review & cancel
             </Button>
           </div>
         </DialogContent>
@@ -376,7 +362,7 @@ function CancelDialog({
         action="stream cancellation"
         averageFee={TYPICAL_FEES.cancel.typical}
         isHighFee={cancelFeeHigh}
-        loading={pending}
+        loading={false}
       />
     </>
   );
@@ -940,6 +926,7 @@ function StreamDetail({ id }: { id: string }) {
   const now = useNow(1000);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const isCancelling = useIsStreamCancelling(id);
 
   if (loading) {
     return <StreamDetailSkeleton />;
@@ -972,7 +959,8 @@ function StreamDetail({ id }: { id: string }) {
   const isRecipient = address === stream.recipient;
   const isSender = address === stream.sender;
   const canWithdraw = isRecipient && !stream.cancelled && withdrawable > 0n;
-  const canCancel = isSender && !stream.cancelled && status !== "completed";
+  const canCancel =
+    isSender && !stream.cancelled && status !== "completed" && !isCancelling;
 
   function handleDuplicate() {
     if (!stream) return;
@@ -1122,6 +1110,14 @@ function StreamDetail({ id }: { id: string }) {
                 className="font-medium"
               />
             </div>
+          </div>
+        )}
+
+        {/* Cancelling state */}
+        {isCancelling && (
+          <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <span className="size-1.5 animate-pulse rounded-full bg-current" />
+            Cancelling… you can still undo this from the toast.
           </div>
         )}
 

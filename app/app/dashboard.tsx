@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { Plus, ArrowDownToLine } from 'lucide-react'
+import { Plus, ArrowDownToLine, WifiOff } from 'lucide-react'
 import { RequireWallet } from '@/components/layout/require-wallet'
 import { TestnetFaucetBanner } from '@/components/layout/testnet-faucet-banner'
 import { DashboardStats, DashboardStatsSkeleton } from '@/components/streams/dashboard-stats'
@@ -15,12 +15,21 @@ import { ComponentErrorBoundary } from '@/components/error-boundary/component-er
 import { useStreams } from '@/hooks/use-streams'
 import { useContract } from '@/hooks/use-contract'
 import { useNow } from '@/hooks/use-now'
+import { useHiddenStreams } from '@/hooks/use-hidden-streams'
 import { getWithdrawableAmount } from '@/lib/stream-utils'
+import type { StreamData } from '@/types/stream'
 
 export function Dashboard() {
-  const { sent, received, all, loading } = useStreams()
+  const { sent, received: allReceived, all: allStreams, loading, stale, lastUpdated } = useStreams()
   const { withdrawAll, pending } = useContract()
   const now = useNow(1000)
+  const { hiddenIds, blockedSenders } = useHiddenStreams()
+
+  // Hidden streams (and streams from blocked senders) never appear on the
+  // dashboard — neither in the lists nor in the counts (issue #151).
+  const isVisible = (s: StreamData) => !hiddenIds.has(s.id) && !blockedSenders.has(s.sender)
+  const received = allReceived.filter(isVisible)
+  const all = allStreams.filter(isVisible)
   const [withdrawProgress, setWithdrawProgress] = useState<{ current: number; total: number } | null>(null)
 
   const withdrawableStreams = received.filter((s) => getWithdrawableAmount(s, now) > 0n)
@@ -76,6 +85,21 @@ export function Dashboard() {
           </Button>
         </div>
       </div>
+
+      {/* Offline / stale-data banner */}
+      {stale && (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400"
+        >
+          <WifiOff className="size-4 shrink-0" />
+          <span>
+            You&apos;re offline — showing cached stream data
+            {lastUpdated && ` from ${new Date(lastUpdated).toLocaleString()}`}. It may be
+            outdated.
+          </span>
+        </div>
+      )}
 
       {/* Testnet faucet banner */}
       <TestnetFaucetBanner />
