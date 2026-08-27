@@ -389,6 +389,35 @@ fn test_batch_self_stream_fails() {
     assert_eq!(result, Err(Ok(StreamError::SelfStream)));
 }
 
+#[test]
+fn test_batch_rejects_past_start_time() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let r1 = Address::generate(&t.env);
+    let r2 = Address::generate(&t.env);
+    let per_stream = 1_000_0000000i128;
+    t.approve(per_stream * 2);
+
+    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    inputs.push_back(t.make_input(&r1, now));
+    // Second stream backdates its start_time into the past.
+    let mut bad = t.make_input(&r2, now);
+    bad.start_time = now - 1000;
+    bad.end_time = now + 1000;
+    bad.cliff_time = now - 1000;
+    inputs.push_back(bad);
+
+    let result = t.client().try_create_streams_batch(&t.sender, &inputs);
+    assert_eq!(result, Err(Ok(StreamError::PastStartTime)));
+
+    // Atomicity: the valid first stream must not have been created and no
+    // funds may have moved.
+    assert_eq!(t.client().get_sent_streams(&t.sender, &0u32, &100u32).len(), 0);
+    assert_eq!(t.token().balance(&t.contract_id), 0);
+}
+
 // ─── Batch size limits ────────────────────────────────────────────────────────
 
 #[test]

@@ -242,6 +242,9 @@ pub enum StreamError {
     RateIsZero = 19,
     /// Stream is not yet cancelled or fully drained; cleanup is not allowed.
     StreamNotEligibleForCleanup = 20,
+    /// The start_time is in the past (before the current ledger timestamp);
+    /// backdating a stream would unlock funds immediately on creation.
+    PastStartTime = 21,
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -515,6 +518,13 @@ impl StreamingContract {
         if duration > MAX_STREAM_DURATION {
             return Err(StreamError::DurationExceedsMaximum);
         }
+        // Security: reject backdated start times. A stream whose start_time is
+        // in the past would have a large chunk of its deposit already unlocked
+        // (and withdrawable) the moment it is created, bypassing the vesting UX
+        // entirely and misleading the recipient about the schedule.
+        if params.start_time < env.ledger().timestamp() {
+            return Err(StreamError::PastStartTime);
+        }
         if params.cliff_time < params.start_time || params.cliff_time > params.end_time {
             return Err(StreamError::InvalidCliff);
         }
@@ -637,6 +647,12 @@ impl StreamingContract {
             let duration = input.end_time - input.start_time;
             if duration > MAX_STREAM_DURATION {
                 return Err(StreamError::DurationExceedsMaximum);
+            }
+            // Security: reject backdated start times — same rule as
+            // create_stream, applied per-input before any funds move so the
+            // whole batch is rejected atomically.
+            if input.start_time < env.ledger().timestamp() {
+                return Err(StreamError::PastStartTime);
             }
             if input.cliff_time < input.start_time || input.cliff_time > input.end_time {
                 return Err(StreamError::InvalidCliff);
