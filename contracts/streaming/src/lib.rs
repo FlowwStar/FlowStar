@@ -1064,20 +1064,7 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::SentBy(address))
             .unwrap_or(Vec::new(&env));
-        let len = all.len();
-        let start = core::cmp::min(offset, len);
-        let end = if let Some(limit_end) = offset.checked_add(limit) {
-            core::cmp::min(limit_end, len)
-        } else {
-            len
-        };
-        let mut result = Vec::new(&env);
-        let mut i = start;
-        while i < end {
-            result.push_back(all.get(i).unwrap());
-            i += 1;
-        }
-        result
+        Self::paginate(&env, &all, offset, limit)
     }
 
     /// Get paginated stream IDs where `address` is the recipient.
@@ -1087,20 +1074,7 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ReceivedBy(address))
             .unwrap_or(Vec::new(&env));
-        let len = all.len();
-        let start = core::cmp::min(offset, len);
-        let end = if let Some(limit_end) = offset.checked_add(limit) {
-            core::cmp::min(limit_end, len)
-        } else {
-            len
-        };
-        let mut result = Vec::new(&env);
-        let mut i = start;
-        while i < end {
-            result.push_back(all.get(i).unwrap());
-            i += 1;
-        }
-        result
+        Self::paginate(&env, &all, offset, limit)
     }
 
     /// Get total count of streams where `address` is the sender.
@@ -1133,20 +1107,7 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ArchiveSentBy(address))
             .unwrap_or(Vec::new(&env));
-        let len = all.len();
-        let start = core::cmp::min(offset, len);
-        let end = if let Some(limit_end) = offset.checked_add(limit) {
-            core::cmp::min(limit_end, len)
-        } else {
-            len
-        };
-        let mut result = Vec::new(&env);
-        let mut i = start;
-        while i < end {
-            result.push_back(all.get(i).unwrap());
-            i += 1;
-        }
-        result
+        Self::paginate(&env, &all, offset, limit)
     }
 
     /// Get paginated archived stream IDs where `address` is the recipient.
@@ -1161,20 +1122,7 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ArchiveReceivedBy(address))
             .unwrap_or(Vec::new(&env));
-        let len = all.len();
-        let start = core::cmp::min(offset, len);
-        let end = if let Some(limit_end) = offset.checked_add(limit) {
-            core::cmp::min(limit_end, len)
-        } else {
-            len
-        };
-        let mut result = Vec::new(&env);
-        let mut i = start;
-        while i < end {
-            result.push_back(all.get(i).unwrap());
-            i += 1;
-        }
-        result
+        Self::paginate(&env, &all, offset, limit)
     }
 
     /// Manually remove a completed or cancelled stream's data and index entries.
@@ -1454,6 +1402,23 @@ impl StreamingContract {
             PERSISTENT_TTL_LEDGERS,
             PERSISTENT_TTL_LEDGERS,
         );
+    }
+
+    fn paginate(env: &Env, list: &Vec<u64>, offset: u32, limit: u32) -> Vec<u64> {
+        let len = list.len();
+        let start = core::cmp::min(offset, len);
+        let end = if let Some(limit_end) = offset.checked_add(limit) {
+            core::cmp::min(limit_end, len)
+        } else {
+            len
+        };
+        let mut result = Vec::new(env);
+        let mut i = start;
+        while i < end {
+            result.push_back(list.get(i).unwrap());
+            i += 1;
+        }
+        result
     }
 }
 

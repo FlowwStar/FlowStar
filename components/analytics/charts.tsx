@@ -16,9 +16,6 @@ interface TokenShare {
   decimals: number
 }
 
-/** Scale factor: pixels per unit count for the bar chart width */
-const PIXELS_PER_COUNT = 20
-
 /** Minimum bar width in pixels so very small values are still visible */
 const MIN_BAR_WIDTH_PX = 8
 
@@ -30,6 +27,8 @@ interface Props {
 }
 
 export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }: Props) {
+  const maxCount = Math.max(...series.map((p) => p.count))
+
   return (
     <>
       <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
@@ -56,7 +55,7 @@ export function AnalyticsCharts({ series, topTokens, tokenShares, totalVolume }:
                     <div className="h-2 rounded-full bg-muted">
                       <div
                         className="h-2 rounded-full bg-primary"
-                        style={{ width: `${Math.min(100, point.count * PIXELS_PER_COUNT)}%` }}
+                        style={{ width: `${maxCount > 0 ? (point.count / maxCount) * 100 : 0}%` }}
                       />
                     </div>
                   </div>
