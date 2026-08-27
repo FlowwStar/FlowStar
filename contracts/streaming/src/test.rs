@@ -216,6 +216,86 @@ fn test_create_stream_zero_amount() {
     assert_eq!(result, Err(Ok(StreamError::InvalidAmount)));
 }
 
+// ─── create_stream: backdated start/cliff times ───────────────────────────────
+
+#[test]
+fn test_create_stream_rejects_past_start_time() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let mut params = t.default_params(now);
+    // Backdate the start (and cliff) into the past — must be rejected so a
+    // large chunk of the deposit cannot unlock immediately on creation.
+    params.start_time = now - 1000;
+    params.cliff_time = now - 1000;
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &params.total_amount,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let result = client.try_create_stream(&t.sender, &params);
+    assert_eq!(result, Err(Ok(StreamError::PastStartTime)));
+
+    // No funds should have moved.
+    assert_eq!(t.token().balance(&t.contract_id), 0);
+}
+
+#[test]
+fn test_create_stream_rejects_backdated_cliff() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let mut params = t.default_params(now);
+    params.cliff_time = params.start_time - 1; // cliff before start
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &params.total_amount,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let result = client.try_create_stream(&t.sender, &params);
+    assert_eq!(result, Err(Ok(StreamError::InvalidCliff)));
+}
+
+// ─── pagination: large offset/limit must clamp, not abort ────────────────────
+
+#[test]
+fn test_pagination_clamps_large_offset_limit() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    // Create 5 streams from the same sender so the index has 5 entries.
+    let per_stream = 1_000_0000000i128;
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &(per_stream * 5),
+        &(t.env.ledger().sequence() + 500),
+    );
+    for _ in 0..5 {
+        client.create_stream(&t.sender, &t.default_params(now));
+    }
+
+    // offset=2 + limit=u32::MAX overflows u32 — must clamp to the tail of the
+    // index (streams 3..5) instead of aborting the call.
+    let tail = client.get_sent_streams(&t.sender, &2u32, &u32::MAX);
+    assert_eq!(tail.len(), 3);
+    assert_eq!(tail.get(0).unwrap(), 3u64);
+
+    // Huge offset beyond the list → empty page, still no abort.
+    let empty = client.get_sent_streams(&t.sender, &u32::MAX, &u32::MAX);
+    assert_eq!(empty.len(), 0);
+
+    // A plain full-page read still returns everything.
+    let all = client.get_sent_streams(&t.sender, &0u32, &u32::MAX);
+    assert_eq!(all.len(), 5);
+}
+
 // ─── withdraw ──────────────────────────────────────────────────────────────────
 
 #[test]

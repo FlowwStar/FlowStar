@@ -56,6 +56,7 @@ use soroban_sdk::{
 const CONTRACT_VERSION: u32 = 1;
 const CONTRACT_NAME: &str = "FlowStar Streaming";
 const MAX_STREAM_DURATION: u64 = 315_360_000; // 10 years in seconds
+const MAX_BATCH_SIZE: u32 = 20;
 
 /// TTL for instance storage entries (~1 day).
 ///
@@ -112,8 +113,11 @@ pub enum DataKey {
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stream {
+    /// Unique identifier for the stream.
     pub id: u64,
+    /// Address of the stream sender.
     pub sender: Address,
+    /// Address of the stream recipient.
     pub recipient: Address,
     /// Token contract address (SEP-41 compatible).
     pub token: Address,
@@ -133,15 +137,24 @@ pub struct Stream {
     pub amount_per_second: i128,
     /// Whether the stream has been cancelled.
     pub cancelled: bool,
+    /// Total amount to be streamed linearly after cliff (total - cliff).
     pub linear_amount: i128,
+    /// Total duration of the stream in seconds (end_time - start_time).
     pub duration: i128,
 }
 
+/// Optional metadata attached to a stream.
+///
+/// Metadata does not affect stream mechanics — it is purely for off-chain
+/// indexing and UI display by frontends. All fields are user-defined strings.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct StreamMetadata {
+    /// Human-readable name for the stream (e.g., "Q3 Salary").
     pub name: soroban_sdk::String,
+    /// Category or type tag (e.g., "salary", "vesting", "grant", "scholarship").
     pub category: soroban_sdk::String,
+    /// Optional memo or description (e.g., "Monthly payroll for engineering team").
     pub memo: soroban_sdk::String,
 }
 
@@ -184,15 +197,25 @@ pub struct CreateStreamInput {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum StreamError {
+    /// The amount is zero, negative, or the top-up amount is insufficient.
     InvalidAmount = 1,
+    /// The end_time is not strictly greater than start_time, or duration exceeds 10 years.
     InvalidTimeRange = 2,
+    /// The cliff_time is outside the [start_time, end_time] range or cliff_amount is invalid.
     InvalidCliff = 3,
+    /// The sender and recipient addresses are the same.
     SelfStream = 4,
+    /// The requested stream ID does not exist or has expired from storage.
     StreamNotFound = 5,
+    /// The stream has already been cancelled and cannot be modified.
     StreamCancelled = 6,
+    /// The caller is not authorized for this operation (wrong sender/recipient/delegate/admin).
     Unauthorized = 7,
+    /// Insufficient withdrawable or locked balance, or transfer would fail.
     InsufficientFunds = 8,
+    /// The stream has already ended (current time >= end_time), cannot perform operation.
     StreamEnded = 9,
+    /// The transfer_stream recipient is identical to the current recipient.
     SameRecipient = 10,
     /// Batch size exceeds the maximum allowed (20 streams per batch).
     BatchSizeExceeded = 11,
@@ -219,10 +242,18 @@ pub enum StreamError {
     RateIsZero = 19,
     /// Stream is not yet cancelled or fully drained; cleanup is not allowed.
     StreamNotEligibleForCleanup = 20,
+    /// The start_time is in the past (before the current ledger timestamp);
+    /// backdating a stream would unlock funds immediately on creation.
+    PastStartTime = 21,
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
 
+/// Emitted when a new stream is created via `create_stream` or `create_streams_batch`.
+///
+/// Indexers should record this to show stream origination time and initial terms.
+/// The `cliff_time` field indicates when the first unlock (cliff) occurs; before
+/// this time, `withdrawable_amount` will be zero.
 #[soroban_sdk::contractevent]
 pub struct StreamCreatedEvent {
     pub stream_id: u64,
@@ -236,6 +267,11 @@ pub struct StreamCreatedEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the recipient (or delegate) withdraws unlocked tokens via `withdraw`.
+///
+/// The `remaining_withdrawable` is the amount still available to withdraw at this
+/// moment (after the withdrawal is recorded). Frontends can use this to update
+/// live counters and show "you have X more to withdraw".
 #[soroban_sdk::contractevent]
 pub struct WithdrawEvent {
     pub stream_id: u64,
@@ -245,6 +281,11 @@ pub struct WithdrawEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the sender cancels a stream via `cancel`.
+///
+/// The stream is moved to cancelled state; the recipient receives `recipient_amount`
+/// (all unlocked tokens as of the cancellation moment) and the sender receives
+/// `sender_refund` (all remaining locked tokens). Both amounts are non-negative.
 #[soroban_sdk::contractevent]
 pub struct CancelEvent {
     pub stream_id: u64,
@@ -255,6 +296,28 @@ pub struct CancelEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the sender partially cancels a stream via `partial_cancel`.
+///
+/// Unlike `cancel`, the stream is **not** terminated — only `amount_refunded` of
+/// the still-locked (unvested) balance is returned to the sender. The vesting
+/// schedule is re-anchored at the moment of the call so that funds already
+/// unlocked remain untouched, and the reduced remainder continues streaming
+/// linearly to `end_time`.
+#[soroban_sdk::contractevent]
+pub struct PartialCancelEvent {
+    pub stream_id: u64,
+    pub sender: Address,
+    pub recipient: Address,
+    pub amount_refunded: i128,
+    pub new_deposited_amount: i128,
+    pub timestamp: u64,
+}
+
+/// Emitted when the recipient transfers stream rights to a new address via `transfer_stream`.
+///
+/// After this event, `new_recipient` becomes the new owner of the stream and can
+/// withdraw or transfer further. The `old_recipient` loses all rights to the stream.
+/// Any delegate set on the stream is cleared on transfer.
 #[soroban_sdk::contractevent]
 pub struct StreamTransferEvent {
     pub stream_id: u64,
@@ -262,6 +325,11 @@ pub struct StreamTransferEvent {
     pub new_recipient: Address,
 }
 
+/// Emitted when the sender adds additional funds to an active stream via `top_up`.
+///
+/// The `additional_amount` is added to the stream's total; the rate per second
+/// (`new_amount_per_second`) is recalculated based on the remaining time. The new
+/// rate applies from the top-up moment onward (vesting is re-anchored).
 #[soroban_sdk::contractevent]
 pub struct TopUpEvent {
     pub stream_id: u64,
@@ -270,17 +338,30 @@ pub struct TopUpEvent {
     pub new_amount_per_second: i128,
 }
 
+/// Emitted when anyone calls `bump_stream` to extend a stream's ledger TTL.
+///
+/// This event indicates the stream's storage was kept alive. Streams are
+/// automatically bumped on write; this is for explicit manual bumps to prevent
+/// expiry of long-idle streams. Indexers can use this to track which streams
+/// are still actively maintained.
 #[soroban_sdk::contractevent]
 pub struct StreamBumpedEvent {
     pub stream_id: u64,
     pub timestamp: u64,
 }
 
+/// Emitted when the contract admin calls `pause` to stop new stream creation.
+///
+/// All write operations (create_stream, withdraw, etc.) are blocked while paused.
+/// Read operations remain available. Use `unpause` to resume normal operations.
 #[soroban_sdk::contractevent]
 pub struct PauseEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the contract admin calls `unpause` to resume normal operations.
+///
+/// After this event, all write operations are once again available.
 #[soroban_sdk::contractevent]
 pub struct UnpauseEvent {
     pub timestamp: u64,
@@ -381,6 +462,10 @@ impl StreamingContract {
     // ── Write: Admin / Upgrade ───────────────────────────────────────────────
 
     /// Upgrade the contract wasm. Only callable by the admin.
+    ///
+    /// # Errors
+    /// - [`StreamError::NotInitialized`] — contract has not been initialized yet.
+    /// - [`StreamError::Unauthorized`]   — caller does not match the stored admin.
     pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) -> Result<(), StreamError> {
         admin.require_auth();
         let stored_admin: Address = env
@@ -424,6 +509,27 @@ impl StreamingContract {
         Ok(())
     }
 
+    fn compute_rate(
+        total: i128,
+        cliff_amount: i128,
+        duration: u64,
+    ) -> Result<(i128, i128, i128), StreamError> {
+        let duration_i128 = duration as i128;
+        let linear_amount = total - cliff_amount;
+        let amount_per_second = if duration_i128 > 0 {
+            linear_amount / duration_i128
+        } else {
+            0
+        };
+
+        // Security: Reject dust streams with zero rate when linear_amount > 0
+        if amount_per_second == 0 && linear_amount > 0 {
+            return Err(StreamError::RateIsZero);
+        }
+
+        Ok((linear_amount, duration_i128, amount_per_second))
+    }
+
     // ── Write: Create ────────────────────────────────────────────────────────
 
     /// Create a new token stream.
@@ -451,6 +557,13 @@ impl StreamingContract {
         if duration > MAX_STREAM_DURATION {
             return Err(StreamError::DurationExceedsMaximum);
         }
+        // Security: reject backdated start times. A stream whose start_time is
+        // in the past would have a large chunk of its deposit already unlocked
+        // (and withdrawable) the moment it is created, bypassing the vesting UX
+        // entirely and misleading the recipient about the schedule.
+        if params.start_time < env.ledger().timestamp() {
+            return Err(StreamError::PastStartTime);
+        }
         if params.cliff_time < params.start_time || params.cliff_time > params.end_time {
             return Err(StreamError::InvalidCliff);
         }
@@ -464,18 +577,8 @@ impl StreamingContract {
             return Err(StreamError::InvalidRecipient);
         }
 
-        let duration_i128 = duration as i128;
-        let linear_amount = params.total_amount - params.cliff_amount;
-        let amount_per_second = if duration_i128 > 0 {
-            linear_amount / duration_i128
-        } else {
-            0
-        };
-
-        // Security: Reject dust streams with zero rate when linear_amount > 0
-        if amount_per_second == 0 && linear_amount > 0 {
-            return Err(StreamError::RateIsZero);
-        }
+        let (linear_amount, duration_i128, amount_per_second) =
+            Self::compute_rate(params.total_amount, params.cliff_amount, duration)?;
 
         // ── Pull funds from sender into contract ─────────────────────────────
         let token_client = token::Client::new(&env, &params.token);
@@ -564,8 +667,6 @@ impl StreamingContract {
         sender.require_auth();
         Self::require_not_paused(&env)?;
 
-        const MAX_BATCH_SIZE: u32 = 20;
-
         if streams.is_empty() {
             return Err(StreamError::BatchEmpty);
         }
@@ -586,6 +687,12 @@ impl StreamingContract {
             if duration > MAX_STREAM_DURATION {
                 return Err(StreamError::DurationExceedsMaximum);
             }
+            // Security: reject backdated start times — same rule as
+            // create_stream, applied per-input before any funds move so the
+            // whole batch is rejected atomically.
+            if input.start_time < env.ledger().timestamp() {
+                return Err(StreamError::PastStartTime);
+            }
             if input.cliff_time < input.start_time || input.cliff_time > input.end_time {
                 return Err(StreamError::InvalidCliff);
             }
@@ -599,16 +706,7 @@ impl StreamingContract {
                 return Err(StreamError::InvalidRecipient);
             }
             // Validate rate would be non-zero when linear amount > 0
-            let linear_amount = input.total_amount - input.cliff_amount;
-            let duration_i128 = duration as i128;
-            let amount_per_second = if duration_i128 > 0 {
-                linear_amount / duration_i128
-            } else {
-                0
-            };
-            if amount_per_second == 0 && linear_amount > 0 {
-                return Err(StreamError::RateIsZero);
-            }
+            Self::compute_rate(input.total_amount, input.cliff_amount, duration)?;
         }
 
         // ── Phase 2: Create each stream ──────────────────────────────────────
@@ -616,13 +714,8 @@ impl StreamingContract {
 
         for input in streams.iter() {
             let duration = input.end_time - input.start_time;
-            let duration_i128 = duration as i128;
-            let linear_amount = input.total_amount - input.cliff_amount;
-            let amount_per_second = if duration_i128 > 0 {
-                linear_amount / duration_i128
-            } else {
-                0
-            };
+            let (linear_amount, duration_i128, amount_per_second) =
+                Self::compute_rate(input.total_amount, input.cliff_amount, duration)?;
 
             // Pull funds from sender into contract
             let token_client = token::Client::new(&env, &input.token);
@@ -1005,6 +1098,123 @@ impl StreamingContract {
         Ok(())
     }
 
+    // ── Write: Partial Cancel ────────────────────────────────────────────────
+
+    /// Partially cancel a stream. Only the sender can call this.
+    ///
+    /// Returns `amount` of the stream's still-locked (unvested) balance back
+    /// to the sender while leaving the stream **active** — this is the
+    /// non-terminal counterpart to [`cancel`], which returns the whole locked
+    /// balance and ends the stream.
+    ///
+    /// The vesting schedule is re-anchored at the current moment (mirroring
+    /// the re-anchoring [`top_up`] does in the opposite direction): whatever
+    /// is already unlocked as of `now` is frozen in place, and the reduced
+    /// remaining balance is spread linearly across the time left until
+    /// `end_time`.
+    ///
+    /// # Errors
+    /// - [`StreamError::StreamCancelled`] — the stream was already fully cancelled.
+    /// - [`StreamError::StreamEnded`] — the stream has already reached `end_time`.
+    /// - [`StreamError::InvalidAmount`] — `amount` is zero, negative, or exceeds
+    ///   the currently locked balance.
+    /// - [`StreamError::RateIsZero`] — the resulting remaining balance would
+    ///   produce a zero per-second streaming rate over the remaining duration.
+    pub fn partial_cancel(env: Env, stream_id: u64, amount: i128) -> Result<(), StreamError> {
+        let mut stream = Self::load_stream(&env, stream_id)?;
+
+        stream.sender.require_auth();
+        Self::require_not_paused(&env)?;
+
+        if stream.cancelled {
+            return Err(StreamError::StreamCancelled);
+        }
+
+        let now = env.ledger().timestamp();
+        if now >= stream.end_time {
+            return Err(StreamError::StreamEnded);
+        }
+
+        let unlocked = Self::unlocked_amount(&stream, now)?;
+        let locked = stream.deposited_amount - unlocked;
+
+        if amount <= 0 || amount > locked {
+            return Err(StreamError::InvalidAmount);
+        }
+
+        stream.deposited_amount = stream
+            .deposited_amount
+            .checked_sub(amount)
+            .expect("deposited_amount underflow");
+
+        // ── Re-anchor the vesting schedule ──────────────────────────────────
+        //
+        // Same idea as `top_up`'s re-anchoring, but shrinking the remaining
+        // balance instead of growing it. `unlocked_amount` stays the single
+        // source of truth for what has vested so far.
+        let remaining_seconds = (stream.end_time - now) as i128;
+
+        if now >= stream.cliff_time {
+            let remaining = stream
+                .deposited_amount
+                .checked_sub(unlocked)
+                .expect("deposited < unlocked — invariant broken");
+
+            let new_rate = if remaining_seconds > 0 {
+                remaining / remaining_seconds
+            } else {
+                0
+            };
+            if new_rate == 0 && remaining > 0 {
+                return Err(StreamError::RateIsZero);
+            }
+
+            stream.cliff_time = now;
+            stream.cliff_amount = unlocked;
+            stream.start_time = now;
+            stream.linear_amount = remaining;
+            stream.duration = remaining_seconds;
+            stream.amount_per_second = new_rate;
+        } else {
+            // Still before the cliff: nothing has unlocked yet, so the whole
+            // reduction comes out of the linear portion.
+            stream.linear_amount = stream
+                .linear_amount
+                .checked_sub(amount)
+                .expect("linear_amount underflow");
+            let new_rate = if stream.duration > 0 {
+                stream.linear_amount / stream.duration
+            } else {
+                0
+            };
+            if new_rate == 0 && stream.linear_amount > 0 {
+                return Err(StreamError::RateIsZero);
+            }
+            stream.amount_per_second = new_rate;
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Stream(stream_id), &stream);
+
+        Self::extend_stream_ttl(&env, stream_id);
+
+        let token_client = token::Client::new(&env, &stream.token);
+        token_client.transfer(&env.current_contract_address(), &stream.sender, &amount);
+
+        PartialCancelEvent {
+            stream_id,
+            sender: stream.sender.clone(),
+            recipient: stream.recipient.clone(),
+            amount_refunded: amount,
+            new_deposited_amount: stream.deposited_amount,
+            timestamp: now,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
     // ── Read: Stream data ────────────────────────────────────────────────────
 
     /// Get a stream by ID.
@@ -1026,20 +1236,7 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::SentBy(address))
             .unwrap_or(Vec::new(&env));
-        let len = all.len();
-        let start = core::cmp::min(offset, len);
-        let end = if let Some(limit_end) = offset.checked_add(limit) {
-            core::cmp::min(limit_end, len)
-        } else {
-            len
-        };
-        let mut result = Vec::new(&env);
-        let mut i = start;
-        while i < end {
-            result.push_back(all.get(i).unwrap());
-            i += 1;
-        }
-        result
+        Self::paginate(&env, &all, offset, limit)
     }
 
     /// Get paginated stream IDs where `address` is the recipient.
@@ -1049,20 +1246,7 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ReceivedBy(address))
             .unwrap_or(Vec::new(&env));
-        let len = all.len();
-        let start = core::cmp::min(offset, len);
-        let end = if let Some(limit_end) = offset.checked_add(limit) {
-            core::cmp::min(limit_end, len)
-        } else {
-            len
-        };
-        let mut result = Vec::new(&env);
-        let mut i = start;
-        while i < end {
-            result.push_back(all.get(i).unwrap());
-            i += 1;
-        }
-        result
+        Self::paginate(&env, &all, offset, limit)
     }
 
     /// Get total count of streams where `address` is the sender.
@@ -1111,6 +1295,7 @@ impl StreamingContract {
             i += 1;
         }
         result
+        Self::paginate(&env, &all, offset, limit)
     }
 
     /// Get paginated archived stream IDs where `address` is the recipient.
@@ -1141,6 +1326,7 @@ impl StreamingContract {
             i += 1;
         }
         result
+        Self::paginate(&env, &all, offset, limit)
     }
 
     /// Manually remove a completed or cancelled stream's data and index entries.
@@ -1241,8 +1427,8 @@ impl StreamingContract {
             .set(&DataKey::StreamMetadata(stream_id), &metadata);
         env.storage().persistent().extend_ttl(
             &DataKey::StreamMetadata(stream_id),
-            518_400,
-            518_400,
+            PERSISTENT_TTL_LEDGERS,
+            PERSISTENT_TTL_LEDGERS,
         );
 
         Ok(())
@@ -1445,6 +1631,23 @@ impl StreamingContract {
             PERSISTENT_TTL_LEDGERS,
             PERSISTENT_TTL_LEDGERS,
         );
+    }
+
+    fn paginate(env: &Env, list: &Vec<u64>, offset: u32, limit: u32) -> Vec<u64> {
+        let len = list.len();
+        let start = core::cmp::min(offset, len);
+        let end = if let Some(limit_end) = offset.checked_add(limit) {
+            core::cmp::min(limit_end, len)
+        } else {
+            len
+        };
+        let mut result = Vec::new(env);
+        let mut i = start;
+        while i < end {
+            result.push_back(list.get(i).unwrap());
+            i += 1;
+        }
+        result
     }
 }
 

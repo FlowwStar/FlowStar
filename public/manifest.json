@@ -1,0 +1,33 @@
+{
+  "name": "FlowStar — Real-Time Token Streaming on Stellar",
+  "short_name": "FlowStar",
+  "description": "Stream tokens by the second with cliffs and cancellations on Stellar Soroban. Vesting, payroll, and grants that unlock continuously.",
+  "start_url": "/app",
+  "id": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0c1014",
+  "theme_color": "#0c1014",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-dark-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "productivity"]
+}

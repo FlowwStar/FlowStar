@@ -5,6 +5,8 @@ import { ThemeProvider } from 'next-themes'
 import { NetworkProvider } from '@/components/providers/network-provider'
 import { WalletProvider } from '@/components/providers/wallet-provider'
 import { Toaster } from '@/components/ui/sonner'
+import { ServiceWorkerRegister } from '@/components/pwa/service-worker-register'
+import { InstallPrompt } from '@/components/pwa/install-prompt'
 import './globals.css'
 
 // JSON-LD structured data
@@ -80,6 +82,12 @@ export const metadata: Metadata = {
     ],
     apple: '/apple-icon.png',
   },
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'FlowStar',
+  },
 }
 
 export const viewport: Viewport = {
@@ -114,8 +122,10 @@ export default function RootLayout({
             <WalletProvider>
               {children}
               <Toaster position="top-right" />
+              <InstallPrompt />
             </WalletProvider>
           </NetworkProvider>
+          <ServiceWorkerRegister />
           {process.env.NODE_ENV === 'production' && <Analytics />}
         </ThemeProvider>
       </body>

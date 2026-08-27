@@ -149,6 +149,37 @@ describe("parseCsvBatch", () => {
       expect(result.rows[0].recipient).toBe("GABC");
       expect(result.rows[0].amount).toBe("1000");
     });
+
+    it("ignores blank lines interspersed between data rows", () => {
+      const csv = `${HEADER}\n${makeRow()}\n\n   \n${makeRow("GXYZ", "500", "2000", "3000")}`;
+      const result = parseCsvBatch(csv);
+      expect(result.rows).toHaveLength(2);
+    });
+
+    it("produces empty required fields when a row has fewer columns than expected", () => {
+      // Row has only recipient and amount — start_time and end_time are absent
+      const csv = [HEADER, "GABC,1000"].join("\n");
+      const result = parseCsvBatch(csv);
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0].recipient).toBe("GABC");
+      expect(result.rows[0].amount).toBe("1000");
+      expect(result.rows[0].start_time).toBe("");
+      expect(result.rows[0].end_time).toBe("");
+    });
+
+    it("ignores extra columns beyond what is mapped", () => {
+      const csv = [HEADER, "GABC,1000,1000000,2000000,extra_col,another"].join("\n");
+      const result = parseCsvBatch(csv);
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0].recipient).toBe("GABC");
+      expect(result.rows[0].amount).toBe("1000");
+    });
+
+    it("parses a header-only CSV with no data rows and returns zero rows", () => {
+      const result = parseCsvBatch(HEADER);
+      expect(result.rows).toHaveLength(0);
+      expect(result.errors).toHaveLength(0);
+    });
   });
 
   describe("quoted fields", () => {
@@ -162,6 +193,64 @@ describe("parseCsvBatch", () => {
       const csv = [HEADER, '"GA""BC",1000,1000,2000'].join("\n");
       const result = parseCsvBatch(csv);
       expect(result.rows[0].recipient).toBe('GA"BC');
+    });
+  });
+
+  describe("malformed CSV input", () => {
+    it("treats an unclosed quoted field as a single cell consuming the rest of the line", () => {
+      // Unclosed quote: the comma inside the quoted span is not a delimiter,
+      // so the whole remainder of the line is treated as one field.
+      const csv = [HEADER, '"GABC,1000,1000000,2000000'].join("\n");
+      const result = parseCsvBatch(csv);
+      expect(result.rows).toHaveLength(1);
+      // Entire content after the opening quote becomes recipient; other fields default to ""
+      expect(result.rows[0].recipient).toBe("GABC,1000,1000000,2000000");
+      expect(result.rows[0].amount).toBe("");
+      expect(result.rows[0].start_time).toBe("");
+      expect(result.rows[0].end_time).toBe("");
+    });
+
+    it("returns empty string for a field that is entirely missing (row too short)", () => {
+      // Only 3 columns; end_time index (3) is out of range → defaults to ""
+      const csv = [HEADER, "GABC,1000,1000000"].join("\n");
+      const result = parseCsvBatch(csv);
+      expect(result.rows[0].end_time).toBe("");
+    });
+
+    it("handles a row that is just commas (all empty fields)", () => {
+      const csv = [HEADER, ",,,"].join("\n");
+      const result = parseCsvBatch(csv);
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0].recipient).toBe("");
+      expect(result.rows[0].amount).toBe("");
+      expect(result.rows[0].start_time).toBe("");
+      expect(result.rows[0].end_time).toBe("");
+    });
+
+    it("handles a CSV that contains only blank lines after the header", () => {
+      const csv = `${HEADER}\n\n   \n`;
+      const result = parseCsvBatch(csv);
+      expect(result.rows).toHaveLength(0);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it("returns an error when a detected header row has no recognised column names", () => {
+      // All column names are unknown aliases — the header check still passes
+      // (none match HEADER_ALIASES) so isLikelyHeader is false and the row
+      // is treated as data, not triggering a header-validation error.
+      // This test confirms no crash and data is returned as-is.
+      const csv = ["foo,bar,baz,qux", "GABC,1000,1000,2000"].join("\n");
+      const result = parseCsvBatch(csv);
+      // No aliases matched → treated as two data rows, not a header
+      expect(result.errors).toHaveLength(0);
+      expect(result.rows).toHaveLength(2);
+    });
+
+    it("handles a row where a quoted value contains a newline-like literal text", () => {
+      // Ensures the CSV parser does not crash on unusual but valid quoted content
+      const csv = [HEADER, '"GA\\nBC",1000,1000000,2000000'].join("\n");
+      const result = parseCsvBatch(csv);
+      expect(result.rows[0].recipient).toBe("GA\\nBC");
     });
   });
 

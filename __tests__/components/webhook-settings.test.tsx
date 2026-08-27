@@ -207,29 +207,29 @@ describe('WebhookSettings – registered webhook list', () => {
 
   it('calls removeWebhook with the correct id when Remove is clicked', () => {
     setup()
-    fireEvent.click(screen.getByTitle('Remove'))
+    fireEvent.click(screen.getByLabelText('Remove'))
     expect(mockRemoveWebhook).toHaveBeenCalledWith('hook-1')
   })
 
   it('calls toggleWebhook with the correct id when the toggle button is clicked', () => {
     setup()
-    fireEvent.click(screen.getByTitle('Disable'))
+    fireEvent.click(screen.getByLabelText('Disable'))
     expect(mockToggleWebhook).toHaveBeenCalledWith('hook-1')
   })
 
-  it('shows Enable title when webhook is disabled', () => {
+  it('shows Enable aria-label when webhook is disabled', () => {
     mockUseWebhooks.mockReturnValue({
       ...defaultHookState,
       webhooks: [{ ...HOOK, enabled: false }],
     })
     setup()
-    expect(screen.getByTitle('Enable')).toBeInTheDocument()
+    expect(screen.getByLabelText('Enable')).toBeInTheDocument()
   })
 
   it('calls testWebhook with the correct id when Send test is clicked', async () => {
     mockTestWebhook.mockResolvedValue(true)
     setup()
-    fireEvent.click(screen.getByTitle('Send test'))
+    fireEvent.click(screen.getByLabelText('Send test'))
     await waitFor(() => expect(mockTestWebhook).toHaveBeenCalledWith('hook-1'))
   })
 
@@ -237,7 +237,7 @@ describe('WebhookSettings – registered webhook list', () => {
     const { toast } = await import('sonner')
     mockTestWebhook.mockResolvedValue(true)
     setup()
-    fireEvent.click(screen.getByTitle('Send test'))
+    fireEvent.click(screen.getByLabelText('Send test'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Test delivered successfully'))
   })
 
@@ -245,7 +245,7 @@ describe('WebhookSettings – registered webhook list', () => {
     const { toast } = await import('sonner')
     mockTestWebhook.mockResolvedValue(false)
     setup()
-    fireEvent.click(screen.getByTitle('Send test'))
+    fireEvent.click(screen.getByLabelText('Send test'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith('Test delivery failed', expect.any(Object)),
     )
@@ -255,7 +255,7 @@ describe('WebhookSettings – registered webhook list', () => {
     // Never resolves so the button stays disabled
     mockTestWebhook.mockReturnValue(new Promise(() => {}))
     setup()
-    const testBtn = screen.getByTitle('Send test')
+    const testBtn = screen.getByLabelText('Send test')
     fireEvent.click(testBtn)
     await waitFor(() => expect(testBtn).toBeDisabled())
   })

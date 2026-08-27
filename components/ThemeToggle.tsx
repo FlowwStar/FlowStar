@@ -22,6 +22,7 @@ export function ThemeToggle() {
   const ThemeIcon = ICONS[(theme as keyof typeof ICONS) ?? 'system']
 
   return (
+    <button type="button"
     <button
       type="button"
       onClick={cycle}

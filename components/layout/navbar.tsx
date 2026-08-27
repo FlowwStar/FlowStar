@@ -2,11 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Plus, Moon, Sun, Monitor, Network, AlertTriangle } from 'lucide-react'
+import { Plus, Moon, Sun, Monitor, Network, AlertTriangle, WifiOff } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Brand } from '@/components/brand'
 import { useNetwork } from '@/components/providers/network-provider'
 import { useWalletContext } from '@/components/providers/wallet-provider'
+import { useOnlineStatus } from '@/hooks/use-online-status'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -30,6 +31,7 @@ export function Navbar() {
   const { setTheme } = useTheme()
   const { network, setNetwork } = useNetwork()
   const { networkMismatch, walletNetwork, isConnected } = useWalletContext()
+  const isOnline = useOnlineStatus()
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background/80 backdrop-blur-xl">
@@ -58,6 +60,16 @@ export function Navbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          {!isOnline && (
+            <span
+              role="status"
+              title="You're offline — showing cached data"
+              className="flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400"
+            >
+              <WifiOff className="size-3.5" />
+              <span className="hidden sm:inline">Offline</span>
+            </span>
+          )}
           {networkMismatch ? (
             <Button
               variant="ghost"

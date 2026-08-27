@@ -143,7 +143,7 @@ export function WebhookSettings() {
                     variant="ghost"
                     size="icon"
                     className="size-8"
-                    title={hook.enabled ? 'Disable' : 'Enable'}
+                    aria-label={hook.enabled ? 'Disable' : 'Enable'}
                     onClick={() => toggleWebhook(hook.id)}
                   >
                     {hook.enabled ? (
@@ -156,7 +156,7 @@ export function WebhookSettings() {
                     variant="ghost"
                     size="icon"
                     className="size-8"
-                    title="Send test"
+                    aria-label="Send test"
                     disabled={testing === hook.id}
                     onClick={() => handleTest(hook.id)}
                   >
@@ -166,7 +166,7 @@ export function WebhookSettings() {
                     variant="ghost"
                     size="icon"
                     className="size-8 text-destructive hover:text-destructive"
-                    title="Remove"
+                    aria-label="Remove"
                     onClick={() => removeWebhook(hook.id)}
                   >
                     <Trash2 className="size-4" />
