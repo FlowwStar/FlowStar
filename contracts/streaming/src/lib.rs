@@ -56,6 +56,7 @@ use soroban_sdk::{
 const CONTRACT_VERSION: u32 = 1;
 const CONTRACT_NAME: &str = "FlowStar Streaming";
 const MAX_STREAM_DURATION: u64 = 315_360_000; // 10 years in seconds
+const MAX_BATCH_SIZE: u32 = 20;
 
 /// TTL for instance storage entries (~1 day).
 ///
@@ -112,8 +113,11 @@ pub enum DataKey {
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stream {
+    /// Unique identifier for the stream.
     pub id: u64,
+    /// Address of the stream sender.
     pub sender: Address,
+    /// Address of the stream recipient.
     pub recipient: Address,
     /// Token contract address (SEP-41 compatible).
     pub token: Address,
@@ -133,7 +137,9 @@ pub struct Stream {
     pub amount_per_second: i128,
     /// Whether the stream has been cancelled.
     pub cancelled: bool,
+    /// Total amount to be streamed linearly after cliff (total - cliff).
     pub linear_amount: i128,
+    /// Total duration of the stream in seconds (end_time - start_time).
     pub duration: i128,
 }
 
@@ -461,6 +467,27 @@ impl StreamingContract {
         Ok(())
     }
 
+    fn compute_rate(
+        total: i128,
+        cliff_amount: i128,
+        duration: u64,
+    ) -> Result<(i128, i128, i128), StreamError> {
+        let duration_i128 = duration as i128;
+        let linear_amount = total - cliff_amount;
+        let amount_per_second = if duration_i128 > 0 {
+            linear_amount / duration_i128
+        } else {
+            0
+        };
+
+        // Security: Reject dust streams with zero rate when linear_amount > 0
+        if amount_per_second == 0 && linear_amount > 0 {
+            return Err(StreamError::RateIsZero);
+        }
+
+        Ok((linear_amount, duration_i128, amount_per_second))
+    }
+
     // ── Write: Create ────────────────────────────────────────────────────────
 
     /// Create a new token stream.
@@ -501,18 +528,8 @@ impl StreamingContract {
             return Err(StreamError::InvalidRecipient);
         }
 
-        let duration_i128 = duration as i128;
-        let linear_amount = params.total_amount - params.cliff_amount;
-        let amount_per_second = if duration_i128 > 0 {
-            linear_amount / duration_i128
-        } else {
-            0
-        };
-
-        // Security: Reject dust streams with zero rate when linear_amount > 0
-        if amount_per_second == 0 && linear_amount > 0 {
-            return Err(StreamError::RateIsZero);
-        }
+        let (linear_amount, duration_i128, amount_per_second) =
+            Self::compute_rate(params.total_amount, params.cliff_amount, duration)?;
 
         // ── Pull funds from sender into contract ─────────────────────────────
         let token_client = token::Client::new(&env, &params.token);
@@ -601,8 +618,6 @@ impl StreamingContract {
         sender.require_auth();
         Self::require_not_paused(&env)?;
 
-        const MAX_BATCH_SIZE: u32 = 20;
-
         if streams.is_empty() {
             return Err(StreamError::BatchEmpty);
         }
@@ -636,16 +651,7 @@ impl StreamingContract {
                 return Err(StreamError::InvalidRecipient);
             }
             // Validate rate would be non-zero when linear amount > 0
-            let linear_amount = input.total_amount - input.cliff_amount;
-            let duration_i128 = duration as i128;
-            let amount_per_second = if duration_i128 > 0 {
-                linear_amount / duration_i128
-            } else {
-                0
-            };
-            if amount_per_second == 0 && linear_amount > 0 {
-                return Err(StreamError::RateIsZero);
-            }
+            Self::compute_rate(input.total_amount, input.cliff_amount, duration)?;
         }
 
         // ── Phase 2: Create each stream ──────────────────────────────────────
@@ -653,13 +659,8 @@ impl StreamingContract {
 
         for input in streams.iter() {
             let duration = input.end_time - input.start_time;
-            let duration_i128 = duration as i128;
-            let linear_amount = input.total_amount - input.cliff_amount;
-            let amount_per_second = if duration_i128 > 0 {
-                linear_amount / duration_i128
-            } else {
-                0
-            };
+            let (linear_amount, duration_i128, amount_per_second) =
+                Self::compute_rate(input.total_amount, input.cliff_amount, duration)?;
 
             // Pull funds from sender into contract
             let token_client = token::Client::new(&env, &input.token);
@@ -1266,8 +1267,8 @@ impl StreamingContract {
             .set(&DataKey::StreamMetadata(stream_id), &metadata);
         env.storage().persistent().extend_ttl(
             &DataKey::StreamMetadata(stream_id),
-            518_400,
-            518_400,
+            PERSISTENT_TTL_LEDGERS,
+            PERSISTENT_TTL_LEDGERS,
         );
 
         Ok(())
