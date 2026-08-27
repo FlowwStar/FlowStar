@@ -12,7 +12,7 @@ export function ThemeToggle() {
 
   // Avoid hydration mismatch — only render after mount
   useEffect(() => setMounted(true), [])
-  if (!mounted) return <div className="w-9 h-9" />
+  if (!mounted) return null
 
   const cycle = () => {
     const idx = MODES.indexOf((theme as (typeof MODES)[number]) ?? 'system')
@@ -23,6 +23,8 @@ export function ThemeToggle() {
 
   return (
     <button type="button"
+    <button
+      type="button"
       onClick={cycle}
       aria-label={`Current theme: ${theme}. Click to switch.`}
       className="p-2 rounded-lg hover:bg-muted min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors"

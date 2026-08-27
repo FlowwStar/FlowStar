@@ -182,6 +182,46 @@ Copy the returned contract ID into your `.env.local` as
 
 ---
 
+## Local security checks
+
+CI runs two security scripts on every push. Run them locally before opening a
+PR to catch issues before they block the build.
+
+### Secret scanner
+
+Scans TypeScript, JavaScript, YAML, and JSON source files for hardcoded secrets
+(Stripe keys, AWS access key IDs, GitHub tokens, private keys, etc.).
+
+```bash
+node scripts/check-secrets.mjs
+```
+
+Exits `0` with `✅ No hardcoded secrets found.` when clean. Exits `1` and
+prints a `❌ HIGH [SECRETS-001]` line for each finding, including the file
+path, line number, and the matched pattern label. All findings must be resolved
+before merging.
+
+### Soroban / Rust contract checker
+
+Scans `contracts/**/*.rs` for four classes of issues:
+
+| ID | Severity | What it catches |
+|---|---|---|
+| SOROBAN-001 | HIGH | Unchecked arithmetic (`+=`, `-=`, `*=`) on `i128`/`u128`/`u64` variables |
+| SOROBAN-002 | HIGH | Public write functions missing `require_auth()` |
+| SOROBAN-003 | HIGH | `persistent().set()` calls not paired with `extend_ttl()` |
+| SOROBAN-004 | LOW | `panic!("…")` with a string literal instead of `ContractError` |
+
+```bash
+node scripts/soroban-security-check.mjs
+```
+
+Exits `0` when clean or when only LOW-severity warnings are present. Exits `1`
+if any HIGH-severity issue is found. Fix all `❌ HIGH` findings before merging;
+`⚠️ LOW` warnings are non-blocking but should be addressed.
+
+---
+
 ## Code style
 
 ### TypeScript

@@ -7,8 +7,6 @@ import { getUnlockedAmount, getStreamProgress, formatTokenAmount } from '@/lib/s
 import { ProgressBar } from '@/components/ui/progress-bar'
 import type { StreamData } from '@/types/stream'
 
-const NOW = Math.floor(Date.now() / 1000)
-
 const STREAM_DURATION = 30 * 24 * 60 * 60
 
 function buildDemoStream(now: number): StreamData {
@@ -37,7 +35,7 @@ function buildDemoStream(now: number): StreamData {
 
 export function LiveStreamPreview() {
   const now = useNow(1000)
-  const [demoStream] = useState(() => buildDemoStream(NOW))
+  const [demoStream] = useState(() => buildDemoStream(Math.floor(Date.now() / 1000)))
   const unlocked = getUnlockedAmount(demoStream, now)
   const progress = getStreamProgress(demoStream, now)
 

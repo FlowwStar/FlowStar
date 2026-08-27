@@ -284,4 +284,138 @@ describe('useAutoWithdraw', () => {
 
     expect(withdrawFromStream).toHaveBeenCalledWith('stream-1', 200n, 'testnet')
   })
+
+  // ── gas-optimized strategy ─────────────────────────────────────────────────
+
+  it('gas-optimized: skips withdrawal when last withdrawal was less than 1 day ago', async () => {
+    vi.mocked(getWithdrawableAmount).mockReturnValue(500n)
+    const recentTimestamp = Date.now() - 12 * 60 * 60 * 1000 // 12 hours ago
+    localStorage.setItem(
+      'flowstar:auto-withdraw:stream-1',
+      JSON.stringify({
+        enabled: true,
+        strategy: 'gas-optimized',
+        intervalHours: 1,
+        withdrawalHistory: [{ timestamp: recentTimestamp, amount: '100', txHash: 'tx-old' }],
+      }),
+    )
+    renderHook(() => useAutoWithdraw(makeStream()))
+
+    await act(async () => {
+      vi.advanceTimersByTime(60 * 60 * 1000 + 100)
+      await Promise.resolve()
+    })
+
+    expect(withdrawFromStream).not.toHaveBeenCalled()
+  })
+
+  it('gas-optimized: executes withdrawal when last withdrawal was more than 1 day ago', async () => {
+    vi.mocked(getWithdrawableAmount).mockReturnValue(500n)
+    vi.mocked(withdrawFromStream).mockResolvedValue('tx-gas-opt')
+    const oldTimestamp = Date.now() - 2 * 24 * 60 * 60 * 1000 // 2 days ago
+    localStorage.setItem(
+      'flowstar:auto-withdraw:stream-1',
+      JSON.stringify({
+        enabled: true,
+        strategy: 'gas-optimized',
+        intervalHours: 1,
+        withdrawalHistory: [{ timestamp: oldTimestamp, amount: '100', txHash: 'tx-old' }],
+      }),
+    )
+    renderHook(() => useAutoWithdraw(makeStream()))
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 100)
+    })
+
+    expect(withdrawFromStream).toHaveBeenCalledWith('stream-1', 500n, 'testnet')
+  })
+
+  it('gas-optimized: executes withdrawal when there is no prior history (Infinity days since last)', async () => {
+    vi.mocked(getWithdrawableAmount).mockReturnValue(500n)
+    vi.mocked(withdrawFromStream).mockResolvedValue('tx-first')
+    const { result } = renderHook(() => useAutoWithdraw(makeStream()))
+
+    act(() => {
+      result.current.updateSettings({
+        enabled: true,
+        strategy: 'gas-optimized',
+        intervalHours: 1,
+      })
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 100)
+    })
+
+    expect(withdrawFromStream).toHaveBeenCalledWith('stream-1', 500n, 'testnet')
+  })
+
+  // ── max strategy ───────────────────────────────────────────────────────────
+
+  it('max: withdraws the full withdrawable amount', async () => {
+    vi.mocked(getWithdrawableAmount).mockReturnValue(9000n)
+    vi.mocked(withdrawFromStream).mockResolvedValue('tx-max')
+    const { result } = renderHook(() => useAutoWithdraw(makeStream()))
+
+    act(() => {
+      result.current.updateSettings({
+        enabled: true,
+        strategy: 'max',
+        intervalHours: 1,
+      })
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 100)
+    })
+
+    expect(withdrawFromStream).toHaveBeenCalledWith('stream-1', 9000n, 'testnet')
+  })
+
+  // ── time-based strategy (default) ─────────────────────────────────────────
+
+  it('time-based: withdraws the full withdrawable amount on schedule', async () => {
+    vi.mocked(getWithdrawableAmount).mockReturnValue(750n)
+    vi.mocked(withdrawFromStream).mockResolvedValue('tx-time')
+    const { result } = renderHook(() => useAutoWithdraw(makeStream()))
+
+    act(() => {
+      result.current.updateSettings({
+        enabled: true,
+        strategy: 'time-based',
+        intervalHours: 1,
+      })
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 100)
+    })
+
+    expect(withdrawFromStream).toHaveBeenCalledWith('stream-1', 750n, 'testnet')
+  })
+
+  // ── threshold-based: at or above threshold ─────────────────────────────────
+
+  it('threshold-based: executes withdrawal when above threshold', async () => {
+    // withdrawable (6000n) >= threshold (5000n = 50% of 10000n deposited)
+    vi.mocked(getWithdrawableAmount).mockReturnValue(6000n)
+    vi.mocked(withdrawFromStream).mockResolvedValue('tx-threshold')
+    const { result } = renderHook(() => useAutoWithdraw(makeStream()))
+
+    act(() => {
+      result.current.updateSettings({
+        enabled: true,
+        intervalHours: 1,
+        strategy: 'threshold-based',
+        thresholdPercentage: 50,
+      })
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000 + 100)
+    })
+
+    expect(withdrawFromStream).toHaveBeenCalledWith('stream-1', 6000n, 'testnet')
+  })
 })

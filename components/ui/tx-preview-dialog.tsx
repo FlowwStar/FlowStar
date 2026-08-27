@@ -55,11 +55,27 @@ export function TxPreviewDialog({
     if (!open || !input || !sender) return
     setPreview(null)
     setSimulating(true)
+    let cancelled = false
+
     simulateCreateStreamPreview(network, input, sender)
       .then((data) => { if (!cancelled) setPreview(data); })
       .finally(() => setSimulating(false))
   
     return () => { cancelled = true; };
+      .then((result) => {
+        if (!cancelled) {
+          setPreview(result)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSimulating(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [open, input, network, sender])
 
   return (

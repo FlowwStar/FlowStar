@@ -31,25 +31,49 @@ FlowStar is a Stellar Soroban smart contract that enables token streaming with f
 
 ### 1. For Smart Contract Integrators
 
-Start with the **[API Reference](./api-reference.md)** to understand all 12 public functions:
+Start with the **[API Reference](./api-reference.md)** to understand all 28 public functions:
+
+- Admin & Lifecycle
+  - `initialize()` - One-time contract setup with admin address
+  - `pause()` - Halt all write operations (admin only)
+  - `unpause()` - Resume write operations (admin only)
+  - `upgrade()` - Replace contract Wasm bytecode (admin only)
+  - `migrate()` - Post-upgrade storage migration hook (admin only)
 
 - Stream Creation & Modification
   - `create_stream()` - Create a new payment stream
+  - `create_streams_batch()` - Create up to 20 streams atomically
   - `cancel()` - Cancel a stream
   - `transfer_stream()` - Transfer stream to new recipient
   - `top_up()` - Add funds to existing stream
-  - `bump_stream()` - Extend stream TTL
+  - `bump_stream()` - Extend stream TTL (callable by anyone)
+  - `cleanup_stream()` - Delete completed/cancelled stream data
 
 - Recipient Operations
   - `withdraw()` - Withdraw available funds
 
+- Metadata
+  - `update_stream_metadata()` - Set name, category, and memo on a stream
+  - `get_stream_metadata()` - Retrieve stream metadata
+
+- Delegation
+  - `set_delegate()` - Authorize a delegate to withdraw on recipient's behalf
+  - `remove_delegate()` - Remove a stream's delegate
+  - `get_delegate()` - Query the current delegate for a stream
+
 - Query Functions
   - `get_stream()` - Fetch stream details
   - `get_withdrawable()` - Get available withdrawal amount
-  - `get_sent_streams()` - List streams sent by address
-  - `get_received_streams()` - List streams received by address
-  - `get_sent_stream_count()` - Count of sent streams
-  - `get_received_stream_count()` - Count of received streams
+  - `get_sent_streams()` - List active streams sent by address
+  - `get_received_streams()` - List active streams received by address
+  - `get_sent_stream_count()` - Count of active sent streams
+  - `get_received_stream_count()` - Count of active received streams
+  - `get_archived_sent_streams()` - List completed/cancelled streams sent by address
+  - `get_archived_received_streams()` - List completed/cancelled streams received by address
+
+- Contract Info
+  - `version()` - Contract version number
+  - `name()` - Contract name string
 
 ### 2. For dApp Developers
 
@@ -121,12 +145,22 @@ All write operations require authorization from a specific account:
 
 | Operation | Requires |
 |-----------|----------|
+| `initialize()` | `admin` must authorize |
+| `pause()` | Stored admin must authorize |
+| `unpause()` | Stored admin must authorize |
+| `upgrade()` | `admin` param must authorize and match stored admin |
+| `migrate()` | Stored admin must authorize |
 | `create_stream()` | Sender must authorize |
-| `withdraw()` | Recipient must authorize |
+| `create_streams_batch()` | Sender must authorize |
+| `withdraw()` | Recipient (or registered delegate) must authorize |
 | `cancel()` | Sender must authorize |
 | `transfer_stream()` | Current recipient must authorize |
 | `top_up()` | Sender must authorize |
-| `bump_stream()` | Sender must authorize |
+| `bump_stream()` | No authorization required |
+| `cleanup_stream()` | Sender or recipient must authorize |
+| `update_stream_metadata()` | Sender must authorize |
+| `set_delegate()` | Recipient must authorize |
+| `remove_delegate()` | Recipient must authorize |
 
 Query operations (read-only) do not require authorization or fees.
 
@@ -184,6 +218,8 @@ interface Stream {
   cliff_amount: i128;
   amount_per_second: i128;
   cancelled: boolean;
+  linear_amount: i128;
+  duration: i128;
 }
 
 interface StreamParams {
@@ -194,6 +230,23 @@ interface StreamParams {
   end_time: u64;
   cliff_time: u64;
   cliff_amount: i128;
+}
+
+// Used by create_streams_batch; same fields as StreamParams but a distinct type
+interface CreateStreamInput {
+  recipient: Address;
+  token: Address;
+  total_amount: i128;
+  start_time: u64;
+  end_time: u64;
+  cliff_time: u64;
+  cliff_amount: i128;
+}
+
+interface StreamMetadata {
+  name: string;
+  category: string;
+  memo: string;
 }
 ```
 
@@ -226,7 +279,7 @@ A: All remaining funds are immediately returned to the sender's token account.
 A: Yes! You can withdraw any amount up to the currently available balance.
 
 **Q: How often should I bump the stream TTL?**
-A: Streams last ~6 months before needing a bump. Call `bump_stream()` every 5 months for active streams.
+A: Persistent storage entries expire after ~30 days of inactivity. Call `bump_stream()` at least once every 25 days for streams that won't be touched by withdrawals, top-ups, or other writes in that period. Any write operation (withdraw, top_up, cancel, etc.) bumps the TTL automatically.
 
 **Q: What tokens are supported?**
 A: Any SEP-41 token on Stellar is supported. Common tokens include XLM, USDC, and EURC.
@@ -235,7 +288,7 @@ A: Any SEP-41 token on Stellar is supported. Common tokens include XLM, USDC, an
 A: Yes! Call `transfer_stream()` to transfer your recipient rights to another address.
 
 **Q: What's the maximum stream duration?**
-A: Theoretically unlimited, but practical limit is ~6 months before TTL bump needed.
+A: The contract enforces a hard cap of 10 years (315,360,000 seconds). For streams longer than ~30 days that won't receive regular writes, call `bump_stream()` periodically to keep the storage entry alive.
 
 ---
 
