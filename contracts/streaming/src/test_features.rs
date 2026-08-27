@@ -6,6 +6,7 @@ use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
+    vec, Address, Env,
     Address, Env,
 };
 
@@ -270,6 +271,40 @@ fn test_pause_blocks_cancel() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_pause_blocks_update_stream_metadata() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    client.initialize(&t.sender);
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    client.pause();
+
+    // Attempting to mutate metadata while paused must be rejected with
+    // ContractPaused (#16) — the same guard that protects every other
+    // state-changing function.
+    let metadata = StreamMetadata {
+        name: soroban_sdk::String::from_str(&t.env, "Salary"),
+        category: soroban_sdk::String::from_str(&t.env, "payroll"),
+        memo: soroban_sdk::String::from_str(&t.env, "monthly"),
+    };
+    client.update_stream_metadata(&stream_id, &metadata);
+}
+
+#[test]
 fn test_read_operations_work_while_paused() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -337,6 +372,9 @@ fn test_only_admin_can_pause() {
     let client = t.client();
     client.initialize(&t.sender);
 
+    let other = Address::generate(&t.env);
+
+    // Non-admin should not be able to pause
     // This test assumes mock_all_auths is set; otherwise auth will fail
     client.pause();
 }
@@ -357,6 +395,7 @@ fn test_only_admin_can_unpause() {
     // Only admin can unpause
     client.unpause();
 
+    let stream = client.get_stream(&1u64);
     // Operations should work again now that the contract is unpaused.
     t.token().approve(
         &t.sender,

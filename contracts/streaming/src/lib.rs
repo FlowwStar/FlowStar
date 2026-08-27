@@ -367,6 +367,28 @@ pub struct UnpauseEvent {
     pub timestamp: u64,
 }
 
+#[soroban_sdk::contractevent]
+pub struct DelegateSetEvent {
+    pub stream_id: u64,
+    pub recipient: Address,
+    pub delegate: Address,
+    pub timestamp: u64,
+}
+
+#[soroban_sdk::contractevent]
+pub struct DelegateRemovedEvent {
+    pub stream_id: u64,
+    pub recipient: Address,
+    pub timestamp: u64,
+}
+
+#[soroban_sdk::contractevent]
+pub struct StreamCleanedUpEvent {
+    pub stream_id: u64,
+    pub caller: Address,
+    pub timestamp: u64,
+}
+
 // ─── Contract ────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -1257,6 +1279,22 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ArchiveSentBy(address))
             .unwrap_or(Vec::new(&env));
+        let len = all.len();
+        let start = core::cmp::min(offset, len);
+        let end = if let Some(limit_end) = offset.checked_add(limit) {
+            core::cmp::min(limit_end, len)
+        } else {
+            len
+        };
+        let mut result = Vec::new(&env);
+        let mut i = start;
+        while i < end {
+            if let Some(id) = all.get(i) {
+                result.push_back(id);
+            }
+            i += 1;
+        }
+        result
         Self::paginate(&env, &all, offset, limit)
     }
 
@@ -1272,6 +1310,22 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ArchiveReceivedBy(address))
             .unwrap_or(Vec::new(&env));
+        let len = all.len();
+        let start = core::cmp::min(offset, len);
+        let end = if let Some(limit_end) = offset.checked_add(limit) {
+            core::cmp::min(limit_end, len)
+        } else {
+            len
+        };
+        let mut result = Vec::new(&env);
+        let mut i = start;
+        while i < end {
+            if let Some(id) = all.get(i) {
+                result.push_back(id);
+            }
+            i += 1;
+        }
+        result
         Self::paginate(&env, &all, offset, limit)
     }
 
@@ -1329,6 +1383,13 @@ impl StreamingContract {
             .persistent()
             .remove(&DataKey::Delegate(stream_id));
 
+        StreamCleanedUpEvent {
+            stream_id,
+            caller,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
+
         Ok(())
     }
 
@@ -1359,6 +1420,7 @@ impl StreamingContract {
     ) -> Result<(), StreamError> {
         let stream = Self::load_stream(&env, stream_id)?;
         stream.sender.require_auth();
+        Self::require_not_paused(&env)?;
 
         env.storage()
             .persistent()
@@ -1394,6 +1456,7 @@ impl StreamingContract {
     pub fn set_delegate(env: Env, stream_id: u64, delegate: Address) -> Result<(), StreamError> {
         let stream = Self::load_stream(&env, stream_id)?;
         stream.recipient.require_auth();
+        Self::require_not_paused(&env)?;
 
         env.storage()
             .persistent()
@@ -1404,6 +1467,14 @@ impl StreamingContract {
             PERSISTENT_TTL_LEDGERS,
         );
 
+        DelegateSetEvent {
+            stream_id,
+            recipient: stream.recipient,
+            delegate,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
+
         Ok(())
     }
 
@@ -1411,10 +1482,18 @@ impl StreamingContract {
     pub fn remove_delegate(env: Env, stream_id: u64) -> Result<(), StreamError> {
         let stream = Self::load_stream(&env, stream_id)?;
         stream.recipient.require_auth();
+        Self::require_not_paused(&env)?;
 
         env.storage()
             .persistent()
             .remove(&DataKey::Delegate(stream_id));
+
+        DelegateRemovedEvent {
+            stream_id,
+            recipient: stream.recipient,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
 
         Ok(())
     }
