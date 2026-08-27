@@ -28,6 +28,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { getFederationNameForAddress } from '@/lib/address-book'
 import type { StreamData } from '@/types/stream'
 
 // Pick update interval based on a quick pre-check of stream state.
@@ -75,6 +76,9 @@ function StreamCardInner({
   const rate = formatRate(stream.amountPerSecond, stream.token.decimals, stream.token.symbol)
   const isOutgoing = address === stream.sender
   const counterparty = isOutgoing ? stream.recipient : stream.sender
+  // Issue #155: show a known Federation name (e.g. alice*domain.com) for the
+  // counterparty address when one was resolved earlier in the address book.
+  const counterpartyFederationName = getFederationNameForAddress(counterparty)
   const direction = isOutgoing ? 'Sending' : 'Receiving'
   const displayAmount = formatTokenAmount(stream.depositedAmount, stream.token.decimals, 2)
   const ariaLabel = `${direction} ${displayAmount} ${stream.token.symbol}, ${status}, ${(progress * 100).toFixed(0)}% unlocked`
@@ -208,8 +212,11 @@ function StreamCardInner({
             <p className="text-sm font-medium">
               {stream.metadata?.name ?? (isOutgoing ? 'Sending to' : 'Receiving from')}
             </p>
-            <p className="font-mono text-xs text-muted-foreground">
-              {shortenAddress(counterparty, 5)}
+            <p
+              className="font-mono text-xs text-muted-foreground"
+              title={counterpartyFederationName ? counterparty : undefined}
+            >
+              {counterpartyFederationName ?? shortenAddress(counterparty, 5)}
             </p>
           </div>
         </div>

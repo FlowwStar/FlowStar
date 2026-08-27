@@ -242,6 +242,9 @@ pub enum StreamError {
     RateIsZero = 19,
     /// Stream is not yet cancelled or fully drained; cleanup is not allowed.
     StreamNotEligibleForCleanup = 20,
+    /// The start_time is in the past (before the current ledger timestamp);
+    /// backdating a stream would unlock funds immediately on creation.
+    PastStartTime = 21,
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -290,6 +293,23 @@ pub struct CancelEvent {
     pub recipient: Address,
     pub recipient_amount: i128,
     pub sender_refund: i128,
+    pub timestamp: u64,
+}
+
+/// Emitted when the sender partially cancels a stream via `partial_cancel`.
+///
+/// Unlike `cancel`, the stream is **not** terminated — only `amount_refunded` of
+/// the still-locked (unvested) balance is returned to the sender. The vesting
+/// schedule is re-anchored at the moment of the call so that funds already
+/// unlocked remain untouched, and the reduced remainder continues streaming
+/// linearly to `end_time`.
+#[soroban_sdk::contractevent]
+pub struct PartialCancelEvent {
+    pub stream_id: u64,
+    pub sender: Address,
+    pub recipient: Address,
+    pub amount_refunded: i128,
+    pub new_deposited_amount: i128,
     pub timestamp: u64,
 }
 
@@ -515,6 +535,13 @@ impl StreamingContract {
         if duration > MAX_STREAM_DURATION {
             return Err(StreamError::DurationExceedsMaximum);
         }
+        // Security: reject backdated start times. A stream whose start_time is
+        // in the past would have a large chunk of its deposit already unlocked
+        // (and withdrawable) the moment it is created, bypassing the vesting UX
+        // entirely and misleading the recipient about the schedule.
+        if params.start_time < env.ledger().timestamp() {
+            return Err(StreamError::PastStartTime);
+        }
         if params.cliff_time < params.start_time || params.cliff_time > params.end_time {
             return Err(StreamError::InvalidCliff);
         }
@@ -637,6 +664,12 @@ impl StreamingContract {
             let duration = input.end_time - input.start_time;
             if duration > MAX_STREAM_DURATION {
                 return Err(StreamError::DurationExceedsMaximum);
+            }
+            // Security: reject backdated start times — same rule as
+            // create_stream, applied per-input before any funds move so the
+            // whole batch is rejected atomically.
+            if input.start_time < env.ledger().timestamp() {
+                return Err(StreamError::PastStartTime);
             }
             if input.cliff_time < input.start_time || input.cliff_time > input.end_time {
                 return Err(StreamError::InvalidCliff);
@@ -1036,6 +1069,123 @@ impl StreamingContract {
             recipient: stream.recipient.clone(),
             recipient_amount: recipient_owes,
             sender_refund: sender_gets_back,
+            timestamp: now,
+        }
+        .publish(&env);
+
+        Ok(())
+    }
+
+    // ── Write: Partial Cancel ────────────────────────────────────────────────
+
+    /// Partially cancel a stream. Only the sender can call this.
+    ///
+    /// Returns `amount` of the stream's still-locked (unvested) balance back
+    /// to the sender while leaving the stream **active** — this is the
+    /// non-terminal counterpart to [`cancel`], which returns the whole locked
+    /// balance and ends the stream.
+    ///
+    /// The vesting schedule is re-anchored at the current moment (mirroring
+    /// the re-anchoring [`top_up`] does in the opposite direction): whatever
+    /// is already unlocked as of `now` is frozen in place, and the reduced
+    /// remaining balance is spread linearly across the time left until
+    /// `end_time`.
+    ///
+    /// # Errors
+    /// - [`StreamError::StreamCancelled`] — the stream was already fully cancelled.
+    /// - [`StreamError::StreamEnded`] — the stream has already reached `end_time`.
+    /// - [`StreamError::InvalidAmount`] — `amount` is zero, negative, or exceeds
+    ///   the currently locked balance.
+    /// - [`StreamError::RateIsZero`] — the resulting remaining balance would
+    ///   produce a zero per-second streaming rate over the remaining duration.
+    pub fn partial_cancel(env: Env, stream_id: u64, amount: i128) -> Result<(), StreamError> {
+        let mut stream = Self::load_stream(&env, stream_id)?;
+
+        stream.sender.require_auth();
+        Self::require_not_paused(&env)?;
+
+        if stream.cancelled {
+            return Err(StreamError::StreamCancelled);
+        }
+
+        let now = env.ledger().timestamp();
+        if now >= stream.end_time {
+            return Err(StreamError::StreamEnded);
+        }
+
+        let unlocked = Self::unlocked_amount(&stream, now)?;
+        let locked = stream.deposited_amount - unlocked;
+
+        if amount <= 0 || amount > locked {
+            return Err(StreamError::InvalidAmount);
+        }
+
+        stream.deposited_amount = stream
+            .deposited_amount
+            .checked_sub(amount)
+            .expect("deposited_amount underflow");
+
+        // ── Re-anchor the vesting schedule ──────────────────────────────────
+        //
+        // Same idea as `top_up`'s re-anchoring, but shrinking the remaining
+        // balance instead of growing it. `unlocked_amount` stays the single
+        // source of truth for what has vested so far.
+        let remaining_seconds = (stream.end_time - now) as i128;
+
+        if now >= stream.cliff_time {
+            let remaining = stream
+                .deposited_amount
+                .checked_sub(unlocked)
+                .expect("deposited < unlocked — invariant broken");
+
+            let new_rate = if remaining_seconds > 0 {
+                remaining / remaining_seconds
+            } else {
+                0
+            };
+            if new_rate == 0 && remaining > 0 {
+                return Err(StreamError::RateIsZero);
+            }
+
+            stream.cliff_time = now;
+            stream.cliff_amount = unlocked;
+            stream.start_time = now;
+            stream.linear_amount = remaining;
+            stream.duration = remaining_seconds;
+            stream.amount_per_second = new_rate;
+        } else {
+            // Still before the cliff: nothing has unlocked yet, so the whole
+            // reduction comes out of the linear portion.
+            stream.linear_amount = stream
+                .linear_amount
+                .checked_sub(amount)
+                .expect("linear_amount underflow");
+            let new_rate = if stream.duration > 0 {
+                stream.linear_amount / stream.duration
+            } else {
+                0
+            };
+            if new_rate == 0 && stream.linear_amount > 0 {
+                return Err(StreamError::RateIsZero);
+            }
+            stream.amount_per_second = new_rate;
+        }
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Stream(stream_id), &stream);
+
+        Self::extend_stream_ttl(&env, stream_id);
+
+        let token_client = token::Client::new(&env, &stream.token);
+        token_client.transfer(&env.current_contract_address(), &stream.sender, &amount);
+
+        PartialCancelEvent {
+            stream_id,
+            sender: stream.sender.clone(),
+            recipient: stream.recipient.clone(),
+            amount_refunded: amount,
+            new_deposited_amount: stream.deposited_amount,
             timestamp: now,
         }
         .publish(&env);
