@@ -133,11 +133,6 @@ Update `KNOWN_TOKENS` addresses to match the mainnet token contracts.
 
 ---
 
-## Troubleshooting
-
-**"stellar-cli not found"** — Install with `cargo install stellar-cli --locked`.
-
-**"Simulation failed"** — The deployer account may not have enough XLM. Fund it again with `./scripts/fund-testnet.sh deployer`.
 
 **"Wallet not connected"** — Make sure Freighter is installed and set to the same network as your deployment.
 
