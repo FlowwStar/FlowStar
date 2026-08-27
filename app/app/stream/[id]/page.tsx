@@ -17,6 +17,7 @@ import {
   Share2,
   MessageCircle,
   Send,
+  QrCode,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConnectWalletButton } from "@/components/layout/connect-wallet-button";
@@ -44,6 +45,7 @@ import {
 } from "@/lib/fee-utils";
 import { useStream } from "@/hooks/use-streams";
 import { useContract } from "@/hooks/use-contract";
+import { useUndoableCancel, useIsStreamCancelling } from "@/hooks/use-undo-cancel";
 import { useWallet } from "@/hooks/use-wallet";
 import { useNow } from "@/hooks/use-now";
 import {
@@ -66,15 +68,20 @@ import { UnlockChart } from "@/components/streams/unlock-chart";
 import { StreamTimeline } from "@/components/streams/stream-timeline";
 import { DownloadReceiptButton } from "@/components/streams/download-receipt-button";
 import { bumpStreamTtl } from "@/lib/contract";
+import { getFederationNameForAddress } from "@/lib/address-book";
+import { QrShareDialog } from "@/components/streams/qr-share-dialog";
 
 // ─── Address copy button ────────────────────────────────────────────────────
 
 function CopyableAddress({
   address,
   href,
+  federationName,
 }: {
   address: string;
   href?: string;
+  /** Issue #155: known Federation name (e.g. alice*domain.com) for this address, if any. */
+  federationName?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   function copy() {
@@ -88,10 +95,11 @@ function CopyableAddress({
         type="button"
         onClick={copy}
         aria-label="Copy address"
+        title={federationName ? address : undefined}
         className="group inline-flex items-center gap-1.5 font-mono text-sm hover:text-primary transition-colors"
       >
         <span className="truncate max-w-[200px] sm:max-w-xs">
-          {shortenAddress(address, 6)}
+          {federationName ?? shortenAddress(address, 6)}
         </span>
         {copied ? (
           <Check className="size-3.5 text-primary shrink-0" />
@@ -289,9 +297,7 @@ function CancelDialog({
   onClose: () => void;
   streamId: string;
 }) {
-  const { cancel, pending, error } = useContract();
-  const { network } = useNetwork();
-  const router = useRouter();
+  const { scheduleCancel } = useUndoableCancel();
   const { usdPrice: xlmPrice } = useTokenPrice("XLM");
   const [showFeeEstimate, setShowFeeEstimate] = useState(false);
 
@@ -299,25 +305,13 @@ function CancelDialog({
   const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined);
   const cancelFeeHigh = isHighFee(feeBreakdown.totalEstimated, TYPICAL_FEES.cancel.typical);
 
-  async function handleCancel() {
-    try {
-      const hash = await cancel(streamId);
-      toast.success("Stream cancelled", {
-        description:
-          "Unlocked funds sent to recipient. Remainder returned to you.",
-        ...(hash && {
-          action: {
-            label: "View transaction",
-            onClick: () =>
-              window.open(explorerUrl(network, "tx", hash), "_blank"),
-          },
-        }),
-      });
-      onClose();
-      router.push("/app");
-    } catch {
-      // error shown inline
-    }
+  function handleCancel() {
+    // Don't submit immediately — schedule an undoable cancellation. The
+    // actual `cancel` transaction (and its success/error toast) fires from
+    // useUndoableCancel once the countdown expires without being undone.
+    scheduleCancel(streamId);
+    setShowFeeEstimate(false);
+    onClose();
   }
 
   return (
@@ -331,7 +325,8 @@ function CancelDialog({
             <DialogTitle>Cancel stream</DialogTitle>
             <DialogDescription>
               Unlocked funds will be sent to the recipient. Any remaining locked
-              tokens will be returned to your wallet. This cannot be undone.
+              tokens will be returned to your wallet. You&apos;ll have a few
+              seconds to undo before this is submitted.
             </DialogDescription>
           </DialogHeader>
 
@@ -345,17 +340,15 @@ function CancelDialog({
             </p>
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={onClose} disabled={pending}>
+            <Button variant="ghost" onClick={onClose}>
               Keep stream
             </Button>
             <Button
               variant="destructive"
               onClick={() => setShowFeeEstimate(true)}
-              disabled={pending}
             >
-              {pending ? "Cancelling…" : "Review & cancel"}
+              Review & cancel
             </Button>
           </div>
         </DialogContent>
@@ -369,7 +362,7 @@ function CancelDialog({
         action="stream cancellation"
         averageFee={TYPICAL_FEES.cancel.typical}
         isHighFee={cancelFeeHigh}
-        loading={pending}
+        loading={false}
       />
     </>
   );
@@ -807,9 +800,17 @@ function StreamDetailSkeleton() {
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
-function ShareButtons({ streamId }: { streamId: string }) {
+function ShareButtons({
+  stream,
+  status,
+}: {
+  stream: import("@/types/stream").StreamData;
+  status: import("@/types/stream").StreamStatus;
+}) {
+  const streamId = stream.id;
   const [copied, setCopied] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [showQr, setShowQr] = useState(false);
 
   const streamUrl =
     typeof window !== "undefined"
@@ -878,9 +879,29 @@ function ShareButtons({ streamId }: { streamId: string }) {
               <MessageCircle className="size-4" />
               Telegram
             </button>
+            <button
+              onClick={() => {
+                setShowShare(false);
+                setShowQr(true);
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              aria-label="Show QR code"
+            >
+              <QrCode className="size-4" />
+              QR code
+            </button>
           </div>
         </div>
       )}
+
+      {/* Issue #153: QR code sharing modal */}
+      <QrShareDialog
+        open={showQr}
+        onOpenChange={setShowQr}
+        streamUrl={streamUrl}
+        stream={stream}
+        status={status}
+      />
     </div>
   );
 }
@@ -905,6 +926,7 @@ function StreamDetail({ id }: { id: string }) {
   const now = useNow(1000);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const isCancelling = useIsStreamCancelling(id);
 
   if (loading) {
     return <StreamDetailSkeleton />;
@@ -937,7 +959,8 @@ function StreamDetail({ id }: { id: string }) {
   const isRecipient = address === stream.recipient;
   const isSender = address === stream.sender;
   const canWithdraw = isRecipient && !stream.cancelled && withdrawable > 0n;
-  const canCancel = isSender && !stream.cancelled && status !== "completed";
+  const canCancel =
+    isSender && !stream.cancelled && status !== "completed" && !isCancelling;
 
   function handleDuplicate() {
     if (!stream) return;
@@ -978,7 +1001,7 @@ function StreamDetail({ id }: { id: string }) {
           <ArrowLeft className="size-4" />
           Dashboard
         </Link>
-        <ShareButtons streamId={stream.id} />
+        <ShareButtons stream={stream} status={status} />
       </div>
 
       {/* Connect prompt for unauthenticated visitors */}
@@ -1090,6 +1113,14 @@ function StreamDetail({ id }: { id: string }) {
           </div>
         )}
 
+        {/* Cancelling state */}
+        {isCancelling && (
+          <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <span className="size-1.5 animate-pulse rounded-full bg-current" />
+            Cancelling… you can still undo this from the toast.
+          </div>
+        )}
+
         {/* Actions */}
         {(canWithdraw || canCancel || isSender) && (
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
@@ -1148,6 +1179,7 @@ function StreamDetail({ id }: { id: string }) {
           <CopyableAddress
             address={stream.recipient}
             href={explorerUrl(network, "account", stream.recipient)}
+            federationName={getFederationNameForAddress(stream.recipient)}
           />
         </DetailRow>
         <DetailRow label="Token">

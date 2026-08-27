@@ -6,6 +6,12 @@ import { RequireWallet } from '@/components/layout/require-wallet'
 import { Button } from '@/components/ui/button'
 import { streamsToCSV, downloadCSV } from '@/lib/export'
 import { VirtualStreamList } from '@/components/streams/virtual-stream-list'
+import { Search, Download, ListChecks, ArrowDownToLine, Ban, X, EyeOff, Eye, LayoutList, GanttChartSquare } from 'lucide-react'
+import { RequireWallet } from '@/components/layout/require-wallet'
+import { Button } from '@/components/ui/button'
+import { streamsToCSV, downloadCSV } from '@/lib/export'
+import { StreamCard } from '@/components/streams/stream-card'
+import { StreamGanttView } from '@/components/streams/stream-gantt-view'
 import { EmptyStreams } from '@/components/streams/empty-state'
 import { Input } from '@/components/ui/input'
 import { useStreams } from '@/hooks/use-streams'
@@ -14,6 +20,8 @@ import { useWallet } from '@/hooks/use-wallet'
 import { useContract } from '@/hooks/use-contract'
 import { useBulkSelect } from '@/hooks/use-bulk-select'
 import { useBulkActions } from '@/hooks/use-bulk-actions'
+import { useHiddenStreams } from '@/hooks/use-hidden-streams'
+import { useStreamsViewPreference } from '@/hooks/use-streams-view-preference'
 import { getStreamStatus, getWithdrawableAmount } from '@/lib/stream-utils'
 import type { StreamStatus } from '@/types/stream'
 
@@ -35,10 +43,17 @@ function StreamsPage() {
   const { address } = useWallet()
   const { withdraw, cancel } = useContract()
   const [selectMode, setSelectMode] = useState(false)
+  const { hiddenIds, blockedSenders } = useHiddenStreams()
+  const [showHidden, setShowHidden] = useState(false)
+  const { view, setView } = useStreamsViewPreference()
 
   const search = searchParams.get('q') ?? ''
   const statusFilter = (searchParams.get('status') ?? 'all') as StreamStatus | 'all'
   const tokenFilter = searchParams.get('token') ?? 'all'
+
+  const isConcealed = (s: (typeof all)[number]) =>
+    hiddenIds.has(s.id) || blockedSenders.has(s.sender)
+  const hiddenCount = all.filter(isConcealed).length
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -60,6 +75,13 @@ function StreamsPage() {
   const filtered = all.filter((s) => {
     const matchesStatus =
       statusFilter === 'all' || getStreamStatus(s, now) === statusFilter
+    // When "Show hidden streams" is off, hidden/blocked streams don't appear
+    // at all (issue #151). When it's on, only the concealed ones are shown,
+    // so the user can review/un-hide them.
+    const concealed = isConcealed(s)
+    if (showHidden ? !concealed : concealed) return false
+
+    const matchesStatus = statusFilter === 'all' || getStreamStatus(s, now) === statusFilter
     const matchesToken =
       tokenFilter === 'all' ||
       s.token.symbol.toUpperCase() === tokenFilter.toUpperCase()
@@ -161,6 +183,91 @@ function StreamsPage() {
             </Button>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          {/* List / Timeline view toggle */}
+          <div className="flex items-center rounded-lg border border-border p-0.5">
+            <button
+              type="button"
+              onClick={() => setView('list')}
+              aria-pressed={view === 'list'}
+              aria-label="List view"
+              className={
+                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ' +
+                (view === 'list' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground')
+              }
+            >
+              <LayoutList className="size-3.5" />
+              <span className="hidden sm:inline">List</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('timeline')}
+              aria-pressed={view === 'timeline'}
+              aria-label="Timeline view"
+              className={
+                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ' +
+                (view === 'timeline' ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground')
+              }
+            >
+              <GanttChartSquare className="size-3.5" />
+              <span className="hidden sm:inline">Timeline</span>
+            </button>
+          </div>
+          <Button
+            variant={showHidden ? 'default' : 'outline'}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setShowHidden((v) => !v)}
+            data-testid="show-hidden-toggle"
+          >
+            {showHidden ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+            <span className="hidden sm:inline">
+              {showHidden ? 'Showing hidden' : `Hidden${hiddenCount > 0 ? ` (${hiddenCount})` : ''}`}
+            </span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={all.length === 0}
+            onClick={() => {
+              const csv = streamsToCSV(all, now)
+              downloadCSV(csv, `flowstar-streams-${new Date().toISOString().slice(0, 10)}.csv`)
+            }}
+          >
+            <Download className="size-4" />
+            <span className="hidden sm:inline">Download CSV</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Bulk select toggle */}
+      <div className="flex items-center justify-between gap-3">
+        <Button
+          variant={selectMode ? 'default' : 'outline'}
+          size="sm"
+          className="gap-1.5"
+          disabled={filtered.length === 0}
+          onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+          data-testid="bulk-select-toggle"
+        >
+          <ListChecks className="size-4" />
+          {selectMode ? 'Done selecting' : 'Select'}
+        </Button>
+
+        {selectMode && (
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+              className="size-4 accent-primary"
+              data-testid="bulk-select-all"
+            />
+            Select all ({filtered.length})
+          </label>
+        )}
+      </div>
 
         {/* Bulk select toggle */}
         <div className="flex items-center gap-3">
@@ -295,6 +402,25 @@ function StreamsPage() {
         )}
       </div>
     </RequireWallet>
+          <EmptyStreams />
+        )
+      ) : view === 'timeline' ? (
+        <StreamGanttView streams={filtered} nowSeconds={now} />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {filtered.map((s) => (
+            <StreamCard
+              key={s.id}
+              stream={s}
+              selectable={selectMode}
+              selected={selected.has(s.id)}
+              onToggleSelect={toggle}
+              isHiddenView={showHidden}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

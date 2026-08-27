@@ -550,3 +550,96 @@ fn test_get_received_stream_count_accurate() {
     let count = client.get_received_stream_count(&t.recipient);
     assert_eq!(count, 5);
 }
+
+// ─── #217: partial_cancel ────────────────────────────────────────────────────
+
+#[test]
+fn test_partial_cancel_returns_locked_funds_and_keeps_stream_active() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    t.set_time(now + 500);
+
+    let withdrawable_before = client.get_withdrawable(&stream_id);
+    let locked_before = total - withdrawable_before;
+    let refund = locked_before / 2;
+
+    client.partial_cancel(&stream_id, &refund);
+
+    let stream = client.get_stream(&stream_id);
+    // Stream stays active — only `cancel` terminates it.
+    assert!(!stream.cancelled);
+    assert_eq!(stream.deposited_amount, total - refund);
+
+    // What was already unlocked before the call is preserved.
+    let withdrawable_after = client.get_withdrawable(&stream_id);
+    assert_eq!(withdrawable_after, withdrawable_before);
+
+    // The stream keeps streaming afterwards.
+    t.set_time(now + 600);
+    let withdrawable_later = client.get_withdrawable(&stream_id);
+    assert!(withdrawable_later > withdrawable_after);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_partial_cancel_rejects_amount_exceeding_locked_balance() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    t.set_time(now + 500);
+
+    // Requesting more than the currently locked balance must fail.
+    client.partial_cancel(&stream_id, &total);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #6)")]
+fn test_partial_cancel_rejects_already_cancelled_stream() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    t.set_time(now + 500);
+    client.cancel(&stream_id);
+
+    client.partial_cancel(&stream_id, &1);
+}

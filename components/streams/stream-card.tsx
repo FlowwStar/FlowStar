@@ -2,11 +2,14 @@
 
 import { memo } from 'react'
 import Link from 'next/link'
-import { ArrowDownLeft, ArrowUpRight } from 'lucide-react'
+import { toast } from 'sonner'
+import { ArrowDownLeft, ArrowUpRight, MoreVertical, EyeOff, Eye, UserX, UserCheck } from 'lucide-react'
 import { useNow } from '@/hooks/use-now'
 import { useWallet } from '@/hooks/use-wallet'
 import { useTokenPrice, formatUsd } from '@/hooks/use-token-price'
 import { useShowUsd } from '@/hooks/use-show-usd'
+import { useIsStreamCancelling } from '@/hooks/use-undo-cancel'
+import { useHiddenStreams } from '@/hooks/use-hidden-streams'
 import {
   getStreamProgress,
   getStreamStatus,
@@ -19,6 +22,13 @@ import { TokenAmount } from '@/components/ui/token-amount'
 import { CountdownTimer } from '@/components/ui/countdown-timer'
 import { AccessibleCountdownTimer } from '@/components/ui/accessible-countdown-timer'
 import { StreamStatusBadge } from '@/components/streams/stream-status-badge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { getFederationNameForAddress } from '@/lib/address-book'
 import type { StreamData } from '@/types/stream'
 
 // Pick update interval based on a quick pre-check of stream state.
@@ -38,14 +48,24 @@ interface StreamCardProps {
   selectable?: boolean
   selected?: boolean
   onToggleSelect?: (id: string) => void
+  /** Render in "hidden streams" view — flips Hide/Block actions to Unhide/Unblock. */
+  isHiddenView?: boolean
 }
 
-function StreamCardInner({ stream, selectable, selected, onToggleSelect }: StreamCardProps) {
+function StreamCardInner({
+  stream,
+  selectable,
+  selected,
+  onToggleSelect,
+  isHiddenView,
+}: StreamCardProps) {
   const interval = getInterval(stream)
   const now = useNow(interval)
   const { address } = useWallet()
   const { usdPrice } = useTokenPrice(stream.token.symbol)
   const [showUsd] = useShowUsd()
+  const isCancelling = useIsStreamCancelling(stream.id)
+  const { isBlocked, hideStream, unhideStream, blockSender, unblockSender } = useHiddenStreams()
   const status = getStreamStatus(stream, now)
   const progress = getStreamProgress(stream, now)
   const withdrawnFrac =
@@ -56,6 +76,9 @@ function StreamCardInner({ stream, selectable, selected, onToggleSelect }: Strea
   const rate = formatRate(stream.amountPerSecond, stream.token.decimals, stream.token.symbol)
   const isOutgoing = address === stream.sender
   const counterparty = isOutgoing ? stream.recipient : stream.sender
+  // Issue #155: show a known Federation name (e.g. alice*domain.com) for the
+  // counterparty address when one was resolved earlier in the address book.
+  const counterpartyFederationName = getFederationNameForAddress(counterparty)
   const direction = isOutgoing ? 'Sending' : 'Receiving'
   const displayAmount = formatTokenAmount(stream.depositedAmount, stream.token.decimals, 2)
   const ariaLabel = `${direction} ${displayAmount} ${stream.token.symbol}, ${status}, ${(progress * 100).toFixed(0)}% unlocked`
@@ -64,6 +87,37 @@ function StreamCardInner({ stream, selectable, selected, onToggleSelect }: Strea
     showUsd && usdPrice !== null
       ? (Number(stream.depositedAmount) / Math.pow(10, stream.token.decimals)) * usdPrice
       : null
+
+  // "Hide stream" / "Block sender" only make sense for incoming streams —
+  // recipients are the ones who didn't opt in (issue #151).
+  const showHideMenu = !isOutgoing && !selectable
+
+  function handleHideToggle(e: { preventDefault: () => void }) {
+    e.preventDefault()
+    if (isHiddenView) {
+      unhideStream(stream.id)
+      toast.success('Stream unhidden')
+    } else {
+      hideStream(stream.id)
+      toast.success('Stream hidden', {
+        description: 'Use "Show hidden streams" on the streams page to bring it back.',
+      })
+    }
+  }
+
+  function handleBlockToggle(e: { preventDefault: () => void }) {
+    e.preventDefault()
+    if (isBlocked(stream.sender)) {
+      unblockSender(stream.sender)
+      toast.success('Sender unblocked')
+    } else {
+      blockSender(stream.sender)
+      hideStream(stream.id)
+      toast.success('Sender blocked', {
+        description: 'Future streams from this address will be hidden automatically.',
+      })
+    }
+  }
 
   return (
     <Link
@@ -90,6 +144,56 @@ function StreamCardInner({ stream, selectable, selected, onToggleSelect }: Strea
           className="absolute right-4 top-4 z-10 size-4 accent-primary"
         />
       )}
+      {showHideMenu && (
+        <div
+          className="absolute right-3 top-3 z-10"
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Stream options"
+                data-testid={`stream-card-menu-${stream.id}`}
+                className="flex size-7 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+              >
+                <MoreVertical className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={handleHideToggle}>
+                {isHiddenView ? (
+                  <>
+                    <Eye className="size-4 mr-2" />
+                    Unhide stream
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="size-4 mr-2" />
+                    Hide stream
+                  </>
+                )}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleBlockToggle} variant="destructive">
+                {isBlocked(stream.sender) ? (
+                  <>
+                    <UserCheck className="size-4 mr-2" />
+                    Unblock sender
+                  </>
+                ) : (
+                  <>
+                    <UserX className="size-4 mr-2" />
+                    Block sender
+                  </>
+                )}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <span
@@ -108,12 +212,22 @@ function StreamCardInner({ stream, selectable, selected, onToggleSelect }: Strea
             <p className="text-sm font-medium">
               {stream.metadata?.name ?? (isOutgoing ? 'Sending to' : 'Receiving from')}
             </p>
-            <p className="font-mono text-xs text-muted-foreground">
-              {shortenAddress(counterparty, 5)}
+            <p
+              className="font-mono text-xs text-muted-foreground"
+              title={counterpartyFederationName ? counterparty : undefined}
+            >
+              {counterpartyFederationName ?? shortenAddress(counterparty, 5)}
             </p>
           </div>
         </div>
-        <StreamStatusBadge status={status} />
+        {isCancelling ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/15 px-2.5 py-1 text-xs font-medium text-destructive">
+            <span className="size-1.5 animate-pulse rounded-full bg-current" />
+            Cancelling…
+          </span>
+        ) : (
+          <StreamStatusBadge status={status} />
+        )}
       </div>
 
       <div className="mt-5 flex items-end justify-between">
