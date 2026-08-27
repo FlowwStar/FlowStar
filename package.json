@@ -21,6 +21,7 @@
     "@sentry/nextjs": "^8.0.0",
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^13.3.0",
+    "@tanstack/react-virtual": "^3.14.10",
     "@vercel/analytics": "1.6.1",
     "@vercel/og": "^0.11.1",
     "@walletconnect/modal": "^2.6.2",
