@@ -4,7 +4,9 @@ extern crate std;
 
 use super::*;
 use soroban_sdk::{
-    Address, Env, testutils::{Address as _, Ledger}, token::{Client as TokenClient, StellarAssetClient}, vec
+    testutils::{Address as _, Ledger},
+    token::{Client as TokenClient, StellarAssetClient},
+    vec, Address, Env,
 };
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
@@ -27,12 +29,20 @@ impl TestEnv {
         let recipient = Address::generate(&env);
 
         let token_admin = Address::generate(&env);
-        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone()).address();
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
 
         let asset_client = StellarAssetClient::new(&env, &token_id);
         asset_client.mint(&sender, &1_000_000_0000000);
 
-        TestEnv { env, contract_id, token_id, sender, recipient }
+        TestEnv {
+            env,
+            contract_id,
+            token_id,
+            sender,
+            recipient,
+        }
     }
 
     fn client(&self) -> StreamingContractClient {
@@ -72,11 +82,16 @@ fn test_stream_created_event_includes_all_fields() {
     let params = t.default_params(now);
     let total = params.total_amount;
 
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+
     // Create stream and verify event is emitted with enriched fields
     let stream_id = client.create_stream(&t.sender, &params);
-    
+
     let stream = client.get_stream(&stream_id);
     assert_eq!(stream.sender, t.sender);
     assert_eq!(stream.recipient, params.recipient);
@@ -96,17 +111,22 @@ fn test_withdraw_event_includes_remaining_withdrawable() {
     let params = t.default_params(now);
     let total = params.total_amount;
 
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
     let stream_id = client.create_stream(&t.sender, &params);
 
     t.set_time(now + 500);
     let withdrawable = client.get_withdrawable(&stream_id);
-    
+
     client.withdraw(&stream_id, &withdrawable);
-    
+
     let stream = client.get_stream(&stream_id);
     assert_eq!(stream.withdrawn_amount, withdrawable);
-    
+
     let remaining = client.get_withdrawable(&stream_id);
     assert!(remaining > 0);
 }
@@ -121,13 +141,18 @@ fn test_cancel_event_includes_sender_recipient_timestamp() {
     let params = t.default_params(now);
     let total = params.total_amount;
 
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
     let stream_id = client.create_stream(&t.sender, &params);
 
     t.set_time(now + 500);
-    
+
     client.cancel(&stream_id);
-    
+
     let stream = client.get_stream(&stream_id);
     assert!(stream.cancelled);
 }
@@ -142,12 +167,17 @@ fn test_bump_stream_event_emitted() {
     let params = t.default_params(now);
     let total = params.total_amount;
 
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
     let stream_id = client.create_stream(&t.sender, &params);
 
     // Bump TTL should succeed without panic
     client.bump_stream(&stream_id);
-    
+
     let stream = client.get_stream(&stream_id);
     assert_eq!(stream.id, stream_id);
 }
@@ -166,12 +196,17 @@ fn test_pause_blocks_create_stream() {
 
     // Initialize with admin
     client.initialize(&t.sender);
-    
+
     // Pause contract
     client.pause();
-    
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
-    
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+
     // Attempt to create stream should panic
     client.create_stream(&t.sender, &params);
 }
@@ -187,14 +222,19 @@ fn test_pause_blocks_withdraw() {
     let total = params.total_amount;
 
     client.initialize(&t.sender);
-    
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
     let stream_id = client.create_stream(&t.sender, &params);
 
     t.set_time(now + 500);
-    
+
     client.pause();
-    
+
     let withdrawable = client.get_withdrawable(&stream_id);
     client.withdraw(&stream_id, &withdrawable);
 }
@@ -210,13 +250,52 @@ fn test_pause_blocks_cancel() {
     let total = params.total_amount;
 
     client.initialize(&t.sender);
-    
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
     let stream_id = client.create_stream(&t.sender, &params);
 
     client.pause();
-    
+
     client.cancel(&stream_id);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #16)")]
+fn test_pause_blocks_update_stream_metadata() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    client.initialize(&t.sender);
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    client.pause();
+
+    // Attempting to mutate metadata while paused must be rejected with
+    // ContractPaused (#16) — the same guard that protects every other
+    // state-changing function.
+    let metadata = StreamMetadata {
+        name: soroban_sdk::String::from_str(&t.env, "Salary"),
+        category: soroban_sdk::String::from_str(&t.env, "payroll"),
+        memo: soroban_sdk::String::from_str(&t.env, "monthly"),
+    };
+    client.update_stream_metadata(&stream_id, &metadata);
 }
 
 #[test]
@@ -230,16 +309,21 @@ fn test_read_operations_work_while_paused() {
     let total = params.total_amount;
 
     client.initialize(&t.sender);
-    
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
     let stream_id = client.create_stream(&t.sender, &params);
 
     client.pause();
-    
+
     // Read operations should still work
     let stream = client.get_stream(&stream_id);
     assert_eq!(stream.id, stream_id);
-    
+
     let withdrawable = client.get_withdrawable(&stream_id);
     assert!(withdrawable >= 0);
 }
@@ -255,13 +339,18 @@ fn test_unpause_allows_operations() {
     let total = params.total_amount;
 
     client.initialize(&t.sender);
-    
-    t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500));
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
     let stream_id = client.create_stream(&t.sender, &params);
 
     client.pause();
     client.unpause();
-    
+
     // Operations should work again
     t.set_time(now + 500);
     let withdrawable = client.get_withdrawable(&stream_id);
@@ -276,9 +365,9 @@ fn test_only_admin_can_pause() {
 
     let client = t.client();
     client.initialize(&t.sender);
-    
+
     let other = Address::generate(&t.env);
-    
+
     // Non-admin should not be able to pause
     // This test assumes mock_all_auths is set; otherwise auth will fail
     client.pause();
@@ -293,10 +382,10 @@ fn test_only_admin_can_unpause() {
     let client = t.client();
     client.initialize(&t.sender);
     client.pause();
-    
+
     // Only admin can unpause
     client.unpause();
-    
+
     let stream = client.get_stream(&1u64);
 }
 
@@ -308,11 +397,11 @@ fn test_pause_events_emitted() {
 
     let client = t.client();
     client.initialize(&t.sender);
-    
+
     // Emit pause event
     client.pause();
     client.unpause();
-    
+
     // Emit unpause event - verified by not panicking
 }
 
@@ -325,16 +414,21 @@ fn test_index_operations_remain_functional_after_optimization() {
     t.set_time(now);
 
     let client = t.client();
-    
+
     // Create 3 streams
     for i in 0..3 {
         let mut params = t.default_params(now);
         let total = params.total_amount;
-        
-        t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500 + i as u32));
+
+        t.token().approve(
+            &t.sender,
+            &t.contract_id,
+            &total,
+            &(t.env.ledger().sequence() + 500 + i as u32),
+        );
         client.create_stream(&t.sender, &params);
     }
-    
+
     // Verify sent streams are indexed correctly
     let sent = client.get_sent_streams(&t.sender, &0, &10);
     assert_eq!(sent.len(), 3);
@@ -347,20 +441,25 @@ fn test_remove_from_index_o1_operation() {
     t.set_time(now);
 
     let client = t.client();
-    
+
     // Create 5 streams
     for i in 0..5 {
         let mut params = t.default_params(now);
         let total = params.total_amount;
-        
-        t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500 + i as u32));
+
+        t.token().approve(
+            &t.sender,
+            &t.contract_id,
+            &total,
+            &(t.env.ledger().sequence() + 500 + i as u32),
+        );
         client.create_stream(&t.sender, &params);
     }
-    
+
     // Transfer stream 3 (remove from recipient index)
     let new_recipient = Address::generate(&t.env);
     client.transfer_stream(&3u64, &new_recipient);
-    
+
     // Verify recipient index is correct
     let received = client.get_received_streams(&t.recipient, &0, &10);
     assert_eq!(received.len(), 4);
@@ -373,20 +472,25 @@ fn test_pagination_works_with_optimized_index() {
     t.set_time(now);
 
     let client = t.client();
-    
+
     // Create 20 streams
     for i in 0..20 {
         let mut params = t.default_params(now);
         let total = params.total_amount;
-        
-        t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500 + i as u32));
+
+        t.token().approve(
+            &t.sender,
+            &t.contract_id,
+            &total,
+            &(t.env.ledger().sequence() + 500 + i as u32),
+        );
         client.create_stream(&t.sender, &params);
     }
-    
+
     // Paginate through sent streams
     let page1 = client.get_sent_streams(&t.sender, &0, &10);
     let page2 = client.get_sent_streams(&t.sender, &10, &10);
-    
+
     assert_eq!(page1.len(), 10);
     assert_eq!(page2.len(), 10);
 }
@@ -423,15 +527,20 @@ fn test_get_sent_stream_count_accurate() {
     t.set_time(now);
 
     let client = t.client();
-    
+
     for i in 0..7 {
         let mut params = t.default_params(now);
         let total = params.total_amount;
-        
-        t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500 + i as u32));
+
+        t.token().approve(
+            &t.sender,
+            &t.contract_id,
+            &total,
+            &(t.env.ledger().sequence() + 500 + i as u32),
+        );
         client.create_stream(&t.sender, &params);
     }
-    
+
     let count = client.get_sent_stream_count(&t.sender);
     assert_eq!(count, 7);
 }
@@ -443,16 +552,20 @@ fn test_get_received_stream_count_accurate() {
     t.set_time(now);
 
     let client = t.client();
-    
+
     for i in 0..5 {
         let mut params = t.default_params(now);
         let total = params.total_amount;
-        
-        t.token().approve(&t.sender, &t.contract_id, &total, &(t.env.ledger().sequence() + 500 + i as u32));
+
+        t.token().approve(
+            &t.sender,
+            &t.contract_id,
+            &total,
+            &(t.env.ledger().sequence() + 500 + i as u32),
+        );
         client.create_stream(&t.sender, &params);
     }
-    
+
     let count = client.get_received_stream_count(&t.recipient);
     assert_eq!(count, 5);
 }
-
