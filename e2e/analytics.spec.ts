@@ -87,11 +87,19 @@ test.describe('Analytics page — chart rendering with mock data', () => {
     await expect(activeCard.locator('text=3')).toBeVisible()
   })
 
-  test('renders the "Streams created over time" chart with data bars', async ({
+  test('renders the "Streaming volume over time" chart with data', async ({
     page,
   }) => {
-    await expect(page.locator('text=Streams created over time')).toBeVisible()
+    await expect(page.locator('text=Streaming volume over time')).toBeVisible()
     await expect(page.locator('text=No stream activity yet for this period.')).not.toBeVisible()
+  })
+
+  test('renders the stream status breakdown and top recipients sections', async ({
+    page,
+  }) => {
+    await expect(page.locator('text=Stream status breakdown')).toBeVisible()
+    await expect(page.locator('text=Top recipients')).toBeVisible()
+    await expect(page.locator('text=Unlock progress')).toBeVisible()
   })
 
   test('renders "Top tokens by volume" with the seeded token symbols', async ({
