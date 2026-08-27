@@ -17,6 +17,7 @@ import {
   Share2,
   MessageCircle,
   Send,
+  QrCode,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConnectWalletButton } from "@/components/layout/connect-wallet-button";
@@ -66,15 +67,20 @@ import { UnlockChart } from "@/components/streams/unlock-chart";
 import { StreamTimeline } from "@/components/streams/stream-timeline";
 import { DownloadReceiptButton } from "@/components/streams/download-receipt-button";
 import { bumpStreamTtl } from "@/lib/contract";
+import { getFederationNameForAddress } from "@/lib/address-book";
+import { QrShareDialog } from "@/components/streams/qr-share-dialog";
 
 // ─── Address copy button ────────────────────────────────────────────────────
 
 function CopyableAddress({
   address,
   href,
+  federationName,
 }: {
   address: string;
   href?: string;
+  /** Issue #155: known Federation name (e.g. alice*domain.com) for this address, if any. */
+  federationName?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   function copy() {
@@ -88,10 +94,11 @@ function CopyableAddress({
         type="button"
         onClick={copy}
         aria-label="Copy address"
+        title={federationName ? address : undefined}
         className="group inline-flex items-center gap-1.5 font-mono text-sm hover:text-primary transition-colors"
       >
         <span className="truncate max-w-[200px] sm:max-w-xs">
-          {shortenAddress(address, 6)}
+          {federationName ?? shortenAddress(address, 6)}
         </span>
         {copied ? (
           <Check className="size-3.5 text-primary shrink-0" />
@@ -807,9 +814,17 @@ function StreamDetailSkeleton() {
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
-function ShareButtons({ streamId }: { streamId: string }) {
+function ShareButtons({
+  stream,
+  status,
+}: {
+  stream: import("@/types/stream").StreamData;
+  status: import("@/types/stream").StreamStatus;
+}) {
+  const streamId = stream.id;
   const [copied, setCopied] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [showQr, setShowQr] = useState(false);
 
   const streamUrl =
     typeof window !== "undefined"
@@ -878,9 +893,29 @@ function ShareButtons({ streamId }: { streamId: string }) {
               <MessageCircle className="size-4" />
               Telegram
             </button>
+            <button
+              onClick={() => {
+                setShowShare(false);
+                setShowQr(true);
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              aria-label="Show QR code"
+            >
+              <QrCode className="size-4" />
+              QR code
+            </button>
           </div>
         </div>
       )}
+
+      {/* Issue #153: QR code sharing modal */}
+      <QrShareDialog
+        open={showQr}
+        onOpenChange={setShowQr}
+        streamUrl={streamUrl}
+        stream={stream}
+        status={status}
+      />
     </div>
   );
 }
@@ -978,7 +1013,7 @@ function StreamDetail({ id }: { id: string }) {
           <ArrowLeft className="size-4" />
           Dashboard
         </Link>
-        <ShareButtons streamId={stream.id} />
+        <ShareButtons stream={stream} status={status} />
       </div>
 
       {/* Connect prompt for unauthenticated visitors */}
@@ -1148,6 +1183,7 @@ function StreamDetail({ id }: { id: string }) {
           <CopyableAddress
             address={stream.recipient}
             href={explorerUrl(network, "account", stream.recipient)}
+            federationName={getFederationNameForAddress(stream.recipient)}
           />
         </DetailRow>
         <DetailRow label="Token">

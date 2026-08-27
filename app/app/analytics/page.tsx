@@ -17,8 +17,14 @@ import { SectionErrorBoundary } from '@/components/error-boundary/section-error-
 import { useStreams } from '@/hooks/use-streams'
 import { useNetwork } from '@/components/providers/network-provider'
 import { getAllTokens } from '@/lib/stellar'
-import { formatCompactAmount, SECONDS_PER_DAY } from '@/lib/stream-utils'
-import type { StreamData } from '@/types/stream'
+import {
+  formatCompactAmount,
+  getStreamStatus,
+  getUnlockedAmount,
+  SECONDS_PER_DAY,
+} from '@/lib/stream-utils'
+import { getFederationNameForAddress } from '@/lib/address-book'
+import type { StreamData, StreamStatus } from '@/types/stream'
 
 const AnalyticsCharts = dynamic(
   () => import('@/components/analytics/charts').then((m) => m.AnalyticsCharts),
@@ -50,9 +56,20 @@ interface AnalyticsSnapshot {
   averageDurationDays: number
   /** Fix #367 — `decimals` is now included so amounts format correctly for any token. */
   tokenShares: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>
-  series: Array<{ label: string; count: number }>
+  series: Array<{ label: string; count: number; volume: number }>
   /** Fix #367 — `decimals` is now included so amounts format correctly for any token. */
   topTokens: Array<{ symbol: string; amount: bigint; count: number; decimals: number }>
+  /** Issue #152: stream counts grouped by lifecycle status, for the status breakdown chart. */
+  statusBreakdown: Array<{ status: StreamStatus; count: number }>
+  /** Issue #152: highest-volume recipients, for the "Top Recipients" table. */
+  topRecipients: Array<{
+    address: string
+    federationName: string | null
+    count: number
+    totals: Array<{ symbol: string; amount: bigint; decimals: number }>
+  }>
+  /** Issue #152: aggregate unlocked vs. deposited across the filtered streams. */
+  unlockProgress: { unlocked: bigint; deposited: bigint }
 }
 
 const RANGE_OPTIONS = [
@@ -106,17 +123,77 @@ function buildSnapshot(streams: StreamData[], range: string): AnalyticsSnapshot 
     decimals: entry.decimals,
   }))
 
-  const seriesMap = new Map<string, number>()
+  const seriesMap = new Map<string, { count: number; volume: number }>()
   filtered.forEach((stream) => {
     const day = new Date(Number(stream.startTime) * 1000).toISOString().slice(0, 10)
-    seriesMap.set(day, (seriesMap.get(day) ?? 0) + 1)
+    const entry = seriesMap.get(day) ?? { count: 0, volume: 0 }
+    entry.count += 1
+    // Issue #152: per-day streamed volume for the "volume over time" area chart.
+    // Mixes tokens as display-unit floats (same simplification `totalVolume`
+    // already makes with raw bigints) since this is a directional trend chart.
+    entry.volume += Number(stream.depositedAmount) / 10 ** stream.token.decimals
+    seriesMap.set(day, entry)
   })
 
   const series = Array.from(seriesMap.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([label, count]) => ({ label, count }))
+    .map(([label, entry]) => ({ label, count: entry.count, volume: entry.volume }))
 
   const topTokens = [...tokenShares].sort((a, b) => Number(b.amount - a.amount)).slice(0, 4)
+
+  // Issue #152: stream status breakdown (scheduled / streaming / completed / cancelled)
+  const statusOrder: StreamStatus[] = ['streaming', 'scheduled', 'completed', 'cancelled']
+  const statusCounts = new Map<StreamStatus, number>()
+  filtered.forEach((stream) => {
+    const streamStatus = getStreamStatus(stream, now)
+    statusCounts.set(streamStatus, (statusCounts.get(streamStatus) ?? 0) + 1)
+  })
+  const statusBreakdown = statusOrder.map((streamStatus) => ({
+    status: streamStatus,
+    count: statusCounts.get(streamStatus) ?? 0,
+  }))
+
+  // Issue #152: top recipients by streamed volume, with Federation names when known.
+  const recipientGroups = new Map<
+    string,
+    { count: number; totals: Map<string, { amount: bigint; decimals: number }> }
+  >()
+  filtered.forEach((stream) => {
+    const entry = recipientGroups.get(stream.recipient) ?? {
+      count: 0,
+      totals: new Map<string, { amount: bigint; decimals: number }>(),
+    }
+    entry.count += 1
+    const tokenTotal = entry.totals.get(stream.token.symbol) ?? {
+      amount: 0n,
+      decimals: stream.token.decimals,
+    }
+    tokenTotal.amount += stream.depositedAmount
+    entry.totals.set(stream.token.symbol, tokenTotal)
+    recipientGroups.set(stream.recipient, entry)
+  })
+  const topRecipients = Array.from(recipientGroups.entries())
+    .map(([address, entry]) => ({
+      address,
+      federationName: getFederationNameForAddress(address),
+      count: entry.count,
+      totals: Array.from(entry.totals.entries()).map(([symbol, t]) => ({
+        symbol,
+        amount: t.amount,
+        decimals: t.decimals,
+      })),
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+
+  // Issue #152: aggregate unlock progress across all filtered streams.
+  const unlockProgress = filtered.reduce(
+    (acc, stream) => ({
+      unlocked: acc.unlocked + getUnlockedAmount(stream, now),
+      deposited: acc.deposited + stream.depositedAmount,
+    }),
+    { unlocked: 0n, deposited: 0n },
+  )
 
   return {
     totalVolume,
@@ -126,6 +203,9 @@ function buildSnapshot(streams: StreamData[], range: string): AnalyticsSnapshot 
     tokenShares,
     series,
     topTokens,
+    statusBreakdown,
+    topRecipients,
+    unlockProgress,
   }
 }
 
@@ -226,6 +306,9 @@ export default function AnalyticsPage() {
           topTokens={snapshot.topTokens}
           tokenShares={snapshot.tokenShares}
           totalVolume={snapshot.totalVolume}
+          statusBreakdown={snapshot.statusBreakdown}
+          topRecipients={snapshot.topRecipients}
+          unlockProgress={snapshot.unlockProgress}
         />
       </SectionErrorBoundary>
 

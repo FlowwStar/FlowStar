@@ -3,6 +3,8 @@ export interface AddressBookEntry {
   label: string
   address: string
   lastUsed: number
+  /** Federation address (e.g. `alice*stellarx.com`) this `address` resolved from, if any. */
+  federationAddress?: string
 }
 
 const STORAGE_KEY = 'flowstar:address-book'
@@ -35,6 +37,7 @@ export function addAddressBookEntry(entry: Omit<AddressBookEntry, 'id' | 'lastUs
     label: entry.label.trim(),
     address: entry.address.trim(),
     lastUsed: Date.now(),
+    federationAddress: entry.federationAddress?.trim() || undefined,
   }
   const next = [normalized, ...entries.filter((item) => item.address !== normalized.address)].slice(0, 50)
   writeEntries(next)
@@ -53,16 +56,38 @@ export function deleteAddressBookEntry(id: string) {
   writeEntries(entries)
 }
 
-export function touchAddressBookEntry(address: string, label?: string) {
+export function touchAddressBookEntry(address: string, label?: string, federationAddress?: string) {
   const entries = readEntries()
   const existing = entries.find((entry) => entry.address === address)
   if (existing) {
     const next = entries.map((entry) =>
-      entry.address === address ? { ...entry, label: label?.trim() || entry.label, lastUsed: Date.now() } : entry,
+      entry.address === address
+        ? {
+            ...entry,
+            label: label?.trim() || entry.label,
+            lastUsed: Date.now(),
+            federationAddress: federationAddress?.trim() || entry.federationAddress,
+          }
+        : entry,
     )
     writeEntries(next)
     return next.find((entry) => entry.address === address) ?? null
   }
   if (!address.trim()) return null
-  return addAddressBookEntry({ label: label?.trim() || 'Saved recipient', address })
+  return addAddressBookEntry({ label: label?.trim() || 'Saved recipient', address, federationAddress })
+}
+
+/**
+ * Reverse Federation lookup: returns the Federation name previously resolved
+ * for `address` (stored in the address book when it was first looked up),
+ * or `null` if this G-address has no known Federation name.
+ *
+ * This mirrors what real reverse-Federation lookups do in practice — the
+ * protocol has no universal "resolve name for account" endpoint without
+ * already knowing the domain, so FlowStar remembers the mapping locally the
+ * first time a name is resolved forward.
+ */
+export function getFederationNameForAddress(address: string): string | null {
+  const entry = readEntries().find((item) => item.address === address && item.federationAddress)
+  return entry?.federationAddress ?? null
 }

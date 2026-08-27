@@ -10,6 +10,7 @@ import {
   Loader2,
   Copy,
   Clock,
+  CheckCircle2,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -37,6 +38,7 @@ import {
   getAddressBookEntries,
   touchAddressBookEntry,
 } from "@/lib/address-book";
+import { isFederationAddress, resolveFederationAddress } from "@/lib/federation";
 import {
   buildNextRunAt,
   saveRecurringRule,
@@ -197,6 +199,71 @@ export function CreateForm() {
     };
   });
 
+  // Issue #155: Federation address (name*domain.com) support for the
+  // recipient field. `recipientInput` is exactly what the user typed
+  // (either a raw G-address or a Federation address); `form.recipient`
+  // always holds the resolved G-address actually used for the transaction.
+  const [recipientInput, setRecipientInput] = useState(form.recipient);
+  const [federationStatus, setFederationStatus] = useState<
+    "idle" | "loading" | "resolved" | "error"
+  >("idle");
+  const [federationError, setFederationError] = useState<string | null>(null);
+  const [federationResolved, setFederationResolved] = useState<{
+    federationAddress: string;
+    accountId: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const raw = recipientInput.trim();
+
+    if (!raw) {
+      setFederationStatus("idle");
+      setFederationError(null);
+      setFederationResolved(null);
+      set("recipient", "");
+      return;
+    }
+
+    if (!isFederationAddress(raw)) {
+      setFederationStatus("idle");
+      setFederationError(null);
+      setFederationResolved(null);
+      set("recipient", raw);
+      return;
+    }
+
+    setFederationStatus("loading");
+    setFederationError(null);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      resolveFederationAddress(raw)
+        .then((result) => {
+          if (cancelled) return;
+          setFederationResolved({
+            federationAddress: result.federationAddress,
+            accountId: result.accountId,
+          });
+          setFederationStatus("resolved");
+          set("recipient", result.accountId);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setFederationResolved(null);
+          setFederationStatus("error");
+          setFederationError(
+            err instanceof Error ? err.message : "Federation lookup failed",
+          );
+          set("recipient", "");
+        });
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipientInput]);
+
   const [errors, setErrors] = useState<
     Partial<Record<keyof FormState, string>>
   >({});
@@ -301,6 +368,7 @@ export function CreateForm() {
     form,
     (draft) => {
       setForm(draft);
+      setRecipientInput(draft.recipient);
     },
     true,
   );
@@ -355,12 +423,19 @@ export function CreateForm() {
   function validate(): boolean {
     const newErrors: Partial<Record<keyof FormState, string>> = {};
 
-    // Issue #28: use StrKey for proper Stellar address validation
-    if (
+    // Issue #155: block submission while a Federation address is still resolving
+    if (federationStatus === "loading") {
+      newErrors.recipient = "Still resolving the Federation address…";
+    } else if (federationStatus === "error") {
+      newErrors.recipient = federationError ?? "Could not resolve Federation address";
+    } else if (
+      // Issue #28: use StrKey for proper Stellar address validation
       !form.recipient.trim() ||
       !StrKey.isValidEd25519PublicKey(form.recipient.trim())
     ) {
-      newErrors.recipient = "Invalid Stellar address format";
+      newErrors.recipient = isFederationAddress(recipientInput.trim())
+        ? "Federation address did not resolve to a valid Stellar account"
+        : "Invalid Stellar address format";
     }
     // Issue #103: require warning acknowledgment for unfunded accounts
     if (
@@ -808,15 +883,40 @@ export function CreateForm() {
               Recipient
             </h2>
             <div className="space-y-1.5">
-              <Label htmlFor="recipient">Stellar address</Label>
-              <Input
-                id="recipient"
-                placeholder="GABC…"
-                value={form.recipient}
-                onChange={(e) => set("recipient", e.target.value)}
-                aria-invalid={!!errors.recipient}
-                className="font-mono text-xs"
-              />
+              <Label htmlFor="recipient">Stellar address or Federation name</Label>
+              <div className="relative">
+                <Input
+                  id="recipient"
+                  placeholder="GABC… or alice*domain.com"
+                  value={recipientInput}
+                  onChange={(e) => setRecipientInput(e.target.value)}
+                  aria-invalid={!!errors.recipient}
+                  className="font-mono text-xs pr-8"
+                />
+                {federationStatus === "loading" && (
+                  <Loader2 className="absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+                )}
+                {federationStatus === "resolved" && (
+                  <CheckCircle2 className="absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-emerald-500" />
+                )}
+              </div>
+              {/* Issue #155: Federation address (name*domain.com) resolution */}
+              {federationStatus === "resolved" && federationResolved && (
+                <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-400">
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+                  <div>
+                    <p className="font-medium">
+                      {federationResolved.federationAddress} resolved
+                    </p>
+                    <p className="font-mono text-xs opacity-80 break-all">
+                      {federationResolved.accountId}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {federationStatus === "error" && federationError && (
+                <p className="text-xs text-destructive">{federationError}</p>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
@@ -827,8 +927,15 @@ export function CreateForm() {
                     if (!trimmed || !StrKey.isValidEd25519PublicKey(trimmed))
                       return;
                     addAddressBookEntry({
-                      label: "Saved recipient",
+                      label:
+                        federationResolved?.accountId === trimmed
+                          ? federationResolved.federationAddress
+                          : "Saved recipient",
                       address: trimmed,
+                      federationAddress:
+                        federationResolved?.accountId === trimmed
+                          ? federationResolved.federationAddress
+                          : undefined,
                     });
                     setAddressBookEntries(getAddressBookEntries());
                     toast.success("Recipient saved");
@@ -851,11 +958,15 @@ export function CreateForm() {
                       <button
                         key={entry.id}
                         type="button"
-                        onClick={() => set("recipient", entry.address)}
+                        onClick={() => {
+                          setRecipientInput(entry.address);
+                          set("recipient", entry.address);
+                        }}
                         className="rounded-full border border-border bg-background px-3 py-1 text-left text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                        title={entry.address}
                       >
                         <span className="font-medium text-foreground">
-                          {entry.label}
+                          {entry.federationAddress ?? entry.label}
                         </span>{" "}
                         • {entry.address.slice(0, 8)}…
                       </button>
