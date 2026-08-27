@@ -51,12 +51,17 @@ export function TxPreviewDialog({
   const [simulating, setSimulating] = useState(false)
 
   useEffect(() => {
+    let cancelled = false;
     if (!open || !input || !sender) return
     setPreview(null)
     setSimulating(true)
     let cancelled = false
 
     simulateCreateStreamPreview(network, input, sender)
+      .then((data) => { if (!cancelled) setPreview(data); })
+      .finally(() => setSimulating(false))
+  
+    return () => { cancelled = true; };
       .then((result) => {
         if (!cancelled) {
           setPreview(result)
