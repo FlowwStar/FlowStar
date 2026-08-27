@@ -414,6 +414,10 @@ impl StreamingContract {
     // ── Write: Admin / Upgrade ───────────────────────────────────────────────
 
     /// Upgrade the contract wasm. Only callable by the admin.
+    ///
+    /// # Errors
+    /// - [`StreamError::NotInitialized`] — contract has not been initialized yet.
+    /// - [`StreamError::Unauthorized`]   — caller does not match the stored admin.
     pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) -> Result<(), StreamError> {
         admin.require_auth();
         let stored_admin: Address = env
