@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Copy, LogOut, Loader2, Wallet } from 'lucide-react'
+import { Check, Copy, LogOut, Loader2, Wallet, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -19,7 +19,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useWallet } from '@/hooks/use-wallet'
-import { WALLET_OPTIONS } from '@/components/providers/wallet-provider'
+import { WALLET_OPTIONS, ADAPTERS } from '@/components/providers/wallet-provider'
 import { shortenAddress } from '@/lib/stream-utils'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -114,6 +114,7 @@ export function ConnectWalletButton({ className }: { className?: string }) {
           </div>
           {WALLET_OPTIONS.map((wallet) => {
             const isPending = connecting && pendingId === wallet.id
+            const available = ADAPTERS[wallet.id]?.isAvailable() ?? true
             return (
               <button
                 key={wallet.id}
@@ -133,6 +134,24 @@ export function ConnectWalletButton({ className }: { className?: string }) {
                 </span>
                 {isPending && (
                   <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                )}
+                {!isPending && !available && (
+                  wallet.installUrl ? (
+                    <a
+                      href={wallet.installUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Not installed
+                      <ExternalLink className="size-3" />
+                    </a>
+                  ) : (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                      Not installed
+                    </span>
+                  )
                 )}
               </button>
             )

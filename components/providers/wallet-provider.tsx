@@ -50,6 +50,7 @@ export interface WalletOption {
   id: string;
   name: string;
   detail: string;
+  installUrl?: string;
 }
 
 export const WALLET_OPTIONS: WalletOption[] = [
@@ -57,8 +58,14 @@ export const WALLET_OPTIONS: WalletOption[] = [
     id: "freighter",
     name: "Freighter",
     detail: "Browser extension · stellar.org",
+    installUrl: "https://www.freighter.app",
   },
-  { id: "xbull", name: "xBull", detail: "Extension & web" },
+  {
+    id: "xbull",
+    name: "xBull",
+    detail: "Extension & web",
+    installUrl: "https://xbull.app",
+  },
   { id: "lobstr", name: "LOBSTR", detail: "Mobile & extension" },
   { id: "albedo", name: "Albedo", detail: "Web signer" },
 ];
@@ -287,7 +294,7 @@ const albedoAdapter: WalletAdapter = {
 
 // ─── Adapter registry ─────────────────────────────────────────────────────────
 
-const ADAPTERS: Record<string, WalletAdapter> = {
+export const ADAPTERS: Record<string, WalletAdapter> = {
   freighter: freighterAdapter,
   xbull: xbullAdapter,
   lobstr: lobstrAdapter,
