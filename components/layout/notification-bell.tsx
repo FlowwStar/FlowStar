@@ -1,12 +1,18 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Bell } from 'lucide-react'
+import { Bell, X } from 'lucide-react'
 import { formatTimeAgo } from '@/lib/stream-utils'
 import { useWallet } from '@/hooks/use-wallet'
 import { useNotifications, type AppNotification } from '@/hooks/use-notifications'
 
-function NotificationItem({ notification }: { notification: AppNotification }) {
+function NotificationItem({
+  notification,
+  onDismiss,
+}: {
+  notification: AppNotification
+  onDismiss: (id: string) => void
+}) {
   return (
     <div
       className={
@@ -16,9 +22,18 @@ function NotificationItem({ notification }: { notification: AppNotification }) {
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium">{notification.title}</p>
-        {!notification.read && (
-          <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" />
-        )}
+        <div className="flex shrink-0 items-center gap-1.5 mt-0.5">
+          {!notification.read && (
+            <span className="size-2 rounded-full bg-primary" />
+          )}
+          <button
+            onClick={() => onDismiss(notification.id)}
+            aria-label="Dismiss notification"
+            className="text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:rounded"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground">{notification.body}</p>
       <p className="mt-1 text-xs text-muted-foreground">{formatTimeAgo(notification.timestamp)}</p>
@@ -28,7 +43,7 @@ function NotificationItem({ notification }: { notification: AppNotification }) {
 
 export function NotificationBell() {
   const { address } = useWallet()
-  const { notifications, unreadCount, markAllRead, clearAll } = useNotifications(address)
+  const { notifications, unreadCount, markAllRead, clearAll, dismissNotification } = useNotifications(address)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -105,7 +120,7 @@ export function NotificationBell() {
               </p>
             ) : (
               notifications.map((n) => (
-                <NotificationItem key={n.id} notification={n} />
+                <NotificationItem key={n.id} notification={n} onDismiss={dismissNotification} />
               ))
             )}
           </div>
