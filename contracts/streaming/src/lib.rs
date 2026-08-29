@@ -323,6 +323,7 @@ pub struct StreamTransferEvent {
     pub stream_id: u64,
     pub old_recipient: Address,
     pub new_recipient: Address,
+    pub timestamp: u64,
 }
 
 /// Emitted when the sender adds additional funds to an active stream via `top_up`.
@@ -336,6 +337,7 @@ pub struct TopUpEvent {
     pub additional_amount: i128,
     pub new_deposited_amount: i128,
     pub new_amount_per_second: i128,
+    pub timestamp: u64,
 }
 
 /// Emitted when anyone calls `bump_stream` to extend a stream's ledger TTL.
@@ -808,10 +810,12 @@ impl StreamingContract {
             .persistent()
             .remove(&DataKey::Delegate(stream_id));
 
+        let timestamp = env.ledger().timestamp();
         StreamTransferEvent {
             stream_id,
             old_recipient,
             new_recipient,
+            timestamp,
         }
         .publish(&env);
         Self::extend_stream_ttl(&env, stream_id);
@@ -921,11 +925,13 @@ impl StreamingContract {
 
         Self::extend_stream_ttl(&env, stream_id);
 
+        let timestamp = env.ledger().timestamp();
         TopUpEvent {
             stream_id,
             additional_amount,
             new_deposited_amount: stream.deposited_amount,
             new_amount_per_second: stream.amount_per_second,
+            timestamp,
         }
         .publish(&env);
 
