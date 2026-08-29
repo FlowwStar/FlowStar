@@ -38,16 +38,19 @@ function showErrorToast(err: unknown, toastId?: string | number) {
     duration: 7000,
     ...(toastId ? { id: toastId } : {}),
     action: mapped.details
-      ? {
-          label: "Details",
-          onClick: () => {
-            const short =
-              mapped.details!.length > 200
-                ? mapped.details!.slice(0, 200) + "…"
-                : mapped.details!;
-            toast.info(short, { duration: 10000 });
-          },
-        }
+      ? (() => {
+          const details = mapped.details;
+          return {
+            label: "Details",
+            onClick: () => {
+              const short =
+                details.length > 200
+                  ? details.slice(0, 200) + "…"
+                  : details;
+              toast.info(short, { duration: 10000 });
+            },
+          };
+        })()
       : undefined,
   };
   toast.error(mapped.message, opts);

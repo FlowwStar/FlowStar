@@ -181,7 +181,8 @@ async function invoke(
       error?: { message: string }
     }
     if (pollJson.error) throw new Error(`Poll failed: ${pollJson.error.message}`)
-    pollStatus = pollJson.result!.status
+    if (!pollJson.result) continue
+    pollStatus = pollJson.result.status
   }
 
   if (pollStatus === 'FAILED') throw new Error('Transaction failed on-chain')

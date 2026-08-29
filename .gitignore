@@ -26,7 +26,7 @@ contracts/**/test_snapshots/
 coverage/
 
 # TypeScript build info cache
-tsconfig.tsbuildinfo
+*.tsbuildinfo
 
 # Playwright test results and reports
 test-results/
@@ -47,3 +47,22 @@ pnpm-lock.yaml
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Build output
+dist/
+
+# Monorepo / Turborepo cache
+.turbo/
+
+# Broader env file catch
+*.local
+.env
+
+# Storybook static output
+storybook-static/
+
+# Istanbul / NYC coverage output
+.nyc_output/
+
+# CI test reports
+junit.xml
