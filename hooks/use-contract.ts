@@ -7,6 +7,7 @@ import {
   createStreamsBatch as createStreamsBatchCall,
   withdrawFromStream,
   cancelStream as cancelStreamCall,
+  cleanupStream as cleanupStreamCall,
   estimateCreateStreamFee,
   type TxStep,
 } from "@/lib/contract";
@@ -38,16 +39,19 @@ function showErrorToast(err: unknown, toastId?: string | number) {
     duration: 7000,
     ...(toastId ? { id: toastId } : {}),
     action: mapped.details
-      ? {
-          label: "Details",
-          onClick: () => {
-            const short =
-              mapped.details!.length > 200
-                ? mapped.details!.slice(0, 200) + "…"
-                : mapped.details!;
-            toast.info(short, { duration: 10000 });
-          },
-        }
+      ? (() => {
+          const details = mapped.details;
+          return {
+            label: "Details",
+            onClick: () => {
+              const short =
+                details.length > 200
+                  ? details.slice(0, 200) + "…"
+                  : details;
+              toast.info(short, { duration: 10000 });
+            },
+          };
+        })()
       : undefined,
   };
   toast.error(mapped.message, opts);
@@ -127,6 +131,16 @@ export function useContract() {
     [run, network],
   );
 
+  // Issue #689: permanently remove a completed/cancelled stream from history.
+  const cleanup = useCallback(
+    (id: string) =>
+      run("Remove stream", (onStep) => {
+        if (!address) throw new Error("Connect a wallet first.");
+        return cleanupStreamCall(id, address, network, onStep);
+      }),
+    [run, address, network],
+  );
+
   const estimateFee = useCallback(
     async (input: CreateStreamInput): Promise<FeeEstimate | null> => {
       if (!isConnected || !address) return null;
@@ -199,6 +213,7 @@ export function useContract() {
     createStreamsBatch,
     withdraw,
     cancel,
+    cleanup,
     withdrawAll,
     estimateFee,
     pending,
