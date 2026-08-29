@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 
 export type WebhookEventType =
   | 'stream.created'
@@ -39,8 +39,18 @@ function loadWebhooks(): WebhookConfig[] {
   }
 }
 
-function saveWebhooks(hooks: WebhookConfig[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(hooks))
+// Issue #677: these used to call localStorage.setItem unguarded, which can
+// throw (quota exceeded, private browsing) and crash the settings UI
+// interaction that triggered it. Now wrapped in try/catch, matching
+// use-form-draft.ts's already-guarded pattern, and reports success so
+// callers can surface a warning instead of silently losing the write.
+function saveWebhooks(hooks: WebhookConfig[]): boolean {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(hooks))
+    return true
+  } catch {
+    return false
+  }
 }
 
 function loadHistory(): WebhookDelivery[] {
@@ -52,8 +62,13 @@ function loadHistory(): WebhookDelivery[] {
   }
 }
 
-function saveHistory(history: WebhookDelivery[]) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)))
+function saveHistory(history: WebhookDelivery[]): boolean {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)))
+    return true
+  } catch {
+    return false
+  }
 }
 
 async function deliverWithRetry(
@@ -79,9 +94,27 @@ async function deliverWithRetry(
   return { statusCode: null, success: false }
 }
 
-export function useWebhooks() {
+export function useWebhooks(onSaveError?: () => void) {
   const [webhooks, setWebhooks] = useState<WebhookConfig[]>([])
   const [history, setHistory] = useState<WebhookDelivery[]>([])
+  const hasWarnedRef = useRef(false)
+
+  // Issue #677: only warn once per failure streak, resetting as soon as a
+  // save succeeds again — a lightweight one-time notice, not a toast per
+  // keystroke/action while storage stays unavailable.
+  const reportSaveResult = useCallback(
+    (ok: boolean) => {
+      if (ok) {
+        hasWarnedRef.current = false
+        return
+      }
+      if (!hasWarnedRef.current) {
+        hasWarnedRef.current = true
+        onSaveError?.()
+      }
+    },
+    [onSaveError],
+  )
 
   useEffect(() => {
     setWebhooks(loadWebhooks())
@@ -98,26 +131,26 @@ export function useWebhooks() {
     }
     setWebhooks((prev) => {
       const next = [...prev, hook]
-      saveWebhooks(next)
+      reportSaveResult(saveWebhooks(next))
       return next
     })
-  }, [])
+  }, [reportSaveResult])
 
   const removeWebhook = useCallback((id: string) => {
     setWebhooks((prev) => {
       const next = prev.filter((h) => h.id !== id)
-      saveWebhooks(next)
+      reportSaveResult(saveWebhooks(next))
       return next
     })
-  }, [])
+  }, [reportSaveResult])
 
   const toggleWebhook = useCallback((id: string) => {
     setWebhooks((prev) => {
       const next = prev.map((h) => (h.id === id ? { ...h, enabled: !h.enabled } : h))
-      saveWebhooks(next)
+      reportSaveResult(saveWebhooks(next))
       return next
     })
-  }, [])
+  }, [reportSaveResult])
 
   const fireEvent = useCallback(
     async (eventType: WebhookEventType, data: object) => {
@@ -134,12 +167,12 @@ export function useWebhooks() {
         }
         setHistory((prev) => {
           const next = [delivery, ...prev]
-          saveHistory(next)
+          reportSaveResult(saveHistory(next))
           return next
         })
       }
     },
-    [webhooks]
+    [webhooks, reportSaveResult]
   )
 
   const testWebhook = useCallback(async (id: string): Promise<boolean> => {
