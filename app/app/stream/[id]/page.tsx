@@ -18,6 +18,7 @@ import {
   MessageCircle,
   Send,
   QrCode,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ConnectWalletButton } from "@/components/layout/connect-wallet-button";
@@ -31,6 +32,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FeeEstimateDialog } from "@/components/ui/fee-estimate-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -365,6 +372,58 @@ function CancelDialog({
         loading={false}
       />
     </>
+  );
+}
+
+// ─── Cleanup (remove from history) dialog ───────────────────────────────────
+
+// Issue #689: wires the contract's `cleanup_stream` into the UI — lets either
+// party permanently remove a completed/cancelled stream's on-chain data.
+function CleanupDialog({
+  open,
+  onClose,
+  streamId,
+  onCleaned,
+}: {
+  open: boolean;
+  onClose: () => void;
+  streamId: string;
+  onCleaned: () => void;
+}) {
+  const { cleanup, pending, error } = useContract();
+
+  async function handleConfirm() {
+    try {
+      await cleanup(streamId);
+      onClose();
+      onCleaned();
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Remove from history</DialogTitle>
+          <DialogDescription>
+            This permanently deletes this stream&apos;s on-chain record. This
+            can&apos;t be undone, and it won&apos;t affect any funds already
+            transferred.
+          </DialogDescription>
+        </DialogHeader>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={handleConfirm} disabled={pending}>
+            {pending ? "Removing…" : "Remove permanently"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -808,8 +867,6 @@ function ShareButtons({
   status: import("@/types/stream").StreamStatus;
 }) {
   const streamId = stream.id;
-  const [copied, setCopied] = useState(false);
-  const [showShare, setShowShare] = useState(false);
   const [showQr, setShowQr] = useState(false);
 
   const streamUrl =
@@ -820,8 +877,6 @@ function ShareButtons({
 
   function copyLink() {
     navigator.clipboard.writeText(streamUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
     toast.success("Link copied to clipboard");
   }
 
@@ -837,62 +892,39 @@ function ShareButtons({
 
   return (
     <div className="relative">
-      <button
-        onClick={() => setShowShare(!showShare)}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        aria-label="Share stream"
-      >
-        <Share2 className="size-4" />
-        Share
-      </button>
-
-      {showShare && (
-        <div className="absolute right-0 mt-2 bg-card border border-border rounded-lg shadow-lg z-50">
-          <div className="flex flex-col gap-1 p-2 min-w-max">
-            <button
-              onClick={copyLink}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
-              aria-label="Copy link"
-            >
-              {copied ? (
-                <Check className="size-4" />
-              ) : (
-                <LinkIcon className="size-4" />
-              )}
-              {copied ? "Copied!" : "Copy link"}
-            </button>
-            <button
-              onClick={shareToTwitter}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
-              aria-label="Share on Twitter"
-            >
-              <svg className="size-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2s9 5 20 5a9.5 9.5 0 00-9-5.5c4.75 2.25 7-7 7-7" />
-              </svg>
-              Twitter
-            </button>
-            <button
-              onClick={shareToTelegram}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
-              aria-label="Share on Telegram"
-            >
-              <MessageCircle className="size-4" />
-              Telegram
-            </button>
-            <button
-              onClick={() => {
-                setShowShare(false);
-                setShowQr(true);
-              }}
-              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
-              aria-label="Show QR code"
-            >
-              <QrCode className="size-4" />
-              QR code
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Issue #685: DropdownMenu (Base UI) gives us click-outside, Escape,
+          aria-expanded/aria-haspopup, and focus return to the trigger for free. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Share stream"
+          >
+            <Share2 className="size-4" />
+            Share
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onClick={copyLink}>
+            <LinkIcon className="size-4 mr-2" />
+            <span>Copy link</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={shareToTwitter}>
+            <svg className="size-4 mr-2" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2s9 5 20 5a9.5 9.5 0 00-9-5.5c4.75 2.25 7-7 7-7" />
+            </svg>
+            <span>Twitter</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={shareToTelegram}>
+            <MessageCircle className="size-4 mr-2" />
+            <span>Telegram</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setShowQr(true)}>
+            <QrCode className="size-4 mr-2" />
+            <span>QR code</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {/* Issue #153: QR code sharing modal */}
       <QrShareDialog
@@ -926,6 +958,7 @@ function StreamDetail({ id }: { id: string }) {
   const now = useNow(1000);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const isCancelling = useIsStreamCancelling(id);
 
   if (loading) {
@@ -961,6 +994,12 @@ function StreamDetail({ id }: { id: string }) {
   const canWithdraw = isRecipient && !stream.cancelled && withdrawable > 0n;
   const canCancel =
     isSender && !stream.cancelled && status !== "completed" && !isCancelling;
+  // Issue #689: eligible for cleanup once terminal — cancelled, or fully
+  // withdrawn past end_time — mirroring the contract's own eligibility check.
+  const canCleanup =
+    (isSender || isRecipient) &&
+    (stream.cancelled ||
+      (status === "completed" && stream.withdrawnAmount >= stream.depositedAmount));
 
   function handleDuplicate() {
     if (!stream) return;
@@ -1122,7 +1161,7 @@ function StreamDetail({ id }: { id: string }) {
         )}
 
         {/* Actions */}
-        {(canWithdraw || canCancel || isSender) && (
+        {(canWithdraw || canCancel || canCleanup || isSender) && (
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
             {canWithdraw && (
               <Button onClick={() => setWithdrawOpen(true)} className="gap-1.5">
@@ -1148,6 +1187,16 @@ function StreamDetail({ id }: { id: string }) {
               >
                 <Copy className="size-4" />
                 Duplicate stream
+              </Button>
+            )}
+            {canCleanup && (
+              <Button
+                variant="outline"
+                onClick={() => setCleanupOpen(true)}
+                className="gap-1.5 text-destructive hover:text-destructive"
+              >
+                <Trash2 className="size-4" />
+                Remove from history
               </Button>
             )}
           </div>
@@ -1290,6 +1339,12 @@ function StreamDetail({ id }: { id: string }) {
         open={cancelOpen}
         onClose={() => setCancelOpen(false)}
         streamId={stream.id}
+      />
+      <CleanupDialog
+        open={cleanupOpen}
+        onClose={() => setCleanupOpen(false)}
+        streamId={stream.id}
+        onCleaned={() => router.push("/app")}
       />
     </div>
   );

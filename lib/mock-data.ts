@@ -156,6 +156,20 @@ export const mockStore = {
     streams = streams.map((s) => (s.id === id ? { ...s, cancelled: true } : s))
     emit()
   },
+  /** Streams that are terminal — cancelled, or fully withdrawn past end_time. */
+  getArchived(address: string): StreamData[] {
+    const nowSec = Math.floor(Date.now() / 1000)
+    return streams.filter(
+      (s) =>
+        (s.sender === address || s.recipient === address) &&
+        (s.cancelled || (s.withdrawnAmount >= s.depositedAmount && nowSec >= Number(s.endTime))),
+    )
+  },
+  /** Issue #689: permanently remove a stream (mirrors cleanup_stream on-chain). */
+  cleanup(id: string) {
+    streams = streams.filter((s) => s.id !== id)
+    emit()
+  },
 }
 
 export { DEMO_ME }

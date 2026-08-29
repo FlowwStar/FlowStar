@@ -11,6 +11,8 @@ import {
   Copy,
   Clock,
   CheckCircle2,
+  Pencil,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -35,9 +37,18 @@ import { CreateConfirmation } from "@/components/streams/create-confirmation";
 import { TxPreviewDialog } from "@/components/ui/tx-preview-dialog";
 import {
   addAddressBookEntry,
+  deleteAddressBookEntry,
   getAddressBookEntries,
   touchAddressBookEntry,
+  updateAddressBookEntry,
 } from "@/lib/address-book";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { isFederationAddress, resolveFederationAddress } from "@/lib/federation";
 import {
   buildNextRunAt,
@@ -154,6 +165,12 @@ export function CreateForm() {
   const [addressBookEntries, setAddressBookEntries] = useState(() =>
     getAddressBookEntries(),
   );
+  // Issue #687: rename dialog state for the "Recent recipients" list.
+  const [renamingEntry, setRenamingEntry] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [recurrenceCadence, setRecurrenceCadence] =
     useState<RecurrenceCadence>("none");
 
@@ -418,6 +435,28 @@ export function CreateForm() {
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => ({ ...prev, [key]: undefined }));
+  }
+
+  // Issue #687: remove/rename controls for the "Recent recipients" list.
+  function handleRemoveAddressBookEntry(id: string) {
+    deleteAddressBookEntry(id);
+    setAddressBookEntries(getAddressBookEntries());
+    toast.success("Recipient removed");
+  }
+
+  function openRenameDialog(entry: { id: string; label: string }) {
+    setRenamingEntry(entry);
+    setRenameValue(entry.label);
+  }
+
+  function handleConfirmRename() {
+    if (!renamingEntry) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
+    updateAddressBookEntry(renamingEntry.id, { label: trimmed });
+    setAddressBookEntries(getAddressBookEntries());
+    setRenamingEntry(null);
+    toast.success("Recipient renamed");
   }
 
   function validate(): boolean {
@@ -955,21 +994,41 @@ export function CreateForm() {
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {addressBookEntries.slice(0, 6).map((entry) => (
-                      <button
+                      <div
                         key={entry.id}
-                        type="button"
-                        onClick={() => {
-                          setRecipientInput(entry.address);
-                          set("recipient", entry.address);
-                        }}
-                        className="rounded-full border border-border bg-background px-3 py-1 text-left text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-                        title={entry.address}
+                        className="group flex items-center gap-1 rounded-full border border-border bg-background pl-3 pr-1 py-1 text-xs text-muted-foreground transition-colors hover:border-primary"
                       >
-                        <span className="font-medium text-foreground">
-                          {entry.federationAddress ?? entry.label}
-                        </span>{" "}
-                        • {entry.address.slice(0, 8)}…
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecipientInput(entry.address);
+                            set("recipient", entry.address);
+                          }}
+                          className="text-left hover:text-primary"
+                          title={entry.address}
+                        >
+                          <span className="font-medium text-foreground">
+                            {entry.federationAddress ?? entry.label}
+                          </span>{" "}
+                          • {entry.address.slice(0, 8)}…
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openRenameDialog(entry)}
+                          aria-label={`Rename ${entry.label}`}
+                          className="rounded-full p-1 opacity-60 hover:bg-secondary hover:opacity-100"
+                        >
+                          <Pencil className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAddressBookEntry(entry.id)}
+                          aria-label={`Remove ${entry.label}`}
+                          className="rounded-full p-1 opacity-60 hover:bg-destructive/10 hover:text-destructive hover:opacity-100"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -1333,6 +1392,38 @@ export function CreateForm() {
           amountPerSecond={amountPerSecond}
         />
       )}
+
+      {/* Issue #687: rename a saved recipient */}
+      <Dialog
+        open={!!renamingEntry}
+        onOpenChange={(open) => !open && setRenamingEntry(null)}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename recipient</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="renameRecipient">Label</Label>
+            <Input
+              id="renameRecipient"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleConfirmRename();
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenamingEntry(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmRename} disabled={!renameValue.trim()}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
