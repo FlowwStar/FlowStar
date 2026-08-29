@@ -77,6 +77,7 @@ import { DownloadReceiptButton } from "@/components/streams/download-receipt-but
 import { bumpStreamTtl } from "@/lib/contract";
 import { getFederationNameForAddress } from "@/lib/address-book";
 import { QrShareDialog } from "@/components/streams/qr-share-dialog";
+import { streamDetailCopy as copy } from "@/lib/copy/stream-detail";
 
 // ─── Address copy button ────────────────────────────────────────────────────
 
@@ -101,7 +102,7 @@ function CopyableAddress({
       <button
         type="button"
         onClick={copy}
-        aria-label="Copy address"
+        aria-label={copy.copyableAddress.copyAriaLabel}
         title={federationName ? address : undefined}
         className="group inline-flex items-center gap-1.5 font-mono text-sm hover:text-primary transition-colors"
       >
@@ -115,7 +116,7 @@ function CopyableAddress({
         )}
       </button>
       <span className="sr-only" role="status" aria-live="polite">
-        {copied ? "Copied" : ""}
+        {copied ? copy.copyableAddress.copiedStatus : ""}
       </span>
       {href && (
         <a
@@ -123,7 +124,7 @@ function CopyableAddress({
           target="_blank"
           rel="noopener noreferrer"
           className="text-muted-foreground hover:text-primary transition-colors"
-          aria-label="View on Stellar Expert"
+          aria-label={copy.copyableAddress.viewOnExplorerAriaLabel}
         >
           <ExternalLink className="size-3.5" />
         </a>
@@ -187,11 +188,14 @@ function WithdrawDialog({
   async function handleWithdraw() {
     try {
       const hash = await withdraw(streamId, parsed);
-      toast.success("Withdrawal successful", {
-        description: `${formatTokenAmount(parsed, token.decimals, 4)} ${token.symbol} sent to your wallet.`,
+      toast.success(copy.withdrawDialog.successToastTitle, {
+        description: copy.withdrawDialog.successToastDescription(
+          formatTokenAmount(parsed, token.decimals, 4),
+          token.symbol,
+        ),
         ...(hash && {
           action: {
-            label: "View transaction",
+            label: copy.withdrawDialog.viewTransactionAction,
             onClick: () =>
               window.open(explorerUrl(network, "tx", hash), "_blank"),
           },
@@ -212,9 +216,9 @@ function WithdrawDialog({
       >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Withdraw funds</DialogTitle>
+            <DialogTitle>{copy.withdrawDialog.title}</DialogTitle>
             <DialogDescription>
-              Enter how much to withdraw. Max:{" "}
+              {copy.withdrawDialog.maxPrefix}{" "}
               <span className="font-mono font-medium text-foreground">
                 {max} {token.symbol}
               </span>
@@ -222,14 +226,16 @@ function WithdrawDialog({
           </DialogHeader>
           <div className="space-y-4 pt-1">
             <div className="space-y-1.5">
-              <Label htmlFor="withdraw-amount">Amount ({token.symbol})</Label>
+              <Label htmlFor="withdraw-amount">
+                {copy.withdrawDialog.amountLabel(token.symbol)}
+              </Label>
               <div className="flex gap-2">
                 <Input
                   id="withdraw-amount"
                   type="number"
                   min="0"
                   step="any"
-                  placeholder="0.00"
+                  placeholder={copy.withdrawDialog.amountPlaceholder}
                   value={inputAmount}
                   onChange={(e) => setInputAmount(e.target.value)}
                   aria-invalid={!!inputAmount && invalid}
@@ -240,12 +246,12 @@ function WithdrawDialog({
                   size="sm"
                   onClick={() => setInputAmount(max)}
                 >
-                  Max
+                  {copy.withdrawDialog.maxButton}
                 </Button>
               </div>
               {inputAmount && invalid && (
                 <p className="text-xs text-destructive">
-                  Amount exceeds withdrawable balance
+                  {copy.withdrawDialog.exceedsBalance}
                 </p>
               )}
             </div>
@@ -253,26 +259,26 @@ function WithdrawDialog({
             {/* Fee info */}
             <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
               <p className="text-xs text-muted-foreground">
-                Estimated network fee:{" "}
+                {copy.withdrawDialog.estimatedFeeLabel}{" "}
                 <span className="font-mono text-foreground">
                   {(estimatedFee / 1e7).toFixed(7)} XLM
                 </span>
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Fee will be shown again before wallet confirmation.
+                {copy.withdrawDialog.feeShownAgainNote}
               </p>
             </div>
 
             {error && <p className="text-xs text-destructive">{error}</p>}
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={onClose} disabled={pending}>
-                Cancel
+                {copy.withdrawDialog.cancelButton}
               </Button>
               <Button
                 onClick={() => setShowFeeEstimate(true)}
                 disabled={pending || invalid || !inputAmount}
               >
-                {pending ? "Withdrawing…" : "Review fees"}
+                {pending ? copy.withdrawDialog.withdrawing : copy.withdrawDialog.reviewFeesButton}
               </Button>
             </div>
           </div>
@@ -329,18 +335,14 @@ function CancelDialog({
       >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Cancel stream</DialogTitle>
-            <DialogDescription>
-              Unlocked funds will be sent to the recipient. Any remaining locked
-              tokens will be returned to your wallet. You&apos;ll have a few
-              seconds to undo before this is submitted.
-            </DialogDescription>
+            <DialogTitle>{copy.cancelDialog.title}</DialogTitle>
+            <DialogDescription>{copy.cancelDialog.description}</DialogDescription>
           </DialogHeader>
 
           {/* Fee info */}
           <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
             <p className="text-xs text-muted-foreground">
-              Estimated network fee:{" "}
+              {copy.cancelDialog.estimatedFeeLabel}{" "}
               <span className="font-mono text-foreground">
                 {(estimatedFee / 1e7).toFixed(7)} XLM
               </span>
@@ -349,13 +351,13 @@ function CancelDialog({
 
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={onClose}>
-              Keep stream
+              {copy.cancelDialog.keepStreamButton}
             </Button>
             <Button
               variant="destructive"
               onClick={() => setShowFeeEstimate(true)}
             >
-              Review & cancel
+              {copy.cancelDialog.reviewAndCancelButton}
             </Button>
           </div>
         </DialogContent>
@@ -430,10 +432,10 @@ function CleanupDialog({
 // ─── Auto-withdraw settings ─────────────────────────────────────────────────
 
 const INTERVAL_OPTIONS = [
-  { label: "Every 6 hours", hours: 6 },
-  { label: "Every 12 hours", hours: 12 },
-  { label: "Every 24 hours", hours: 24 },
-  { label: "Every 48 hours", hours: 48 },
+  { label: copy.autoWithdraw.intervalOptionLabels[0], hours: 6 },
+  { label: copy.autoWithdraw.intervalOptionLabels[1], hours: 12 },
+  { label: copy.autoWithdraw.intervalOptionLabels[2], hours: 24 },
+  { label: copy.autoWithdraw.intervalOptionLabels[3], hours: 48 },
 ] as const;
 
 function AutoWithdrawSection({
@@ -459,23 +461,19 @@ function AutoWithdrawSection({
   }> = [
     {
       value: "time-based",
-      label: "Time-based",
-      description: "Withdraw on fixed intervals",
+      ...copy.autoWithdraw.strategies.timeBased,
     },
     {
       value: "threshold-based",
-      label: "Threshold-based",
-      description: "Withdraw when amount reaches threshold",
+      ...copy.autoWithdraw.strategies.thresholdBased,
     },
     {
       value: "gas-optimized",
-      label: "Gas-optimized",
-      description: "Limit frequency to reduce gas costs",
+      ...copy.autoWithdraw.strategies.gasOptimized,
     },
     {
       value: "max",
-      label: "Max amount",
-      description: "Always withdraw maximum available",
+      ...copy.autoWithdraw.strategies.max,
     },
   ];
 
@@ -485,7 +483,7 @@ function AutoWithdrawSection({
         <div className="flex items-center gap-2">
           <Timer className="size-4 text-muted-foreground" />
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-            Auto-withdraw
+            {copy.autoWithdraw.title}
           </h2>
         </div>
         <label className="relative inline-flex cursor-pointer items-center">
@@ -494,7 +492,7 @@ function AutoWithdrawSection({
             checked={settings.enabled}
             onChange={(e) => updateSettings({ enabled: e.target.checked })}
             className="peer sr-only"
-            aria-label="Enable auto-withdraw"
+            aria-label={copy.autoWithdraw.enableAriaLabel}
           />
           <div className="h-5 w-9 rounded-full bg-muted peer-checked:bg-primary transition-colors after:absolute after:left-[2px] after:top-[2px] after:size-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
         </label>
@@ -503,12 +501,11 @@ function AutoWithdrawSection({
       {settings.enabled && (
         <div className="space-y-4 pt-1">
           <p className="text-xs text-muted-foreground">
-            Automatically withdraw funds using your chosen strategy. The app
-            must be open and your wallet connected.
+            {copy.autoWithdraw.helpText}
           </p>
 
           <div className="space-y-1.5">
-            <Label className="text-xs">Strategy</Label>
+            <Label className="text-xs">{copy.autoWithdraw.strategyLabel}</Label>
             <div className="space-y-2">
               {STRATEGY_OPTIONS.map((opt) => (
                 <button
@@ -534,7 +531,7 @@ function AutoWithdrawSection({
 
           {settings.strategy === "time-based" && (
             <div className="space-y-1.5">
-              <Label className="text-xs">Frequency</Label>
+              <Label className="text-xs">{copy.autoWithdraw.frequencyLabel}</Label>
               <div className="flex flex-wrap gap-2">
                 {INTERVAL_OPTIONS.map((opt) => (
                   <button
@@ -559,7 +556,7 @@ function AutoWithdrawSection({
           {settings.strategy === "threshold-based" && (
             <div className="space-y-1.5">
               <Label htmlFor="threshold" className="text-xs">
-                Threshold (% of total deposited)
+                {copy.autoWithdraw.thresholdLabel}
               </Label>
               <Input
                 id="threshold"
@@ -579,14 +576,14 @@ function AutoWithdrawSection({
 
           <div className="space-y-1.5">
             <Label htmlFor="min-amount" className="text-xs">
-              Minimum amount ({stream.token.symbol})
+              {copy.autoWithdraw.minAmountLabel(stream.token.symbol)}
             </Label>
             <Input
               id="min-amount"
               type="number"
               min="0"
               step="any"
-              placeholder="0 (no minimum)"
+              placeholder={copy.autoWithdraw.minAmountPlaceholder}
               value={minDisplay}
               onChange={(e) => {
                 setMinDisplay(e.target.value);
@@ -601,21 +598,20 @@ function AutoWithdrawSection({
               className="max-w-48"
             />
             <p className="text-xs text-muted-foreground">
-              Skip auto-withdraw if the available amount is below this
-              threshold.
+              {copy.autoWithdraw.minAmountHelp}
             </p>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="max-limit" className="text-xs">
-              Maximum safety limit ({stream.token.symbol})
+              {copy.autoWithdraw.maxLimitLabel(stream.token.symbol)}
             </Label>
             <Input
               id="max-limit"
               type="number"
               min="0"
               step="any"
-              placeholder="0 (no limit)"
+              placeholder={copy.autoWithdraw.maxLimitPlaceholder}
               value={maxDisplay}
               onChange={(e) => {
                 setMaxDisplay(e.target.value);
@@ -630,16 +626,18 @@ function AutoWithdrawSection({
               className="max-w-48"
             />
             <p className="text-xs text-muted-foreground">
-              Never withdraw more than this amount per transaction.
+              {copy.autoWithdraw.maxLimitHelp}
             </p>
           </div>
 
           {autoWithdrawPending && (
-            <p className="text-xs text-primary">Auto-withdrawing...</p>
+            <p className="text-xs text-primary">
+              {copy.autoWithdraw.autoWithdrawingStatus}
+            </p>
           )}
           {lastAutoWithdraw && (
             <p className="text-xs text-muted-foreground">
-              Last auto-withdrawal:{" "}
+              {copy.autoWithdraw.lastAutoWithdrawalPrefix}{" "}
               {new Date(lastAutoWithdraw).toLocaleTimeString()}
             </p>
           )}
@@ -653,7 +651,10 @@ function AutoWithdrawSection({
                 aria-expanded={showHistory}
                 aria-controls="stream-withdrawal-history"
               >
-                {showHistory ? "Hide" : "Show"} withdrawal history (
+                {showHistory
+                  ? copy.autoWithdraw.hideHistoryButton
+                  : copy.autoWithdraw.showHistoryButton}{" "}
+                {copy.autoWithdraw.withdrawalHistorySuffix} (
                 {withdrawalHistory.length})
               </button>
               {showHistory && (
@@ -673,8 +674,8 @@ function AutoWithdrawSection({
                         }
                       >
                         {entry.error
-                          ? `Error: ${entry.error}`
-                          : `Withdrew: ${entry.amount}`}
+                          ? `${copy.autoWithdraw.historyErrorPrefix} ${entry.error}`
+                          : `${copy.autoWithdraw.historyWithdrewPrefix} ${entry.amount}`}
                       </p>
                     </div>
                   ))}
@@ -731,9 +732,9 @@ function TtlWarning({
     try {
       await bumpStreamTtl(network, stream.id, address);
       setBumped(true);
-      toast.success("Storage TTL extended by 30 days");
+      toast.success(copy.ttlWarning.successToast);
     } catch {
-      toast.error("Failed to extend TTL");
+      toast.error(copy.ttlWarning.errorToast);
     } finally {
       setBumping(false);
     }
@@ -744,13 +745,13 @@ function TtlWarning({
       <AlertTriangle className="mt-0.5 size-5 shrink-0 text-yellow-500" />
       <div className="flex-1 space-y-1">
         <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
-          Storage may be expiring soon
+          {copy.ttlWarning.title}
         </p>
         <p className="text-xs text-yellow-600 dark:text-yellow-400/80">
-          This stream&apos;s on-chain data may expire in ~
-          {Math.max(0, Math.floor(estimatedDaysLeft))} day
-          {Math.floor(estimatedDaysLeft) !== 1 ? "s" : ""}. Extend the TTL to
-          prevent data loss and keep the stream active.
+          {copy.ttlWarning.body(
+            Math.max(0, Math.floor(estimatedDaysLeft)),
+            Math.floor(estimatedDaysLeft) !== 1,
+          )}
         </p>
         {address && (
           <Button
@@ -760,7 +761,7 @@ function TtlWarning({
             disabled={bumping}
             className="mt-2 border-yellow-500/40 text-yellow-700 hover:bg-yellow-500/10 dark:text-yellow-400"
           >
-            {bumping ? "Extending…" : "Extend TTL"}
+            {bumping ? copy.ttlWarning.extendingButton : copy.ttlWarning.extendTtlButton}
           </Button>
         )}
       </div>
@@ -873,10 +874,13 @@ function ShareButtons({
     typeof window !== "undefined"
       ? window.location.href
       : `https://flowstar.app/app/stream/${streamId}`;
-  const shareText = `Check out this token stream on FlowStar - Stream #${streamId}`;
+  const shareText = copy.shareButtons.shareText(streamId);
 
   function copyLink() {
     navigator.clipboard.writeText(streamUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+    toast.success(copy.shareButtons.linkCopiedToast);
     toast.success("Link copied to clipboard");
   }
 
@@ -892,6 +896,62 @@ function ShareButtons({
 
   return (
     <div className="relative">
+      <button
+        onClick={() => setShowShare(!showShare)}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        aria-label={copy.shareButtons.shareAriaLabel}
+      >
+        <Share2 className="size-4" />
+        {copy.shareButtons.shareButton}
+      </button>
+
+      {showShare && (
+        <div className="absolute right-0 mt-2 bg-card border border-border rounded-lg shadow-lg z-50">
+          <div className="flex flex-col gap-1 p-2 min-w-max">
+            <button
+              onClick={copyLink}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              aria-label={copy.shareButtons.copyLinkAriaLabel}
+            >
+              {copied ? (
+                <Check className="size-4" />
+              ) : (
+                <LinkIcon className="size-4" />
+              )}
+              {copied ? copy.shareButtons.copiedLinkButton : copy.shareButtons.copyLinkButton}
+            </button>
+            <button
+              onClick={shareToTwitter}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              aria-label={copy.shareButtons.twitterAriaLabel}
+            >
+              <svg className="size-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2s9 5 20 5a9.5 9.5 0 00-9-5.5c4.75 2.25 7-7 7-7" />
+              </svg>
+              {copy.shareButtons.twitterButton}
+            </button>
+            <button
+              onClick={shareToTelegram}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              aria-label={copy.shareButtons.telegramAriaLabel}
+            >
+              <MessageCircle className="size-4" />
+              {copy.shareButtons.telegramButton}
+            </button>
+            <button
+              onClick={() => {
+                setShowShare(false);
+                setShowQr(true);
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-secondary rounded transition-colors"
+              aria-label={copy.shareButtons.qrAriaLabel}
+            >
+              <QrCode className="size-4" />
+              {copy.shareButtons.qrButton}
+            </button>
+          </div>
+        </div>
+      )}
       {/* Issue #685: DropdownMenu (Base UI) gives us click-outside, Escape,
           aria-expanded/aria-haspopup, and focus return to the trigger for free. */}
       <DropdownMenu>
@@ -943,7 +1003,7 @@ function ConnectPrompt() {
     <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
       <Wallet className="size-5 shrink-0 text-muted-foreground" />
       <p className="text-sm text-muted-foreground flex-1">
-        Connect your wallet to withdraw, cancel, or interact with this stream.
+        {copy.connectPrompt.body}
       </p>
       <ConnectWalletButton />
     </div>
@@ -968,12 +1028,12 @@ function StreamDetail({ id }: { id: string }) {
   if (!stream) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <p className="text-lg font-medium">Stream not found</p>
+        <p className="text-lg font-medium">{copy.notFound.title}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          This stream may not exist or may have expired.
+          {copy.notFound.body}
         </p>
         <Button asChild className="mt-6">
-          <Link href="/app">Back to dashboard</Link>
+          <Link href="/app">{copy.notFound.backButton}</Link>
         </Button>
       </div>
     );
@@ -1038,7 +1098,7 @@ function StreamDetail({ id }: { id: string }) {
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
-          Dashboard
+          {copy.header.backLabel}
         </Link>
         <ShareButtons stream={stream} status={status} />
       </div>
@@ -1066,7 +1126,7 @@ function StreamDetail({ id }: { id: string }) {
             </span>
             <div>
               <p className="font-medium">
-                {isSender ? "Sending" : "Receiving"}{" "}
+                {isSender ? copy.header.sending : copy.header.receiving}{" "}
                 <TokenAmount
                   amount={stream.depositedAmount}
                   token={stream.token}
@@ -1074,7 +1134,8 @@ function StreamDetail({ id }: { id: string }) {
                 />
               </p>
               <p className="text-xs text-muted-foreground">
-                Stream #{stream.id}
+                {copy.header.streamIdPrefix}
+                {stream.id}
               </p>
             </div>
           </div>
@@ -1084,7 +1145,7 @@ function StreamDetail({ id }: { id: string }) {
         {/* Live counter */}
         <div>
           <p className="text-xs text-muted-foreground uppercase tracking-wide">
-            Unlocked so far
+            {copy.header.unlockedSoFarLabel}
           </p>
           <div className="mt-1">
             <AccessibleUnlockAmount
@@ -1108,7 +1169,10 @@ function StreamDetail({ id }: { id: string }) {
             indeterminateShimmer={status === "streaming"}
           />
           <div className="mt-2 flex justify-between text-xs text-muted-foreground">
-            <span>{(progress * 100).toFixed(2)}% unlocked</span>
+            <span>
+              {(progress * 100).toFixed(2)}
+              {copy.header.unlockedFraction}
+            </span>
             <span>
               <TokenAmount
                 amount={stream.withdrawnAmount}
@@ -1122,7 +1186,7 @@ function StreamDetail({ id }: { id: string }) {
                 token={stream.token}
                 maxFractionDigits={2}
               />{" "}
-              withdrawn
+              {copy.header.withdrawnSuffix}
             </span>
           </div>
         </div>
@@ -1132,7 +1196,7 @@ function StreamDetail({ id }: { id: string }) {
           <div className="flex flex-wrap gap-6 text-sm">
             {status === "scheduled" && (
               <div>
-                <p className="text-xs text-muted-foreground">Starts in</p>
+                <p className="text-xs text-muted-foreground">{copy.header.startsInLabel}</p>
                 <AccessibleCountdownTimer
                   target={stream.startTime}
                   className="font-medium"
@@ -1142,7 +1206,7 @@ function StreamDetail({ id }: { id: string }) {
             )}
             <div>
               <p className="text-xs text-muted-foreground">
-                {status === "scheduled" ? "Duration" : "Ends in"}
+                {status === "scheduled" ? copy.header.durationLabel : copy.header.endsInLabel}
               </p>
               <AccessibleCountdownTimer
                 target={stream.endTime}
@@ -1156,7 +1220,7 @@ function StreamDetail({ id }: { id: string }) {
         {isCancelling && (
           <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             <span className="size-1.5 animate-pulse rounded-full bg-current" />
-            Cancelling… you can still undo this from the toast.
+            {copy.header.cancellingNotice}
           </div>
         )}
 
@@ -1166,7 +1230,7 @@ function StreamDetail({ id }: { id: string }) {
             {canWithdraw && (
               <Button onClick={() => setWithdrawOpen(true)} className="gap-1.5">
                 <ArrowDownLeft className="size-4" />
-                Withdraw{" "}
+                {copy.header.withdrawButton}{" "}
                 <span className="font-mono">
                   {formatTokenAmount(withdrawable, stream.token.decimals, 2)}{" "}
                   {stream.token.symbol}
@@ -1175,7 +1239,7 @@ function StreamDetail({ id }: { id: string }) {
             )}
             {canCancel && (
               <Button variant="secondary" onClick={() => setCancelOpen(true)}>
-                Cancel stream
+                {copy.header.cancelStreamButton}
               </Button>
             )}
             <DownloadReceiptButton stream={stream} />
@@ -1186,7 +1250,7 @@ function StreamDetail({ id }: { id: string }) {
                 className="gap-1.5"
               >
                 <Copy className="size-4" />
-                Duplicate stream
+                {copy.header.duplicateStreamButton}
               </Button>
             )}
             {canCleanup && (
@@ -1216,22 +1280,22 @@ function StreamDetail({ id }: { id: string }) {
       {/* Details */}
       <div className="rounded-2xl border border-border bg-card p-6">
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-1">
-          Details
+          {copy.details.sectionTitle}
         </h2>
-        <DetailRow label="Sender">
+        <DetailRow label={copy.details.sender}>
           <CopyableAddress
             address={stream.sender}
             href={explorerUrl(network, "account", stream.sender)}
           />
         </DetailRow>
-        <DetailRow label="Recipient">
+        <DetailRow label={copy.details.recipient}>
           <CopyableAddress
             address={stream.recipient}
             href={explorerUrl(network, "account", stream.recipient)}
             federationName={getFederationNameForAddress(stream.recipient)}
           />
         </DetailRow>
-        <DetailRow label="Token">
+        <DetailRow label={copy.details.token}>
           <div className="flex items-center gap-2">
             <span className="font-mono font-medium">{stream.token.symbol}</span>
             <CopyableAddress
@@ -1241,28 +1305,28 @@ function StreamDetail({ id }: { id: string }) {
           </div>
         </DetailRow>
         {config.streamContractId && (
-          <DetailRow label="Stream Contract">
+          <DetailRow label={copy.details.streamContract}>
             <CopyableAddress
               address={config.streamContractId}
               href={explorerUrl(network, "contract", config.streamContractId)}
             />
           </DetailRow>
         )}
-        <DetailRow label="Total deposited">
+        <DetailRow label={copy.details.totalDeposited}>
           <TokenAmount
             amount={stream.depositedAmount}
             token={stream.token}
             maxFractionDigits={4}
           />
         </DetailRow>
-        <DetailRow label="Withdrawn">
+        <DetailRow label={copy.details.withdrawn}>
           <TokenAmount
             amount={stream.withdrawnAmount}
             token={stream.token}
             maxFractionDigits={4}
           />
         </DetailRow>
-        <DetailRow label="Withdrawable now">
+        <DetailRow label={copy.details.withdrawableNow}>
           <span className={withdrawable > 0n ? "text-primary font-medium" : ""}>
             <TokenAmount
               amount={withdrawable}
@@ -1271,10 +1335,10 @@ function StreamDetail({ id }: { id: string }) {
             />
           </span>
         </DetailRow>
-        <DetailRow label="Rate">
+        <DetailRow label={copy.details.rate}>
           <RateDisplay stream={stream} />
         </DetailRow>
-        <DetailRow label="Start">
+        <DetailRow label={copy.details.start}>
           <span>
             {formatDateTime(stream.startTime)}
             <span className="ml-1.5 text-xs text-muted-foreground">
@@ -1287,7 +1351,7 @@ function StreamDetail({ id }: { id: string }) {
           </span>
         </DetailRow>
         {stream.cliffTime > stream.startTime && (
-          <DetailRow label="Cliff">
+          <DetailRow label={copy.details.cliff}>
             {formatDateTime(stream.cliffTime)}
             {stream.cliffAmount > 0n && (
               <span className="text-muted-foreground ml-1">
@@ -1302,7 +1366,7 @@ function StreamDetail({ id }: { id: string }) {
             )}
           </DetailRow>
         )}
-        <DetailRow label="End">
+        <DetailRow label={copy.details.end}>
           <span>
             {formatDateTime(stream.endTime)}
             <span className="ml-1.5 text-xs text-muted-foreground">
@@ -1314,7 +1378,7 @@ function StreamDetail({ id }: { id: string }) {
             </span>
           </span>
         </DetailRow>
-        <DetailRow label="Network">
+        <DetailRow label={copy.details.network}>
           <span className="capitalize">{network}</span>
         </DetailRow>
       </div>
