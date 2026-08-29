@@ -1279,22 +1279,6 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ArchiveSentBy(address))
             .unwrap_or(Vec::new(&env));
-        let len = all.len();
-        let start = core::cmp::min(offset, len);
-        let end = if let Some(limit_end) = offset.checked_add(limit) {
-            core::cmp::min(limit_end, len)
-        } else {
-            len
-        };
-        let mut result = Vec::new(&env);
-        let mut i = start;
-        while i < end {
-            if let Some(id) = all.get(i) {
-                result.push_back(id);
-            }
-            i += 1;
-        }
-        result
         Self::paginate(&env, &all, offset, limit)
     }
 
@@ -1310,22 +1294,6 @@ impl StreamingContract {
             .persistent()
             .get(&DataKey::ArchiveReceivedBy(address))
             .unwrap_or(Vec::new(&env));
-        let len = all.len();
-        let start = core::cmp::min(offset, len);
-        let end = if let Some(limit_end) = offset.checked_add(limit) {
-            core::cmp::min(limit_end, len)
-        } else {
-            len
-        };
-        let mut result = Vec::new(&env);
-        let mut i = start;
-        while i < end {
-            if let Some(id) = all.get(i) {
-                result.push_back(id);
-            }
-            i += 1;
-        }
-        result
         Self::paginate(&env, &all, offset, limit)
     }
 

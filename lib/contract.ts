@@ -813,3 +813,100 @@ export async function fetchStreamsForAddress(
   const streams = await Promise.all(unique.map((id) => fetchStream(network, id)))
   return streams.filter((s): s is StreamData => s !== null)
 }
+
+/**
+ * Issue #688: paginated archived (cancelled/fully-withdrawn) stream IDs where
+ * `address` is the sender, mirroring the contract's `get_archived_sent_streams`.
+ */
+export async function fetchArchivedSentStreamIds(
+  network: NetworkName,
+  address: string,
+  offset = 0,
+  limit = 100,
+): Promise<string[]> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    return mockStore
+      .getArchived(address)
+      .filter((s) => s.sender === address)
+      .map((s) => s.id)
+  }
+
+  const result = await query(
+    network,
+    'get_archived_sent_streams',
+    [
+      new Address(address).toScVal(),
+      nativeToScVal(offset, { type: 'u32' }),
+      nativeToScVal(limit, { type: 'u32' }),
+    ],
+    config.streamContractId,
+  )
+  return (scValToNative(result) as bigint[]).map(String)
+}
+
+/**
+ * Issue #688: paginated archived (cancelled/fully-withdrawn) stream IDs where
+ * `address` is the recipient, mirroring the contract's
+ * `get_archived_received_streams`.
+ */
+export async function fetchArchivedReceivedStreamIds(
+  network: NetworkName,
+  address: string,
+  offset = 0,
+  limit = 100,
+): Promise<string[]> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    return mockStore
+      .getArchived(address)
+      .filter((s) => s.recipient === address)
+      .map((s) => s.id)
+  }
+
+  const result = await query(
+    network,
+    'get_archived_received_streams',
+    [
+      new Address(address).toScVal(),
+      nativeToScVal(offset, { type: 'u32' }),
+      nativeToScVal(limit, { type: 'u32' }),
+    ],
+    config.streamContractId,
+  )
+  return (scValToNative(result) as bigint[]).map(String)
+}
+
+/**
+ * Issue #689: permanently remove a completed/cancelled stream's on-chain data
+ * via the contract's `cleanup_stream`. Either the sender or recipient may call
+ * this once the stream is cancelled or fully withdrawn past `end_time`.
+ */
+export async function cleanupStream(
+  id: string,
+  callerAddress: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    await new Promise((r) => setTimeout(r, 500))
+    mockStore.cleanup(id)
+    return null
+  }
+
+  return invoke(
+    network,
+    'cleanup_stream',
+    [new Address(callerAddress).toScVal(), nativeToScVal(BigInt(id), { type: 'u64' })],
+    callerAddress,
+    config.streamContractId,
+    onStep,
+  )
+}

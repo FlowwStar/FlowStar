@@ -7,6 +7,7 @@ import {
   createStreamsBatch as createStreamsBatchCall,
   withdrawFromStream,
   cancelStream as cancelStreamCall,
+  cleanupStream as cleanupStreamCall,
   estimateCreateStreamFee,
   type TxStep,
 } from "@/lib/contract";
@@ -130,6 +131,16 @@ export function useContract() {
     [run, network],
   );
 
+  // Issue #689: permanently remove a completed/cancelled stream from history.
+  const cleanup = useCallback(
+    (id: string) =>
+      run("Remove stream", (onStep) => {
+        if (!address) throw new Error("Connect a wallet first.");
+        return cleanupStreamCall(id, address, network, onStep);
+      }),
+    [run, address, network],
+  );
+
   const estimateFee = useCallback(
     async (input: CreateStreamInput): Promise<FeeEstimate | null> => {
       if (!isConnected || !address) return null;
@@ -202,6 +213,7 @@ export function useContract() {
     createStreamsBatch,
     withdraw,
     cancel,
+    cleanup,
     withdrawAll,
     estimateFee,
     pending,

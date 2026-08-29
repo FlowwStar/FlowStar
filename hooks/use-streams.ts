@@ -58,15 +58,13 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
   const [streams, setStreams] = useState<StreamData[]>([])
   const [loading, setLoading] = useState(false)
   const [isRefreshingAfterHidden, setIsRefreshingAfterHidden] = useState(false)
+  // True while `streams` is serving the offline cache instead of a live fetch.
+  const [stale, setStale] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null)
 
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Tracks whether the polling interval is currently running.
   const pollingActiveRef = useRef(false)
-
-  // True while `streams` is serving the offline cache instead of a live fetch.
-  const [stale, setStale] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState<number | null>(null)
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
   // Monotonically increasing request ID — any response whose ID doesn't
   // match the current value is from a stale request and is discarded.
   const requestIdRef = useRef(0)
@@ -96,19 +94,47 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
 
       if (!address) {
         setStreams([])
+        setStale(false)
+        setLastUpdated(null)
         if (req === requestIdRef.current) setLoading(false)
         return
       }
+
+      // Offline (or the request will fail shortly): serve cached stream data
+      // immediately with a stale indicator instead of an empty dashboard
+      // (issue #150).
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        const cached = readCachedStreams(network, address)
+        if (cached) {
+          setStreams(cached.streams)
+          setStale(true)
+          setLastUpdated(cached.fetchedAt)
+        }
+        setLoading(false)
+        return
+      }
+
       setLoading(true)
       try {
         const data = await fetchStreamsForAddress(network, address)
         // Discard if a newer request has already started.
         if (req !== requestIdRef.current) return
         setStreams(data)
+        setStale(false)
+        setLastUpdated(Date.now())
+        writeCachedStreams(network, address, data)
       } catch (e) {
         if (req !== requestIdRef.current) return
         // Suppress errors from intentionally aborted requests.
         if (e instanceof DOMException && e.name === 'AbortError') return
+        // Network-level failure (e.g. connectivity dropped mid-request) —
+        // fall back to whatever we last cached rather than showing nothing.
+        const cached = readCachedStreams(network, address)
+        if (cached) {
+          setStreams(cached.streams)
+          setStale(true)
+          setLastUpdated(cached.fetchedAt)
+        }
         captureError(e, { operation: 'use-streams:fetch' })
       } finally {
         if (req === requestIdRef.current) setLoading(false)
@@ -137,52 +163,6 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
     if (pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current)
       pollIntervalRef.current = null
-    if (!address) {
-      setStreams([])
-      setStale(false)
-      setLastUpdated(null)
-      if (req === requestIdRef.current) setLoading(false)
-      return
-    }
-
-    // Offline (or the request will fail shortly): serve cached stream data
-    // immediately with a stale indicator instead of an empty dashboard
-    // (issue #150).
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      const cached = readCachedStreams(network, address)
-      if (cached) {
-        setStreams(cached.streams)
-        setStale(true)
-        setLastUpdated(cached.fetchedAt)
-      }
-      setLoading(false)
-      return
-    }
-
-    setLoading(true)
-    try {
-      const data = await fetchStreamsForAddress(network, address)
-      // Discard if a newer request has already started.
-      if (req !== requestIdRef.current) return
-      setStreams(data)
-      setStale(false)
-      setLastUpdated(Date.now())
-      writeCachedStreams(network, address, data)
-    } catch (e) {
-      if (req !== requestIdRef.current) return
-      // Suppress errors from intentionally aborted requests.
-      if (e instanceof DOMException && e.name === 'AbortError') return
-      // Network-level failure (e.g. connectivity dropped mid-request) —
-      // fall back to whatever we last cached rather than showing nothing.
-      const cached = readCachedStreams(network, address)
-      if (cached) {
-        setStreams(cached.streams)
-        setStale(true)
-        setLastUpdated(cached.fetchedAt)
-      }
-      captureError(e, { operation: 'use-streams:fetch' })
-    } finally {
-      if (req === requestIdRef.current) setLoading(false)
     }
     pollingActiveRef.current = false
   }, [])
@@ -256,8 +236,16 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
   const sent = streams.filter((s) => s.sender === address)
   const received = streams.filter((s) => s.recipient === address)
 
-  return { all: streams, sent, received, loading, isRefreshingAfterHidden, refetch: fetch }
-  return { all: streams, sent, received, loading, refetch: fetch, stale, lastUpdated }
+  return {
+    all: streams,
+    sent,
+    received,
+    loading,
+    isRefreshingAfterHidden,
+    refetch: fetch,
+    stale,
+    lastUpdated,
+  }
 }
 
 export function useStream(id: string): {
