@@ -11,6 +11,8 @@ import {
   Copy,
   Clock,
   CheckCircle2,
+  Pencil,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -35,9 +37,18 @@ import { CreateConfirmation } from "@/components/streams/create-confirmation";
 import { TxPreviewDialog } from "@/components/ui/tx-preview-dialog";
 import {
   addAddressBookEntry,
+  deleteAddressBookEntry,
   getAddressBookEntries,
   touchAddressBookEntry,
+  updateAddressBookEntry,
 } from "@/lib/address-book";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { isFederationAddress, resolveFederationAddress } from "@/lib/federation";
 import {
   buildNextRunAt,
@@ -52,6 +63,7 @@ import {
 import { useTokenPrice } from "@/hooks/use-token-price";
 import type { TokenInfo } from "@/types/stream";
 import { useNetwork } from "@/components/providers/network-provider";
+import { createFormCopy as copy } from "@/lib/copy/create-form";
 
 const CUSTOM_VALUE = "__custom__";
 
@@ -107,17 +119,17 @@ const COMMON_TIMEZONES = [
 ] as const;
 
 const DURATION_PRESETS = [
-  { label: "1 week", seconds: 7 * 24 * 3600 },
-  { label: "1 month", seconds: 30 * 24 * 3600 },
-  { label: "3 months", seconds: 90 * 24 * 3600 },
-  { label: "6 months", seconds: 180 * 24 * 3600 },
-  { label: "1 year", seconds: 365 * 24 * 3600 },
+  { label: copy.scheduleSection.durationPresetLabels[0], seconds: 7 * 24 * 3600 },
+  { label: copy.scheduleSection.durationPresetLabels[1], seconds: 30 * 24 * 3600 },
+  { label: copy.scheduleSection.durationPresetLabels[2], seconds: 90 * 24 * 3600 },
+  { label: copy.scheduleSection.durationPresetLabels[3], seconds: 180 * 24 * 3600 },
+  { label: copy.scheduleSection.durationPresetLabels[4], seconds: 365 * 24 * 3600 },
 ] as const;
 
 const CLIFF_PRESETS = [
-  { label: "No cliff", seconds: 0 },
-  { label: "1 month", seconds: 30 * 24 * 3600 },
-  { label: "3 months", seconds: 90 * 24 * 3600 },
+  { label: copy.scheduleSection.cliffPresetLabels[0], seconds: 0 },
+  { label: copy.scheduleSection.cliffPresetLabels[1], seconds: 30 * 24 * 3600 },
+  { label: copy.scheduleSection.cliffPresetLabels[2], seconds: 90 * 24 * 3600 },
 ] as const;
 
 interface FormState {
@@ -154,6 +166,12 @@ export function CreateForm() {
   const [addressBookEntries, setAddressBookEntries] = useState(() =>
     getAddressBookEntries(),
   );
+  // Issue #687: rename dialog state for the "Recent recipients" list.
+  const [renamingEntry, setRenamingEntry] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [recurrenceCadence, setRecurrenceCadence] =
     useState<RecurrenceCadence>("none");
 
@@ -251,7 +269,7 @@ export function CreateForm() {
           setFederationResolved(null);
           setFederationStatus("error");
           setFederationError(
-            err instanceof Error ? err.message : "Federation lookup failed",
+            err instanceof Error ? err.message : copy.errors.federationLookupFailed,
           );
           set("recipient", "");
         });
@@ -388,9 +406,7 @@ export function CreateForm() {
 
   async function handleCustomTokenLookup() {
     if (!customAddress || customAddress.length < 56) {
-      setCustomError(
-        "Enter a valid Stellar contract address (56 chars, starts with C)",
-      );
+      setCustomError(copy.errors.invalidContractAddress);
       return;
     }
     setCustomLoading(true);
@@ -399,9 +415,7 @@ export function CreateForm() {
     try {
       const meta = await getTokenMetadata(customAddress);
       if (!meta) {
-        setCustomError(
-          "Could not fetch token metadata. Verify this is a valid SEP-41 token contract.",
-        );
+        setCustomError(copy.errors.tokenMetadataFetchFailed);
         return;
       }
       setCustomToken(meta);
@@ -409,7 +423,7 @@ export function CreateForm() {
       setTokens(getAllTokens(network).map((t) => ({ ...t })));
       set("tokenAddress", meta.address);
     } catch {
-      setCustomError("Failed to query token contract");
+      setCustomError(copy.errors.tokenContractQueryFailed);
     } finally {
       setCustomLoading(false);
     }
@@ -420,22 +434,44 @@ export function CreateForm() {
     setErrors((prev) => ({ ...prev, [key]: undefined }));
   }
 
+  // Issue #687: remove/rename controls for the "Recent recipients" list.
+  function handleRemoveAddressBookEntry(id: string) {
+    deleteAddressBookEntry(id);
+    setAddressBookEntries(getAddressBookEntries());
+    toast.success("Recipient removed");
+  }
+
+  function openRenameDialog(entry: { id: string; label: string }) {
+    setRenamingEntry(entry);
+    setRenameValue(entry.label);
+  }
+
+  function handleConfirmRename() {
+    if (!renamingEntry) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
+    updateAddressBookEntry(renamingEntry.id, { label: trimmed });
+    setAddressBookEntries(getAddressBookEntries());
+    setRenamingEntry(null);
+    toast.success("Recipient renamed");
+  }
+
   function validate(): boolean {
     const newErrors: Partial<Record<keyof FormState, string>> = {};
 
     // Issue #155: block submission while a Federation address is still resolving
     if (federationStatus === "loading") {
-      newErrors.recipient = "Still resolving the Federation address…";
+      newErrors.recipient = copy.errors.federationResolving;
     } else if (federationStatus === "error") {
-      newErrors.recipient = federationError ?? "Could not resolve Federation address";
+      newErrors.recipient = federationError ?? copy.errors.federationLookupFailed;
     } else if (
       // Issue #28: use StrKey for proper Stellar address validation
       !form.recipient.trim() ||
       !StrKey.isValidEd25519PublicKey(form.recipient.trim())
     ) {
       newErrors.recipient = isFederationAddress(recipientInput.trim())
-        ? "Federation address did not resolve to a valid Stellar account"
-        : "Invalid Stellar address format";
+        ? copy.errors.federationDidNotResolve
+        : copy.errors.invalidAddressFormat;
     }
     // Issue #103: require warning acknowledgment for unfunded accounts
     if (
@@ -443,38 +479,40 @@ export function CreateForm() {
       !recipientAccountInfo.exists &&
       !recipientWarningAcknowledged
     ) {
-      newErrors.recipient =
-        "Please acknowledge the warning about this recipient address";
+      newErrors.recipient = copy.errors.acknowledgeRecipientWarning;
     }
     if (
       !form.amount ||
       isNaN(Number(form.amount)) ||
       Number(form.amount) <= 0
     ) {
-      newErrors.amount = "Enter a valid amount greater than 0";
+      newErrors.amount = copy.errors.invalidAmount;
     }
     // Issue #29: validate against balance
     if (form.amount && tokenBalance !== null) {
       const parsed = parseTokenAmount(form.amount, selectedToken.decimals);
       if (parsed > tokenBalance) {
-        newErrors.amount = `Amount exceeds your balance (${formatTokenAmount(tokenBalance, selectedToken.decimals, 4)} ${selectedToken.symbol})`;
+        newErrors.amount = copy.errors.amountExceedsBalance(
+          formatTokenAmount(tokenBalance, selectedToken.decimals, 4),
+          selectedToken.symbol,
+        );
       }
     }
     if (isCustom && !customToken) {
-      newErrors.tokenAddress = "Look up a valid custom token first";
+      newErrors.tokenAddress = copy.errors.lookupCustomTokenFirst;
     }
     const start = new Date(form.startDate).getTime();
     const end = new Date(form.endDate).getTime();
     if (!form.endDate || end <= start) {
-      newErrors.endDate = "End date must be after start date";
+      newErrors.endDate = copy.errors.endDateBeforeStart;
     }
     if (form.hasCliff) {
       const cliff = new Date(form.cliffDate).getTime();
       if (!form.cliffDate || cliff < start || cliff > end) {
-        newErrors.cliffDate = "Cliff must be between start and end date";
+        newErrors.cliffDate = copy.errors.cliffOutOfRange;
       }
       if (form.cliffAmount && Number(form.cliffAmount) > Number(form.amount)) {
-        newErrors.cliffAmount = "Cliff amount cannot exceed total amount";
+        newErrors.cliffAmount = copy.errors.cliffExceedsTotal;
       }
     }
 
@@ -545,8 +583,8 @@ export function CreateForm() {
 
       discard();
       setShowConfirmation(false);
-      toast.success("Stream created", {
-        description: `Stream #${id} is live.`,
+      toast.success(copy.toasts.streamCreatedTitle, {
+        description: copy.toasts.streamCreatedDescription(id),
       });
       router.push(`/app/stream/${id}`);
     } catch {
@@ -598,15 +636,15 @@ export function CreateForm() {
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="size-4" />
-        Back to dashboard
+        {copy.backToDashboard}
       </Link>
 
       <div className="mt-6">
         <h1 className="text-2xl font-semibold tracking-tight">
-          Create a stream
+          {copy.heading}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Tokens unlock continuously to the recipient from start to end.
+          {copy.subheading}
         </p>
       </div>
 
@@ -620,7 +658,7 @@ export function CreateForm() {
         <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
           <Copy className="size-4 shrink-0 text-primary" />
           <p className="text-sm text-primary">
-            Duplicating Stream #{cloneId} — form pre-filled with its parameters.
+            {copy.cloneNotice(cloneId)}
           </p>
         </div>
       )}
@@ -631,14 +669,14 @@ export function CreateForm() {
           <div className="flex items-center gap-2.5">
             <Clock className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
             <p className="text-sm text-amber-700 dark:text-amber-300">
-              You have an unsaved draft from{" "}
-              {draftSavedAt
-                ? new Date(draftSavedAt).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })
-                : "earlier"}
-              .
+              {copy.draft.bannerText(
+                draftSavedAt
+                  ? new Date(draftSavedAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : copy.draft.bannerTimeFallback,
+              )}
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -648,10 +686,10 @@ export function CreateForm() {
               onClick={() => {
                 restore();
                 setShowDraftBanner(false);
-                toast.success("Draft restored");
+                toast.success(copy.draft.restoredToast);
               }}
             >
-              Restore
+              {copy.draft.restoreButton}
             </Button>
             <Button
               size="sm"
@@ -661,7 +699,7 @@ export function CreateForm() {
                 setShowDraftBanner(false);
               }}
             >
-              Discard
+              {copy.draft.discardButton}
             </Button>
           </div>
         </div>
@@ -672,11 +710,11 @@ export function CreateForm() {
           {/* Token + Amount */}
           <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
             <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-              Amount
+              {copy.amountSection.title}
             </h2>
 
             <div className="space-y-1.5">
-              <Label htmlFor="token">Token</Label>
+              <Label htmlFor="token">{copy.amountSection.tokenLabel}</Label>
               <Select
                 value={isCustom ? CUSTOM_VALUE : form.tokenAddress}
                 onValueChange={(v) => {
@@ -700,7 +738,9 @@ export function CreateForm() {
                       {t.symbol}
                     </SelectItem>
                   ))}
-                  <SelectItem value={CUSTOM_VALUE}>Custom token…</SelectItem>
+                  <SelectItem value={CUSTOM_VALUE}>
+                    {copy.amountSection.customTokenOption}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -708,12 +748,12 @@ export function CreateForm() {
             {isCustom && (
               <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
                 <Label htmlFor="customToken" className="text-xs">
-                  Token contract address
+                  {copy.amountSection.customTokenAddressLabel}
                 </Label>
                 <div className="flex gap-2">
                   <Input
                     id="customToken"
-                    placeholder="CABC…"
+                    placeholder={copy.amountSection.customTokenPlaceholder}
                     value={customAddress}
                     onChange={(e) => {
                       setCustomAddress(e.target.value);
@@ -731,7 +771,7 @@ export function CreateForm() {
                     {customLoading ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : (
-                      "Lookup"
+                      copy.amountSection.lookupButton
                     )}
                   </Button>
                 </div>
@@ -740,8 +780,10 @@ export function CreateForm() {
                 )}
                 {customToken && (
                   <p className="text-xs text-primary">
-                    Found: {customToken.symbol} ({customToken.decimals}{" "}
-                    decimals)
+                    {copy.amountSection.customTokenFound(
+                      customToken.symbol,
+                      customToken.decimals,
+                    )}
                   </p>
                 )}
               </div>
@@ -751,13 +793,16 @@ export function CreateForm() {
               {/* Issue #29: show balance + Max button */}
               <div className="flex items-center justify-between">
                 <Label htmlFor="amount">
-                  Total amount ({selectedToken.symbol})
+                  {copy.amountSection.totalAmountLabel(selectedToken.symbol)}
                 </Label>
                 <span className="text-xs text-muted-foreground">
                   {balanceLoading
-                    ? "Loading balance…"
+                    ? copy.amountSection.loadingBalance
                     : tokenBalance !== null
-                      ? `Balance: ${formatTokenAmount(tokenBalance, selectedToken.decimals, 4)} ${selectedToken.symbol}`
+                      ? copy.amountSection.balanceLabel(
+                          formatTokenAmount(tokenBalance, selectedToken.decimals, 4),
+                          selectedToken.symbol,
+                        )
                       : null}
                 </span>
               </div>
@@ -774,7 +819,7 @@ export function CreateForm() {
                     }}
                     className={`rounded-full border px-2 py-0.5 transition-colors ${!usdInputMode ? "border-primary bg-primary/10 text-foreground" : "border-border hover:border-foreground"}`}
                   >
-                    {selectedToken.symbol} amount
+                    {copy.amountSection.tokenAmountToggle(selectedToken.symbol)}
                   </button>
                   <button
                     type="button"
@@ -782,10 +827,12 @@ export function CreateForm() {
                     onClick={() => setUsdInputMode(true)}
                     className={`rounded-full border px-2 py-0.5 transition-colors ${usdInputMode ? "border-primary bg-primary/10 text-foreground" : "border-border hover:border-foreground"}`}
                   >
-                    USD amount
+                    {copy.amountSection.usdAmountToggle}
                   </button>
                   {priceStale && (
-                    <span className="text-yellow-500">Price may be stale</span>
+                    <span className="text-yellow-500">
+                      {copy.amountSection.priceStale}
+                    </span>
                   )}
                 </div>
               )}
@@ -801,7 +848,7 @@ export function CreateForm() {
                       type="number"
                       min="0"
                       step="any"
-                      placeholder="e.g. 500"
+                      placeholder={copy.amountSection.usdAmountPlaceholder}
                       className="pl-6"
                       value={usdAmount}
                       onChange={(e) => handleUsdAmountChange(e.target.value)}
@@ -814,7 +861,7 @@ export function CreateForm() {
                     type="number"
                     min="0"
                     step="any"
-                    placeholder="e.g. 10000"
+                    placeholder={copy.amountSection.tokenAmountPlaceholder}
                     value={form.amount}
                     onChange={(e) => set("amount", e.target.value)}
                     aria-invalid={!!errors.amount}
@@ -836,7 +883,7 @@ export function CreateForm() {
                       )
                     }
                   >
-                    Max
+                    {copy.amountSection.maxButton}
                   </Button>
                 )}
               </div>
@@ -844,30 +891,38 @@ export function CreateForm() {
               {/* Issue #186: USD equivalent + per-second rate */}
               {usdEquivalent && !usdInputMode && (
                 <p className="text-xs text-muted-foreground">
-                  ≈ ${usdEquivalent} USD
+                  {copy.amountSection.usdEquivalent(usdEquivalent)}
                   {amountPerSecondUsd && (
                     <span className="ml-2">
-                      · Streaming rate:{" "}
-                      {(
-                        tokenAmountNum /
-                        Math.max(
-                          1,
-                          (new Date(form.endDate).getTime() -
-                            new Date(form.startDate).getTime()) /
-                            1000,
-                        )
-                      ).toFixed(6)}{" "}
-                      {selectedToken.symbol}/sec (≈ ${amountPerSecondUsd}/sec)
+                      ·{" "}
+                      {copy.amountSection.streamingRate(
+                        (
+                          tokenAmountNum /
+                          Math.max(
+                            1,
+                            (new Date(form.endDate).getTime() -
+                              new Date(form.startDate).getTime()) /
+                              1000,
+                          )
+                        ).toFixed(6),
+                        selectedToken.symbol,
+                        amountPerSecondUsd,
+                      )}
                     </span>
                   )}
                   {priceLoading && (
-                    <span className="ml-1 opacity-60">Fetching price…</span>
+                    <span className="ml-1 opacity-60">
+                      {copy.amountSection.fetchingPrice}
+                    </span>
                   )}
                 </p>
               )}
               {usdInputMode && form.amount && (
                 <p className="text-xs text-muted-foreground">
-                  ≈ {form.amount} {selectedToken.symbol}
+                  {copy.amountSection.tokenEquivalentInUsdMode(
+                    form.amount,
+                    selectedToken.symbol,
+                  )}
                 </p>
               )}
 
@@ -880,14 +935,14 @@ export function CreateForm() {
           {/* Recipient */}
           <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
             <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-              Recipient
+              {copy.recipientSection.title}
             </h2>
             <div className="space-y-1.5">
-              <Label htmlFor="recipient">Stellar address or Federation name</Label>
+              <Label htmlFor="recipient">{copy.recipientSection.label}</Label>
               <div className="relative">
                 <Input
                   id="recipient"
-                  placeholder="GABC… or alice*domain.com"
+                  placeholder={copy.recipientSection.placeholder}
                   value={recipientInput}
                   onChange={(e) => setRecipientInput(e.target.value)}
                   aria-invalid={!!errors.recipient}
@@ -906,7 +961,9 @@ export function CreateForm() {
                   <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
                   <div>
                     <p className="font-medium">
-                      {federationResolved.federationAddress} resolved
+                      {copy.recipientSection.federationResolved(
+                        federationResolved.federationAddress,
+                      )}
                     </p>
                     <p className="font-mono text-xs opacity-80 break-all">
                       {federationResolved.accountId}
@@ -930,7 +987,7 @@ export function CreateForm() {
                       label:
                         federationResolved?.accountId === trimmed
                           ? federationResolved.federationAddress
-                          : "Saved recipient",
+                          : copy.recipientSection.savedDefaultLabel,
                       address: trimmed,
                       federationAddress:
                         federationResolved?.accountId === trimmed
@@ -938,38 +995,58 @@ export function CreateForm() {
                           : undefined,
                     });
                     setAddressBookEntries(getAddressBookEntries());
-                    toast.success("Recipient saved");
+                    toast.success(copy.recipientSection.savedToast);
                   }}
                   disabled={
                     !form.recipient.trim() ||
                     !StrKey.isValidEd25519PublicKey(form.recipient.trim())
                   }
                 >
-                  Save recipient
+                  {copy.recipientSection.saveButton}
                 </Button>
               </div>
               {addressBookEntries.length > 0 && (
                 <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
                   <p className="text-xs font-medium text-muted-foreground">
-                    Recent recipients
+                    {copy.recipientSection.recentRecipientsLabel}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {addressBookEntries.slice(0, 6).map((entry) => (
-                      <button
+                      <div
                         key={entry.id}
-                        type="button"
-                        onClick={() => {
-                          setRecipientInput(entry.address);
-                          set("recipient", entry.address);
-                        }}
-                        className="rounded-full border border-border bg-background px-3 py-1 text-left text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-                        title={entry.address}
+                        className="group flex items-center gap-1 rounded-full border border-border bg-background pl-3 pr-1 py-1 text-xs text-muted-foreground transition-colors hover:border-primary"
                       >
-                        <span className="font-medium text-foreground">
-                          {entry.federationAddress ?? entry.label}
-                        </span>{" "}
-                        • {entry.address.slice(0, 8)}…
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRecipientInput(entry.address);
+                            set("recipient", entry.address);
+                          }}
+                          className="text-left hover:text-primary"
+                          title={entry.address}
+                        >
+                          <span className="font-medium text-foreground">
+                            {entry.federationAddress ?? entry.label}
+                          </span>{" "}
+                          • {entry.address.slice(0, 8)}…
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openRenameDialog(entry)}
+                          aria-label={`Rename ${entry.label}`}
+                          className="rounded-full p-1 opacity-60 hover:bg-secondary hover:opacity-100"
+                        >
+                          <Pencil className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAddressBookEntry(entry.id)}
+                          aria-label={`Remove ${entry.label}`}
+                          className="rounded-full p-1 opacity-60 hover:bg-destructive/10 hover:text-destructive hover:opacity-100"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -980,10 +1057,7 @@ export function CreateForm() {
               {walletAddress && form.recipient.trim() === walletAddress && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                  <span>
-                    This is your own address. Self-streams are allowed but may
-                    have been unintended.
-                  </span>
+                  <span>{copy.recipientSection.selfStreamWarning}</span>
                 </div>
               )}
               {/* Issue #103: Warning for unfunded/unknown recipient accounts */}
@@ -992,11 +1066,10 @@ export function CreateForm() {
                   <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                   <div className="flex-1">
                     <p className="font-medium">
-                      This address has no transaction history.
+                      {copy.recipientSection.unfundedTitle}
                     </p>
                     <p className="text-xs mt-1">
-                      Tokens sent to this address may be unrecoverable if it's
-                      not funded.
+                      {copy.recipientSection.unfundedBody}
                     </p>
                     <Button
                       type="button"
@@ -1005,7 +1078,7 @@ export function CreateForm() {
                       className="mt-2"
                       onClick={() => setRecipientWarningAcknowledged(true)}
                     >
-                      I understand, proceed
+                      {copy.recipientSection.acknowledgeWarningButton}
                     </Button>
                   </div>
                 </div>
@@ -1013,7 +1086,7 @@ export function CreateForm() {
               {recipientChecking && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <Loader2 className="size-3 animate-spin" />
-                  Checking recipient account...
+                  {copy.recipientSection.checking}
                 </div>
               )}
             </div>
@@ -1022,7 +1095,7 @@ export function CreateForm() {
           {/* Schedule */}
           <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
             <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-              Schedule
+              {copy.scheduleSection.title}
             </h2>
 
             {/* Issue #170: timezone selector */}
@@ -1031,8 +1104,7 @@ export function CreateForm() {
                 htmlFor="timezone"
                 className="text-xs text-muted-foreground"
               >
-                Timezone — dates below are interpreted in this timezone (
-                {timezoneOffset})
+                {copy.scheduleSection.timezoneLabel(timezoneOffset)}
               </Label>
               <Select
                 value={selectedTimezone}
@@ -1056,7 +1128,7 @@ export function CreateForm() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="startDate">
-                  Start date{" "}
+                  {copy.scheduleSection.startDateLabel}{" "}
                   <span className="font-normal text-muted-foreground text-xs">
                     ({timezoneOffset})
                   </span>
@@ -1070,7 +1142,7 @@ export function CreateForm() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="endDate">
-                  End date{" "}
+                  {copy.scheduleSection.endDateLabel}{" "}
                   <span className="font-normal text-muted-foreground text-xs">
                     ({timezoneOffset})
                   </span>
@@ -1092,7 +1164,7 @@ export function CreateForm() {
             {/* Duration presets */}
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">
-                Quick duration
+                {copy.scheduleSection.quickDurationLabel}
               </Label>
               <div className="flex flex-wrap gap-2">
                 {DURATION_PRESETS.map((preset) => (
@@ -1123,16 +1195,17 @@ export function CreateForm() {
                 className="mt-0.5 size-4 accent-primary"
               />
               <div>
-                <Label htmlFor="hasCliff">Add a cliff</Label>
+                <Label htmlFor="hasCliff">{copy.scheduleSection.addCliffLabel}</Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Nothing unlocks before the cliff date. Optionally release a
-                  lump sum at the cliff.
+                  {copy.scheduleSection.addCliffHelp}
                 </p>
               </div>
             </div>
 
             <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
-              <Label htmlFor="recurrence">Recurring cadence</Label>
+              <Label htmlFor="recurrence">
+                {copy.scheduleSection.recurrenceLabel}
+              </Label>
               <Select
                 value={recurrenceCadence}
                 onValueChange={(value) =>
@@ -1143,15 +1216,22 @@ export function CreateForm() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">Do not repeat</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="monthly">Monthly</SelectItem>
-                  <SelectItem value="quarterly">Quarterly</SelectItem>
+                  <SelectItem value="none">
+                    {copy.scheduleSection.recurrenceOptions.none}
+                  </SelectItem>
+                  <SelectItem value="weekly">
+                    {copy.scheduleSection.recurrenceOptions.weekly}
+                  </SelectItem>
+                  <SelectItem value="monthly">
+                    {copy.scheduleSection.recurrenceOptions.monthly}
+                  </SelectItem>
+                  <SelectItem value="quarterly">
+                    {copy.scheduleSection.recurrenceOptions.quarterly}
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Save a renewal rule for this recipient so the schedule can be
-                recreated later.
+                {copy.scheduleSection.recurrenceHelp}
               </p>
             </div>
 
@@ -1160,7 +1240,7 @@ export function CreateForm() {
                 {/* Cliff presets */}
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">
-                    Quick cliff
+                    {copy.scheduleSection.quickCliffLabel}
                   </Label>
                   <div className="flex flex-wrap gap-2">
                     {CLIFF_PRESETS.map((preset) => (
@@ -1187,7 +1267,7 @@ export function CreateForm() {
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <Label htmlFor="cliffDate">
-                      Cliff date{" "}
+                      {copy.scheduleSection.cliffDateLabel}{" "}
                       <span className="font-normal text-muted-foreground text-xs">
                         ({timezoneOffset})
                       </span>
@@ -1209,9 +1289,9 @@ export function CreateForm() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="cliffAmount">
-                      Cliff amount ({selectedToken.symbol}){" "}
+                      {copy.scheduleSection.cliffAmountLabel(selectedToken.symbol)}{" "}
                       <span className="text-muted-foreground font-normal">
-                        optional
+                        {copy.scheduleSection.optionalTag}
                       </span>
                     </Label>
                     <Input
@@ -1238,10 +1318,7 @@ export function CreateForm() {
           {network === "mainnet" && (
             <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-              <span>
-                Mainnet uses real funds. Double-check the recipient, amount, and
-                token before creating a stream.
-              </span>
+              <span>{copy.mainnetWarning}</span>
             </div>
           )}
 
@@ -1257,15 +1334,14 @@ export function CreateForm() {
           {feeEstimate && (
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
               <Info className="size-4 shrink-0" />
-              Estimated transaction fee: ~{feeEstimate} XLM (includes 15%
-              buffer)
+              {copy.feeEstimateText(feeEstimate)}
             </div>
           )}
 
           {/* Submit */}
           <div className="flex items-center justify-end gap-3">
             <Button type="button" variant="ghost" asChild>
-              <Link href="/app">Cancel</Link>
+              <Link href="/app">{copy.actions.cancel}</Link>
             </Button>
             <Button
               type="button"
@@ -1275,10 +1351,10 @@ export function CreateForm() {
               className="gap-1.5"
             >
               {estimatingFee && <Loader2 className="size-4 animate-spin" />}
-              {estimatingFee ? "Estimating…" : "Estimate fee"}
+              {estimatingFee ? copy.actions.estimatingFee : copy.actions.estimateFee}
             </Button>
             <Button type="submit" disabled={pending} className="gap-1.5">
-              {pending ? "Creating…" : "Create stream"}
+              {pending ? copy.actions.creating : copy.actions.createStream}
               {!pending && <ArrowRight className="size-4" />}
             </Button>
           </div>
@@ -1305,7 +1381,7 @@ export function CreateForm() {
           input={input}
           network={network}
           sender={walletAddress ?? ""}
-          operationLabel="Create Stream"
+          operationLabel={copy.txPreviewOperationLabel}
           onConfirm={() => {
             setShowTxPreview(false);
             setShowConfirmation(true);
@@ -1333,6 +1409,38 @@ export function CreateForm() {
           amountPerSecond={amountPerSecond}
         />
       )}
+
+      {/* Issue #687: rename a saved recipient */}
+      <Dialog
+        open={!!renamingEntry}
+        onOpenChange={(open) => !open && setRenamingEntry(null)}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename recipient</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="renameRecipient">Label</Label>
+            <Input
+              id="renameRecipient"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleConfirmRename();
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenamingEntry(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmRename} disabled={!renameValue.trim()}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

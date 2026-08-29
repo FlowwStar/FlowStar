@@ -30,6 +30,12 @@ const STORAGE_KEY = 'flowstar_webhooks'
 const HISTORY_KEY = 'flowstar_webhook_history'
 const MAX_HISTORY = 50
 
+export interface WebhookPayload {
+  event: WebhookEventType | string
+  timestamp: string
+  data: Record<string, unknown>
+}
+
 function loadWebhooks(): WebhookConfig[] {
   if (typeof window === 'undefined') return []
   try {
@@ -58,7 +64,7 @@ function saveHistory(history: WebhookDelivery[]) {
 
 async function deliverWithRetry(
   url: string,
-  payload: object,
+  payload: WebhookPayload,
   retries = 3
 ): Promise<{ statusCode: number | null; success: boolean }> {
   for (let attempt = 0; attempt < retries; attempt++) {
@@ -120,7 +126,7 @@ export function useWebhooks() {
   }, [])
 
   const fireEvent = useCallback(
-    async (eventType: WebhookEventType, data: object) => {
+    async (eventType: WebhookEventType, data: WebhookPayload) => {
       const active = webhooks.filter((h) => h.enabled && h.events.includes(eventType))
       for (const hook of active) {
         const payload = { event: eventType, timestamp: new Date().toISOString(), data }

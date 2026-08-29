@@ -85,6 +85,20 @@ describe('cn', () => {
       expect(cn('font-bold', 'font-normal')).toBe('font-normal')
     })
 
+    it('later margin utility wins over earlier one', () => {
+      expect(cn('m-4', 'm-2')).toBe('m-2')
+    })
+
+    it('later axis-specific padding wins over earlier axis-specific padding', () => {
+      expect(cn('px-4', 'px-2')).toBe('px-2')
+    })
+
+    it('keeps padding-x and padding-y as they target different axes', () => {
+      const result = cn('px-4', 'py-2')
+      expect(result).toContain('px-4')
+      expect(result).toContain('py-2')
+    })
+
     it('keeps non-conflicting utilities from both sides', () => {
       // flex and p-2 are different groups — both should survive.
       const result = cn('flex p-4', 'p-2')

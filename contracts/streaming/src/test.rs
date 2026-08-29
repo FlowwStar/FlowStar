@@ -1505,6 +1505,27 @@ fn test_set_delegate_by_recipient() {
 }
 
 #[test]
+fn test_get_delegate_none_when_never_set() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // No delegate was ever set on this stream.
+    assert_eq!(client.get_delegate(&stream_id), None);
+}
+
+#[test]
 fn test_delegate_can_withdraw() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
