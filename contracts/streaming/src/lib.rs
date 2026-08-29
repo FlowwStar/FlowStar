@@ -421,12 +421,7 @@ impl StreamingContract {
 
     /// Pause all write operations (admin only).
     pub fn pause(env: Env) -> Result<(), StreamError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(StreamError::NotInitialized)?;
-        admin.require_auth();
+        Self::require_admin(&env)?;
 
         env.storage().instance().set(&DataKey::Paused, &true);
         env.storage()
@@ -442,12 +437,7 @@ impl StreamingContract {
 
     /// Unpause all write operations (admin only).
     pub fn unpause(env: Env) -> Result<(), StreamError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(StreamError::NotInitialized)?;
-        admin.require_auth();
+        Self::require_admin(&env)?;
 
         env.storage().instance().set(&DataKey::Paused, &false);
         env.storage()
@@ -485,12 +475,7 @@ impl StreamingContract {
     /// Post-upgrade data migration hook. Call this after an upgrade to
     /// migrate storage layouts.
     pub fn migrate(env: Env) -> Result<(), StreamError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(StreamError::NotInitialized)?;
-        admin.require_auth();
+        Self::require_admin(&env)?;
 
         // By default, unfreeze after wasm upgrade.
         env.storage().instance().set(&DataKey::Paused, &false);
@@ -498,6 +483,20 @@ impl StreamingContract {
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    /// Extract and validate the admin address, ensuring it is initialized and authorized.
+    ///
+    /// This helper consolidates the repeated pattern in `pause`, `unpause`, and `migrate`
+    /// of retrieving the admin from storage and requiring its authorization.
+    fn require_admin(env: &Env) -> Result<Address, StreamError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(StreamError::NotInitialized)?;
+        admin.require_auth();
+        Ok(admin)
+    }
 
     fn require_not_paused(env: &Env) -> Result<(), StreamError> {
         let paused: bool = env
