@@ -184,16 +184,16 @@ export function WebhookSettings() {
           <h2 className="font-medium">Recent deliveries</h2>
           <div className="rounded-lg border border-border divide-y divide-border">
             {history.slice(0, 20).map((d, i) => (
-              <div key={i} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                <div className="flex items-center gap-2">
+              <div key={i} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
+                <div className="flex min-w-0 items-center gap-2">
                   {d.success ? (
                     <CheckCircle2 className="size-4 text-green-500 shrink-0" />
                   ) : (
                     <XCircle className="size-4 text-destructive shrink-0" />
                   )}
-                  <span className="text-muted-foreground">{d.eventType}</span>
+                  <span className="truncate text-muted-foreground">{d.eventType}</span>
                 </div>
-                <div className="flex items-center gap-3 text-muted-foreground text-xs">
+                <div className="flex shrink-0 items-center gap-3 text-muted-foreground text-xs">
                   {d.statusCode && <span>{d.statusCode}</span>}
                   <span>{formatTimeAgo(d.deliveredAt)}</span>
                 </div>
