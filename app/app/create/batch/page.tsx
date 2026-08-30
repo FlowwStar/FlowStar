@@ -74,6 +74,7 @@ export default function BatchCreatePage() {
   const [completedCount, setCompletedCount] = useState(0)
   const [queuedCount, setQueuedCount] = useState(0)
   const [executionErrors, setExecutionErrors] = useState<string[]>([])
+  const [liveStatus, setLiveStatus] = useState('')
   const selectedTokenInfo = TOKENS.find((t) => t.address === selectedToken) ??
     TOKENS[0] ?? { address: '', symbol: 'XLM', decimals: 7 }
 
@@ -190,6 +191,11 @@ export default function BatchCreatePage() {
     setExecutionErrors([])
     setCompletedCount(0)
     setQueuedCount(validRows.length)
+    // Issue #686: announce progress for screen-reader/keyboard-only users.
+    // `createStreamsBatch` submits every row as a single on-chain
+    // transaction (not one call per row), so there's no real per-row
+    // progress to announce — we report the start and the final outcome.
+    setLiveStatus(`Creating ${validRows.length} stream${validRows.length === 1 ? '' : 's'}…`)
 
     const failures: string[] = []
 
@@ -213,8 +219,10 @@ export default function BatchCreatePage() {
 
     if (failures.length > 0) {
       setExecutionErrors(failures)
+      setLiveStatus(`Batch failed: ${failures[0]}`)
       toast.error('Batch create failed.')
     } else {
+      setLiveStatus(`${validRows.length} of ${validRows.length} streams created successfully.`)
       toast.success('Batch create completed', {
         description: `${validRows.length} streams created successfully.`,
       })
@@ -293,7 +301,7 @@ export default function BatchCreatePage() {
           )}
 
           {parseErrors.length > 0 && (
-            <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-700">
+            <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-600 dark:text-yellow-400">
               <p className="font-semibold">CSV parse warnings</p>
               <ul className="mt-2 list-disc pl-5 space-y-1">
                 {parseErrors.map((message, index) => (
@@ -336,7 +344,7 @@ export default function BatchCreatePage() {
                     {rows.map((row) => (
                       <tr
                         key={row.index}
-                        className={row.errors.length > 0 ? 'bg-red-50' : undefined}
+                        className={row.errors.length > 0 ? 'bg-destructive/5 dark:bg-destructive/10' : undefined}
                       >
                         <td className="py-3 pr-3 font-mono text-xs text-muted-foreground">
                           {row.index}
@@ -353,7 +361,7 @@ export default function BatchCreatePage() {
                         </td>
                         <td className="py-3 pr-3">
                           {row.errors.length === 0 ? (
-                            <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">
+                            <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-600 dark:text-emerald-400">
                               Valid
                             </span>
                           ) : (
@@ -380,6 +388,11 @@ export default function BatchCreatePage() {
               </ul>
             </div>
           )}
+
+          {/* Issue #686: screen-reader-only live region announcing batch progress */}
+          <div role="status" aria-live="polite" className="sr-only">
+            {liveStatus}
+          </div>
 
           <div className="rounded-2xl border border-border bg-card p-5">
             <div className="space-y-4">

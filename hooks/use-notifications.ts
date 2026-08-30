@@ -252,6 +252,14 @@ export function useNotifications(walletAddress: string | null) {
     saveNotifications([]);
   }, []);
 
+  const dismissNotification = useCallback((id: string) => {
+    setNotifications((prev) => {
+      const updated = prev.filter((n) => n.id !== id);
+      saveNotifications(updated);
+      return updated;
+    });
+  }, []);
+
   useEffect(() => {
     const rpcUrl = config.rpcUrl;
     const contractId = config.streamContractId;
@@ -388,5 +396,5 @@ export function useNotifications(walletAddress: string | null) {
     network,
   ]);
 
-  return { notifications, unreadCount, markAllRead, clearAll };
+  return { notifications, unreadCount, markAllRead, clearAll, dismissNotification };
 }

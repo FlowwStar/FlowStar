@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useState } from 'react'
-import { Plus, Trash2, ToggleLeft, ToggleRight, Send, CheckCircle2, XCircle } from 'lucide-react'
+import { Plus, Trash2, ToggleLeft, ToggleRight, Send, CheckCircle2, XCircle, Webhook } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -81,7 +81,7 @@ export function WebhookSettings() {
   return (
     <div className="space-y-8">
       {/* Add webhook */}
-      <div className="rounded-lg border border-border p-4 space-y-4">
+      <div id="register-webhook" className="rounded-lg border border-border p-4 space-y-4">
         <h2 className="font-medium">Register a webhook</h2>
 
         <div className="space-y-1.5">
@@ -131,11 +131,28 @@ export function WebhookSettings() {
       </div>
 
       {/* Registered webhooks */}
-      {webhooks.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="font-medium">Registered webhooks</h2>
-          {webhooks.map((hook) => (
-            <div key={hook.id} className="rounded-lg border border-border p-4 space-y-2">
+      <div className="space-y-3">
+        <h2 className="font-medium">Registered webhooks</h2>
+        {webhooks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
+            <span className="flex size-12 items-center justify-center rounded-xl bg-secondary text-primary">
+              <Webhook className="size-6" />
+            </span>
+            <h3 className="mt-4 font-medium">No webhooks registered yet</h3>
+            <p className="mt-1 max-w-xs text-sm text-muted-foreground text-pretty">
+              Register a webhook above to start receiving real-time event notifications for your streams.
+            </p>
+            <Button asChild className="mt-5 gap-1.5">
+              <a href="#register-webhook">
+                <Plus className="size-4" />
+                Register your first webhook
+              </a>
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {webhooks.map((hook) => (
+              <div key={hook.id} className="rounded-lg border border-border p-4 space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-mono">{hook.url}</p>
@@ -180,10 +197,11 @@ export function WebhookSettings() {
                   </Button>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Delivery history */}
       {history.length > 0 && (
@@ -191,16 +209,16 @@ export function WebhookSettings() {
           <h2 className="font-medium">Recent deliveries</h2>
           <div className="rounded-lg border border-border divide-y divide-border">
             {history.slice(0, 20).map((d, i) => (
-              <div key={i} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                <div className="flex items-center gap-2">
+              <div key={i} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
+                <div className="flex min-w-0 items-center gap-2">
                   {d.success ? (
                     <CheckCircle2 className="size-4 text-green-500 shrink-0" />
                   ) : (
                     <XCircle className="size-4 text-destructive shrink-0" />
                   )}
-                  <span className="text-muted-foreground">{d.eventType}</span>
+                  <span className="truncate text-muted-foreground">{d.eventType}</span>
                 </div>
-                <div className="flex items-center gap-3 text-muted-foreground text-xs">
+                <div className="flex shrink-0 items-center gap-3 text-muted-foreground text-xs">
                   {d.statusCode && <span>{d.statusCode}</span>}
                   <span>{formatTimeAgo(d.deliveredAt)}</span>
                 </div>
