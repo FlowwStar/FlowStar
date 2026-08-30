@@ -62,7 +62,7 @@ function StreamCardInner({
   const interval = getInterval(stream)
   const now = useNow(interval)
   const { address } = useWallet()
-  const { usdPrice } = useTokenPrice(stream.token.symbol)
+  const { usdPrice, loading: priceLoading } = useTokenPrice(stream.token.symbol)
   const [showUsd] = useShowUsd()
   const isCancelling = useIsStreamCancelling(stream.id)
   const { isBlocked, hideStream, unhideStream, blockSender, unblockSender } = useHiddenStreams()
@@ -239,8 +239,15 @@ function StreamCardInner({
             className="text-lg font-semibold"
             maxFractionDigits={2}
           />
-          {usdValue !== null && (
-            <p className="text-xs text-muted-foreground">{formatUsd(usdValue)}</p>
+          {/* Issue #675: loading and unavailable previously rendered
+              identically (nothing) — show a distinct skeleton while the
+              price is still being fetched. */}
+          {showUsd && usdValue === null && priceLoading ? (
+            <div className="mt-0.5 h-3 w-12 animate-pulse rounded bg-muted" aria-label="Loading price" />
+          ) : (
+            usdValue !== null && (
+              <p className="text-xs text-muted-foreground">{formatUsd(usdValue)}</p>
+            )
           )}
         </div>
         <div className="text-right">

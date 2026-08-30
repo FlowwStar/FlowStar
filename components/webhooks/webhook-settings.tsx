@@ -19,7 +19,14 @@ const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
 ]
 
 export function WebhookSettings() {
-  const { webhooks, history, addWebhook, removeWebhook, toggleWebhook, testWebhook } = useWebhooks()
+  // Issue #677: surface webhook-config save failures instead of letting
+  // localStorage.setItem throw uncaught / fail silently.
+  const { webhooks, history, addWebhook, removeWebhook, toggleWebhook, testWebhook } = useWebhooks(
+    () =>
+      toast.warning("Webhook settings aren't being saved", {
+        description: 'Storage is full or unavailable — your changes may not persist.',
+      }),
+  )
 
   const [url, setUrl] = useState('')
   const [urlError, setUrlError] = useState('')

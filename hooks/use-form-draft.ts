@@ -14,9 +14,16 @@ export function useFormDraft<T>(
   value: T,
   onChange: (draft: T) => void,
   enabled = true,
+  // Issue #676: draft-save failures (quota exceeded, private browsing) used
+  // to be silently discarded — the caller can surface this however fits
+  // (toast, inline notice, ...). Only fires once per failure streak, not on
+  // every debounced save, so it stays a lightweight one-time warning rather
+  // than spamming the user.
+  onSaveError?: () => void,
 ) {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isRestoringRef = useRef(false)
+  const hasWarnedRef = useRef(false)
 
   const storageKey = `flowstar_draft_${key}`
 
@@ -25,11 +32,18 @@ export function useFormDraft<T>(
       try {
         const entry: DraftEntry<T> = { data, savedAt: Date.now() }
         localStorage.setItem(storageKey, JSON.stringify(entry))
+        hasWarnedRef.current = false
       } catch {
-        // storage quota exceeded or unavailable — silently skip
+        // storage quota exceeded or unavailable — the draft itself is still
+        // silently skipped (nothing else we can do), but the user is now
+        // told their progress isn't being saved.
+        if (!hasWarnedRef.current) {
+          hasWarnedRef.current = true
+          onSaveError?.()
+        }
       }
     },
-    [storageKey],
+    [storageKey, onSaveError],
   )
 
   const discard = useCallback(() => {

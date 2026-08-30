@@ -389,6 +389,13 @@ export function CreateForm() {
       setRecipientInput(draft.recipient);
     },
     true,
+    // Issue #676: surface draft-save failures instead of silently
+    // discarding them.
+    () =>
+      toast.warning("Your draft isn't being saved", {
+        description:
+          "Storage is full or unavailable — your progress won't be restored if you leave this page.",
+      }),
   );
 
   // Check for existing draft on first mount
@@ -888,7 +895,19 @@ export function CreateForm() {
                 )}
               </div>
 
-              {/* Issue #186: USD equivalent + per-second rate */}
+              {/* Issue #186: USD equivalent + per-second rate.
+                  Issue #675: `priceLoading` used to be nested inside this
+                  block, but by the time `usdEquivalent` is truthy the price
+                  has already resolved (loading is always false here) — so
+                  it could never actually render. Show a distinct loading
+                  indicator whenever a price is being fetched and the user
+                  has entered an amount, separately from the "here's the
+                  USD value" case below. */}
+              {priceLoading && tokenAmountNum > 0 && !usdInputMode && (
+                <p className="text-xs text-muted-foreground opacity-60">
+                  Fetching price…
+                </p>
+              )}
               {usdEquivalent && !usdInputMode && (
                 <p className="text-xs text-muted-foreground">
                   {copy.amountSection.usdEquivalent(usdEquivalent)}
@@ -910,6 +929,15 @@ export function CreateForm() {
                       )}
                     </span>
                   )}
+                </p>
+              )}
+              {/* Issue #675: distinct from the loading state above — the
+                  price fetch has finished but no price is available for
+                  this token (not XLM/USDC/EURC, or the fetch failed with no
+                  cached fallback). */}
+              {!priceLoading && !supportsUsd && tokenAmountNum > 0 && !usdInputMode && (
+                <p className="text-xs text-muted-foreground">
+                  Price unavailable for {selectedToken.symbol}
                   {priceLoading && (
                     <span className="ml-1 opacity-60">
                       {copy.amountSection.fetchingPrice}

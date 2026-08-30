@@ -210,7 +210,10 @@ function buildSnapshot(streams: StreamData[], range: string): AnalyticsSnapshot 
 }
 
 export default function AnalyticsPage() {
-  const { all } = useStreams({ enablePolling: false })
+  // Issue #674: `loading` was never destructured, so the four stat cards
+  // below rendered misleading "0" values before real data resolved instead
+  // of a loading state.
+  const { all, loading } = useStreams({ enablePolling: false })
   const { network } = useNetwork()
   const [range, setRange] = useState('30d')
   const [mounted, setMounted] = useState(false)
@@ -260,9 +263,13 @@ export default function AnalyticsPage() {
           <CardHeader className="pb-2">
             <CardDescription>Total volume streamed</CardDescription>
             <CardTitle className="text-2xl font-semibold">
-              {snapshot.totalVolume > 0n
-                ? formatCompactAmount(snapshot.totalVolume, snapshot.tokenShares[0]?.decimals ?? 7)
-                : '0'}
+              {loading ? (
+                <span className="inline-block h-7 w-24 animate-pulse rounded bg-muted" />
+              ) : snapshot.totalVolume > 0n ? (
+                formatCompactAmount(snapshot.totalVolume, snapshot.tokenShares[0]?.decimals ?? 7)
+              ) : (
+                '0'
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -272,7 +279,13 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Active streams</CardDescription>
-            <CardTitle className="text-2xl font-semibold">{snapshot.activeCount}</CardTitle>
+            <CardTitle className="text-2xl font-semibold">
+              {loading ? (
+                <span className="inline-block h-7 w-12 animate-pulse rounded bg-muted" />
+              ) : (
+                snapshot.activeCount
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <TrendingUp className="size-4" /> Currently streaming now
@@ -281,7 +294,13 @@ export default function AnalyticsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total streams created</CardDescription>
-            <CardTitle className="text-2xl font-semibold">{snapshot.totalStreams}</CardTitle>
+            <CardTitle className="text-2xl font-semibold">
+              {loading ? (
+                <span className="inline-block h-7 w-12 animate-pulse rounded bg-muted" />
+              ) : (
+                snapshot.totalStreams
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
             <BarChart3 className="size-4" /> All-time stream count
@@ -291,7 +310,11 @@ export default function AnalyticsPage() {
           <CardHeader className="pb-2">
             <CardDescription>Average duration</CardDescription>
             <CardTitle className="text-2xl font-semibold">
-              {snapshot.averageDurationDays.toFixed(1)}d
+              {loading ? (
+                <span className="inline-block h-7 w-14 animate-pulse rounded bg-muted" />
+              ) : (
+                `${snapshot.averageDurationDays.toFixed(1)}d`
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
