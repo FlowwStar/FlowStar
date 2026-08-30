@@ -631,3 +631,40 @@ fn test_batch_rejects_contract_as_recipient() {
     let result = client.try_create_streams_batch(&t.sender, &inputs);
     assert_eq!(result, Err(Ok(StreamError::InvalidRecipient)));
 }
+
+// ─── Batch rejects dust/zero-rate streams ────────────────────────────────────
+
+/// Test create_streams_batch() rejects a batch entry with a dust/zero-rate stream.
+/// Issue #660: Add contract test for batch creation that rejects dust/zero-rate stream.
+#[test]
+fn test_batch_rejects_dust_stream() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    // Create a batch where one entry is a dust stream (amount too small for duration)
+    let valid_recipient = Address::generate(&t.env);
+    let dust_recipient = Address::generate(&t.env);
+    let valid_amount = 1_000_0000000i128;
+    let dust_amount = 100i128; // Very small amount over a long duration
+
+    t.approve(valid_amount + dust_amount);
+
+    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    // Valid stream
+    inputs.push_back(t.make_input(&valid_recipient, now));
+    // Invalid dust stream: 100 stroops over 1 year = 0 per second
+    inputs.push_back(CreateStreamInput {
+        recipient: dust_recipient,
+        token: t.token_id.clone(),
+        total_amount: dust_amount,
+        start_time: now,
+        end_time: now + 31_536_000, // 1 year (31,536,000 seconds)
+        cliff_time: now,
+        cliff_amount: 0,
+    });
+
+    let client = t.client();
+    let result = client.try_create_streams_batch(&t.sender, &inputs);
+    assert_eq!(result, Err(Ok(StreamError::RateIsZero)));
+}
