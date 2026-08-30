@@ -597,3 +597,37 @@ fn test_batch_streams_are_independently_cancellable() {
     assert!(s1.cancelled);
     assert!(!s2.cancelled);
 }
+
+// ─── Batch rejects when recipient is the contract ─────────────────────────────
+
+/// Test create_streams_batch() rejects a batch entry whose recipient is the contract itself.
+/// Issue #659: Add contract test for batch creation with contract as recipient.
+#[test]
+fn test_batch_rejects_contract_as_recipient() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    // Create a batch where one entry has the contract as recipient
+    let valid_recipient = Address::generate(&t.env);
+    let total_per_stream = 1_000_0000000i128;
+    t.approve(total_per_stream * 2);
+
+    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    // Valid stream
+    inputs.push_back(t.make_input(&valid_recipient, now));
+    // Invalid stream with contract as recipient
+    inputs.push_back(CreateStreamInput {
+        recipient: t.contract_id.clone(),
+        token: t.token_id.clone(),
+        total_amount: total_per_stream,
+        start_time: now,
+        end_time: now + 1000,
+        cliff_time: now,
+        cliff_amount: 0,
+    });
+
+    let client = t.client();
+    let result = client.try_create_streams_batch(&t.sender, &inputs);
+    assert_eq!(result, Err(Ok(StreamError::InvalidRecipient)));
+}
