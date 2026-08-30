@@ -323,6 +323,7 @@ pub struct StreamTransferEvent {
     pub stream_id: u64,
     pub old_recipient: Address,
     pub new_recipient: Address,
+    pub timestamp: u64,
 }
 
 /// Emitted when the sender adds additional funds to an active stream via `top_up`.
@@ -336,6 +337,7 @@ pub struct TopUpEvent {
     pub additional_amount: i128,
     pub new_deposited_amount: i128,
     pub new_amount_per_second: i128,
+    pub timestamp: u64,
 }
 
 /// Emitted when anyone calls `bump_stream` to extend a stream's ledger TTL.
@@ -419,12 +421,7 @@ impl StreamingContract {
 
     /// Pause all write operations (admin only).
     pub fn pause(env: Env) -> Result<(), StreamError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(StreamError::NotInitialized)?;
-        admin.require_auth();
+        Self::require_admin(&env)?;
 
         env.storage().instance().set(&DataKey::Paused, &true);
         env.storage()
@@ -440,12 +437,7 @@ impl StreamingContract {
 
     /// Unpause all write operations (admin only).
     pub fn unpause(env: Env) -> Result<(), StreamError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(StreamError::NotInitialized)?;
-        admin.require_auth();
+        Self::require_admin(&env)?;
 
         env.storage().instance().set(&DataKey::Paused, &false);
         env.storage()
@@ -483,12 +475,7 @@ impl StreamingContract {
     /// Post-upgrade data migration hook. Call this after an upgrade to
     /// migrate storage layouts.
     pub fn migrate(env: Env) -> Result<(), StreamError> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(StreamError::NotInitialized)?;
-        admin.require_auth();
+        Self::require_admin(&env)?;
 
         // By default, unfreeze after wasm upgrade.
         env.storage().instance().set(&DataKey::Paused, &false);
@@ -496,6 +483,20 @@ impl StreamingContract {
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    /// Extract and validate the admin address, ensuring it is initialized and authorized.
+    ///
+    /// This helper consolidates the repeated pattern in `pause`, `unpause`, and `migrate`
+    /// of retrieving the admin from storage and requiring its authorization.
+    fn require_admin(env: &Env) -> Result<Address, StreamError> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(StreamError::NotInitialized)?;
+        admin.require_auth();
+        Ok(admin)
+    }
 
     fn require_not_paused(env: &Env) -> Result<(), StreamError> {
         let paused: bool = env
@@ -808,10 +809,12 @@ impl StreamingContract {
             .persistent()
             .remove(&DataKey::Delegate(stream_id));
 
+        let timestamp = env.ledger().timestamp();
         StreamTransferEvent {
             stream_id,
             old_recipient,
             new_recipient,
+            timestamp,
         }
         .publish(&env);
         Self::extend_stream_ttl(&env, stream_id);
@@ -921,11 +924,13 @@ impl StreamingContract {
 
         Self::extend_stream_ttl(&env, stream_id);
 
+        let timestamp = env.ledger().timestamp();
         TopUpEvent {
             stream_id,
             additional_amount,
             new_deposited_amount: stream.deposited_amount,
             new_amount_per_second: stream.amount_per_second,
+            timestamp,
         }
         .publish(&env);
 
