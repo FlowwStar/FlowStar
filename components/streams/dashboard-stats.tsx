@@ -99,6 +99,7 @@ export function DashboardStats({ sent, received }: DashboardStatsProps) {
           amount={topWithdrawable.amount}
           token={topWithdrawable.token}
           maxFractionDigits={2}
+          truncate
         />
       ) : (
         <span className="text-muted-foreground">—</span>
