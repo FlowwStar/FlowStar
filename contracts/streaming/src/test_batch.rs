@@ -72,9 +72,9 @@ impl TestEnv {
         self.env.ledger().with_mut(|l| l.timestamp = timestamp);
     }
 
-    /// Build a valid [`CreateStreamInput`] pointing at `recipient`.
-    fn make_input(&self, recipient: &Address, now: u64) -> CreateStreamInput {
-        CreateStreamInput {
+    /// Build a valid [`CreateStreamParams`] pointing at `recipient`.
+    fn make_input(&self, recipient: &Address, now: u64) -> CreateStreamParams {
+        CreateStreamParams {
             recipient: recipient.clone(),
             token: self.token_id.clone(),
             total_amount: 1_000_0000000, // 1000 tokens
@@ -112,7 +112,7 @@ fn test_batch_create_happy_path() {
     let total_approval = per_stream * 3;
     t.approve(total_approval);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     inputs.push_back(t.make_input(&r1, now));
     inputs.push_back(t.make_input(&r2, now));
     inputs.push_back(t.make_input(&r3, now));
@@ -172,7 +172,7 @@ fn test_batch_create_returns_ids_in_order() {
     let r2 = Address::generate(&t.env);
     t.approve(single_amount * 2);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     inputs.push_back(t.make_input(&r1, now));
     inputs.push_back(t.make_input(&r2, now));
 
@@ -193,7 +193,7 @@ fn test_batch_sender_index_updated() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream * 5);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     for _ in 0..5 {
         let r = Address::generate(&t.env);
         inputs.push_back(t.make_input(&r, now));
@@ -224,7 +224,7 @@ fn test_batch_recipient_indexes_updated() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream * 3);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     inputs.push_back(t.make_input(&r_shared, now));
     inputs.push_back(t.make_input(&r_shared, now));
     inputs.push_back(t.make_input(&r_other, now));
@@ -259,10 +259,10 @@ fn test_batch_partial_failure_rejected_atomically() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream * 2);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     inputs.push_back(t.make_input(&r1, now)); // valid
                                               // Invalid: zero amount
-    inputs.push_back(CreateStreamInput {
+    inputs.push_back(CreateStreamParams {
         recipient: r2.clone(),
         token: t.token_id.clone(),
         total_amount: 0,
@@ -294,8 +294,8 @@ fn test_batch_accepts_past_start_and_cliff_times() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
-    inputs.push_back(CreateStreamInput {
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
+    inputs.push_back(CreateStreamParams {
         recipient: r1,
         token: t.token_id.clone(),
         total_amount: per_stream,
@@ -325,8 +325,8 @@ fn test_batch_invalid_time_range_fails() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
-    inputs.push_back(CreateStreamInput {
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
+    inputs.push_back(CreateStreamParams {
         recipient: r1,
         token: t.token_id.clone(),
         total_amount: per_stream,
@@ -350,8 +350,8 @@ fn test_batch_invalid_cliff_fails() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
-    inputs.push_back(CreateStreamInput {
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
+    inputs.push_back(CreateStreamParams {
         recipient: r1,
         token: t.token_id.clone(),
         total_amount: per_stream,
@@ -374,8 +374,8 @@ fn test_batch_self_stream_fails() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
-    inputs.push_back(CreateStreamInput {
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
+    inputs.push_back(CreateStreamParams {
         recipient: t.sender.clone(), // self-stream
         token: t.token_id.clone(),
         total_amount: per_stream,
@@ -400,7 +400,7 @@ fn test_batch_rejects_past_start_time() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream * 2);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     inputs.push_back(t.make_input(&r1, now));
     // Second stream backdates its start_time into the past.
     let mut bad = t.make_input(&r2, now);
@@ -429,7 +429,7 @@ fn test_batch_max_size_exactly_20_succeeds() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream * 20);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     for _ in 0..20 {
         let r = Address::generate(&t.env);
         inputs.push_back(t.make_input(&r, now));
@@ -449,7 +449,7 @@ fn test_batch_over_max_size_fails() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream * 21);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     for _ in 0..21 {
         let r = Address::generate(&t.env);
         inputs.push_back(t.make_input(&r, now));
@@ -465,7 +465,7 @@ fn test_batch_empty_fails() {
     let now = 1_000_000u64;
     t.set_time(now);
 
-    let inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     let result = t.client().try_create_streams_batch(&t.sender, &inputs);
     assert_eq!(result, Err(Ok(StreamError::BatchEmpty)));
 }
@@ -482,7 +482,7 @@ fn test_batch_single_stream_works() {
     let amount = 1_000_0000000i128;
     t.approve(amount);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     inputs.push_back(t.make_input(&r, now));
 
     let client = t.client();
@@ -506,8 +506,8 @@ fn test_batch_supports_cliff() {
     let cliff_amount = 100_0000000i128;
     t.approve(amount);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
-    inputs.push_back(CreateStreamInput {
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
+    inputs.push_back(CreateStreamParams {
         recipient: r.clone(),
         token: t.token_id.clone(),
         total_amount: amount,
@@ -547,7 +547,7 @@ fn test_batch_streams_are_independently_withdrawable() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream * 2);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     inputs.push_back(t.make_input(&r1, now));
     inputs.push_back(t.make_input(&r2, now));
 
@@ -582,7 +582,7 @@ fn test_batch_streams_are_independently_cancellable() {
     let per_stream = 1_000_0000000i128;
     t.approve(per_stream * 2);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     inputs.push_back(t.make_input(&r1, now));
     inputs.push_back(t.make_input(&r2, now));
 
@@ -613,11 +613,11 @@ fn test_batch_rejects_contract_as_recipient() {
     let total_per_stream = 1_000_0000000i128;
     t.approve(total_per_stream * 2);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     // Valid stream
     inputs.push_back(t.make_input(&valid_recipient, now));
     // Invalid stream with contract as recipient
-    inputs.push_back(CreateStreamInput {
+    inputs.push_back(CreateStreamParams {
         recipient: t.contract_id.clone(),
         token: t.token_id.clone(),
         total_amount: total_per_stream,
@@ -650,11 +650,11 @@ fn test_batch_rejects_dust_stream() {
 
     t.approve(valid_amount + dust_amount);
 
-    let mut inputs: Vec<CreateStreamInput> = Vec::new(&t.env);
+    let mut inputs: Vec<CreateStreamParams> = Vec::new(&t.env);
     // Valid stream
     inputs.push_back(t.make_input(&valid_recipient, now));
     // Invalid dust stream: 100 stroops over 1 year = 0 per second
-    inputs.push_back(CreateStreamInput {
+    inputs.push_back(CreateStreamParams {
         recipient: dust_recipient,
         token: t.token_id.clone(),
         total_amount: dust_amount,
