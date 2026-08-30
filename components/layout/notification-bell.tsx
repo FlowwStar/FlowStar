@@ -145,7 +145,7 @@ export function NotificationBell() {
           role="menu"
           aria-label="Notifications"
           tabIndex={-1}
-          className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-border bg-card shadow-lg focus:outline-none"
+          className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card shadow-lg focus:outline-none"
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <h3 className="text-sm font-medium">Notifications</h3>
