@@ -301,7 +301,7 @@ export default function BatchCreatePage() {
           )}
 
           {parseErrors.length > 0 && (
-            <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-700">
+            <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-600 dark:text-yellow-400">
               <p className="font-semibold">CSV parse warnings</p>
               <ul className="mt-2 list-disc pl-5 space-y-1">
                 {parseErrors.map((message, index) => (
@@ -344,7 +344,7 @@ export default function BatchCreatePage() {
                     {rows.map((row) => (
                       <tr
                         key={row.index}
-                        className={row.errors.length > 0 ? 'bg-red-50' : undefined}
+                        className={row.errors.length > 0 ? 'bg-destructive/5 dark:bg-destructive/10' : undefined}
                       >
                         <td className="py-3 pr-3 font-mono text-xs text-muted-foreground">
                           {row.index}
@@ -361,7 +361,7 @@ export default function BatchCreatePage() {
                         </td>
                         <td className="py-3 pr-3">
                           {row.errors.length === 0 ? (
-                            <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">
+                            <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-600 dark:text-emerald-400">
                               Valid
                             </span>
                           ) : (
