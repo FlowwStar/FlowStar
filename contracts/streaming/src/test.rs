@@ -2078,3 +2078,51 @@ fn test_cleanup_rejected_when_stream_still_active() {
         "stream funds must be untouched after rejected cleanup attempt"
     );
 }
+
+#[test]
+fn test_set_delegate_called_twice_overwrites_previous() {
+    // Calling set_delegate() a second time replaces the previously-registered
+    // delegate. The first delegate loses authorization.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Set first delegate
+    let delegate1 = Address::generate(&t.env);
+    client.set_delegate(&stream_id, &delegate1);
+
+    // Verify first delegate is set
+    let stored = client.get_delegate(&stream_id);
+    assert_eq!(stored, Some(delegate1.clone()));
+
+    // Set second delegate (overwrites first)
+    let delegate2 = Address::generate(&t.env);
+    client.set_delegate(&stream_id, &delegate2);
+
+    // Verify second delegate is now stored
+    let stored = client.get_delegate(&stream_id);
+    assert_eq!(stored, Some(delegate2.clone()));
+
+    // Advance time so funds are withdrawable
+    t.set_time(now + 500);
+    let withdrawable = client.get_withdrawable(&stream_id);
+    assert!(withdrawable > 0);
+
+    // Only the second delegate should be authorized to withdraw
+    // The first delegate is no longer valid
+    client.withdraw(&stream_id, &withdrawable);
+
+    // Verify funds went to recipient (via second delegate)
+    assert_eq!(t.token().balance(&t.recipient), withdrawable);
+}
