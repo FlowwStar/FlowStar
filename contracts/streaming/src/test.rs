@@ -1178,6 +1178,49 @@ fn test_top_up_immediately_after_creation() {
 }
 
 #[test]
+fn test_top_up_before_start_time_updates_deposit_and_rate() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    let params = CreateStreamParams {
+        recipient: t.recipient.clone(),
+        token: t.token_id.clone(),
+        total_amount: 1_000_0000000,
+        start_time: now + 500,
+        end_time: now + 1500,
+        cliff_time: now + 500,
+        cliff_amount: 0,
+    };
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let additional = 250_0000000i128;
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &additional,
+        &(t.env.ledger().sequence() + 500),
+    );
+    client.top_up(&stream_id, &additional);
+
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.deposited_amount, total + additional);
+    assert_eq!(stream.start_time, params.start_time);
+    assert_eq!(stream.end_time, params.end_time);
+    assert_eq!(stream.linear_amount, total + additional);
+    assert_eq!(stream.amount_per_second, (total + additional) / 1000i128);
+}
+
+#[test]
 fn test_top_up_at_cliff_time() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -1522,6 +1565,32 @@ fn test_get_delegate_none_when_never_set() {
     let stream_id = client.create_stream(&t.sender, &params);
 
     // No delegate was ever set on this stream.
+    assert_eq!(client.get_delegate(&stream_id), None);
+}
+
+#[test]
+fn test_remove_delegate_is_safe_noop_when_never_set() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    assert_eq!(client.get_delegate(&stream_id), None);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        client.remove_delegate(&stream_id);
+    }));
+    assert!(result.is_ok(), "remove_delegate should be a safe no-op");
     assert_eq!(client.get_delegate(&stream_id), None);
 }
 
