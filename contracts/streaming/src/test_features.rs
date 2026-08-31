@@ -7,7 +7,6 @@ use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, Env,
-    Address, Env,
 };
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────

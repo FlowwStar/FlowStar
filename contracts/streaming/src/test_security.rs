@@ -1435,3 +1435,17 @@ fn test_unlocked_amount_overflow_returns_error() {
     assert_eq!(ctx.token().balance(&ctx.recipient), total_amount);
     assert_eq!(ctx.token().balance(&ctx.contract_id), 0);
 }
+
+/// Test bump_stream() with a nonexistent stream ID returns StreamNotFound.
+/// Issue #658: Add contract test for bump_stream() on a nonexistent stream ID.
+#[test]
+fn test_bump_stream_nonexistent_stream_returns_stream_not_found() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+
+    // Attempt to bump a stream ID that was never created
+    let nonexistent_id = 99999u64;
+    let result = ctx.client().try_bump_stream(&nonexistent_id);
+    assert_eq!(result, Err(Ok(StreamError::StreamNotFound)));
+}

@@ -175,21 +175,6 @@ pub struct CreateStreamParams {
     pub cliff_amount: i128,
 }
 
-/// Input parameters for a single stream in a batch creation call.
-///
-/// Mirrors [`CreateStreamParams`] but is a distinct type so that it can be
-/// evolved independently without affecting the single-stream API surface.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct CreateStreamInput {
-    pub recipient: Address,
-    pub token: Address,
-    pub total_amount: i128,
-    pub start_time: u64,
-    pub end_time: u64,
-    pub cliff_time: u64,
-    pub cliff_amount: i128,
-}
 
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
@@ -663,7 +648,7 @@ impl StreamingContract {
     pub fn create_streams_batch(
         env: Env,
         sender: Address,
-        streams: Vec<CreateStreamInput>,
+        streams: Vec<CreateStreamParams>,
     ) -> Result<Vec<u64>, StreamError> {
         sender.require_auth();
         Self::require_not_paused(&env)?;
