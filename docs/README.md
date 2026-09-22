@@ -272,6 +272,9 @@ interface StreamMetadata {
 
 ## FAQ
 
+> For a complete guide answering developer setup, mock mode vs. live contract, testnet funding, and troubleshooting, see the full **[Contributor FAQ](./FAQ.md)**.
+
+
 **Q: What happens if I cancel a stream?**
 A: All remaining funds are immediately returned to the sender's token account.
 
