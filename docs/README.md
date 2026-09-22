@@ -292,6 +292,10 @@ A: The contract enforces a hard cap of 10 years (315,360,000 seconds). For strea
 
 ---
 
+## Roadmap
+
+For strategic project milestones, current priorities (Phase 1–4), and feature planning, see the **[Product Roadmap](./ROADMAP.md)**.
+
 ## Development
 
 ### Testing
