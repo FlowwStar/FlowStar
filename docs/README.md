@@ -303,6 +303,8 @@ cd contracts/streaming
 cargo test
 ```
 
+For a comprehensive guide on test file modularization (`test.rs`, `test_batch.rs`, `test_features.rs`, `test_security.rs`, `test_integration.rs`, `bench.rs`), running individual test suites, and interpreting Soroban CPU instruction/memory budgets, see the **[Contract Testing Guide](./CONTRACT_TESTING.md)**.
+
 ### Deployment
 
 Deploy to Testnet:
