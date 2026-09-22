@@ -298,6 +298,36 @@ If hooks aren't running after a fresh clone: `npm run prepare`. On CI, set
 
 ---
 
+---
+
+## Stellar Wave & GrantFox Reward Program
+
+FlowStar participates in the **Stellar Wave** open-source incentive program in partnership with **GrantFox**. Contributors can earn on-chain rewards (e.g. XLM / USDC) by resolving eligible issues that meet our quality standards.
+
+### Issue Labels Explained
+
+| Label | Description | Eligibility |
+|---|---|---|
+| `GrantFox OSS` | Identifies issues tracked and managed under the GrantFox campaign program. | Bounties are escrowed on-chain or funded upon campaign verification. |
+| `Official Campaign \| FWC26` | Official campaign track for FlowStar Wave Campaign 2026. | High-priority roadmap features, protocol audits, and core UI deliverables. |
+| `Maybe Rewarded` | Indicates issues eligible for discretionary or quality-based rewards upon maintainer review and merge. | Reviewed on PR merge against quality, test coverage, and documentation. |
+
+### Reward Eligibility & Contribution Guidelines
+
+1. **Maintainer Assignment First**: For complex or high-priority campaign issues, comment on the issue with your proposed approach, relevant background, and estimated delivery timeline. Wait for a maintainer to assign you before starting work to avoid duplicate effort.
+2. **Quality Over Speed**:
+   - Every submission must solve the complete scope outlined in the issue.
+   - Include unit/integration tests covering new or modified functionality.
+   - Maintain documentation integrity and adhere to existing code style, TypeScript safety, and linting rules.
+   - Conventional commits (`feat:`, `fix:`, `docs:`) and a descriptive pull request body linking the issue (`Closes #<issue>`) are required.
+3. **Payout Address**:
+   - Provide your valid **Stellar public address** (G...) in your PR description or link your GitHub profile on [GrantFox](https://grantfox.org).
+   - Rewards are disbursed directly via Stellar smart escrow or campaign distribution upon successful review and merge.
+4. **Questions & Support**:
+   - If you have questions regarding requirements, campaign scope, or reward status, comment directly on the relevant issue or reach out via our community channels.
+
+---
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the
