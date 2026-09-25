@@ -23,20 +23,20 @@ FlowStar. Cross-references to [`CONTRIBUTING.md`](../CONTRIBUTING.md) and the
 
 **Q: What do I need installed before I can run FlowStar locally?**
 
-| Tool | Version | Notes |
-|---|---|---|
-| Node.js | 18+ | [nodejs.org](https://nodejs.org) |
-| npm | bundled with Node | pnpm or bun also work |
-| Rust | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| Soroban CLI (`stellar`) | latest | `cargo install stellar-cli --locked` |
-| Freighter wallet | latest | [freighter.app](https://www.freighter.app/) — set to **Testnet** |
+| Tool                    | Version           | Notes                                                             |
+| ----------------------- | ----------------- | ----------------------------------------------------------------- |
+| Node.js                 | 18+               | [nodejs.org](https://nodejs.org)                                  |
+| npm                     | bundled with Node | pnpm or bun also work                                             |
+| Rust                    | stable            | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| Soroban CLI (`stellar`) | latest            | `cargo install stellar-cli --locked`                              |
+| Freighter wallet        | latest            | [freighter.app](https://www.freighter.app/) — set to **Testnet**  |
 
 **Q: How do I set up the project for the first time?**
 
 ```bash
 git clone https://github.com/FlowwStar/FlowStar.git
 cd FlowStar
-npm install --legacy-peer-deps   # also installs Husky pre-commit hooks
+npm ci   # also installs Husky pre-commit hooks
 cp .env.local.example .env.local
 ```
 
@@ -68,6 +68,7 @@ client-side math. A yellow banner in the UI tells you mock mode is active.
 **Q: When should I use mock mode?**
 
 Use mock mode for:
+
 - Working on UI/layout changes that don't involve on-chain logic
 - Fast iteration without waiting for RPC round-trips
 - Contributing on a machine without Rust or Soroban CLI installed
@@ -75,6 +76,7 @@ Use mock mode for:
 **Q: When should I use the live testnet contract instead?**
 
 Use the live contract when:
+
 - Your change touches `lib/contract.ts`, `lib/stellar.ts`, or any file that
   calls the Soroban RPC
 - You are writing or fixing transaction flows (create, withdraw, cancel, etc.)
@@ -112,11 +114,11 @@ production deployments only.
 
 **Q: What are the testnet connection details?**
 
-| | Value |
-|---|---|
-| Network passphrase | `Test SDF Network ; September 2015` |
-| RPC endpoint | `https://soroban-testnet.stellar.org` |
-| Horizon endpoint | `https://horizon-testnet.stellar.org` |
+|                    | Value                                 |
+| ------------------ | ------------------------------------- |
+| Network passphrase | `Test SDF Network ; September 2015`   |
+| RPC endpoint       | `https://soroban-testnet.stellar.org` |
+| Horizon endpoint   | `https://horizon-testnet.stellar.org` |
 
 See [docs/README.md — Network Information](./README.md#network-information) for
 both testnet and mainnet details.
@@ -241,12 +243,12 @@ includes the file path, line number, and matched pattern.
 node scripts/soroban-security-check.mjs
 ```
 
-| ID | Severity | What it catches |
-|---|---|---|
-| SOROBAN-001 | HIGH | Unchecked arithmetic on `i128`/`u128`/`u64` |
-| SOROBAN-002 | HIGH | Public write functions missing `require_auth()` |
-| SOROBAN-003 | HIGH | `persistent().set()` not paired with `extend_ttl()` |
-| SOROBAN-004 | LOW | `panic!("…")` with a string literal instead of `ContractError` |
+| ID          | Severity | What it catches                                                |
+| ----------- | -------- | -------------------------------------------------------------- |
+| SOROBAN-001 | HIGH     | Unchecked arithmetic on `i128`/`u128`/`u64`                    |
+| SOROBAN-002 | HIGH     | Public write functions missing `require_auth()`                |
+| SOROBAN-003 | HIGH     | `persistent().set()` not paired with `extend_ttl()`            |
+| SOROBAN-004 | LOW      | `panic!("…")` with a string literal instead of `ContractError` |
 
 All `❌ HIGH` findings must be fixed before merging. `⚠️ LOW` warnings are
 non-blocking but should be addressed.
@@ -297,8 +299,9 @@ Run `npm run prepare` to install the Husky hooks. See
 
 ---
 
-*Still stuck? Open a [GitHub Discussion](https://github.com/FlowwStar/FlowStar/discussions)
-or leave a comment on the relevant issue.*
+_Still stuck? Open a [GitHub Discussion](https://github.com/FlowwStar/FlowStar/discussions)
+or leave a comment on the relevant issue._
+
 # Frequently Asked Questions
 
 This document collects the most common questions that new contributors ask when working on FlowStar.  
@@ -310,11 +313,11 @@ If you can’t find the answer here, feel free to open an issue or check the
 
 ## 1. What is the difference between **mock mode** and **live mode**?
 
-| Feature | Mock Mode | Live Mode |
-|---------|-----------|-----------|
-| **Purpose** | Quick UI testing without real blockchain interactions. | Real interactions with Flow blockchain. |
-| **Data** | Uses in‑memory data and deterministic responses. | Reads/writes to the actual Flow testnet or mainnet. |
-| **Setup** | No external dependencies. | Requires a Flow wallet, testnet faucet, and network configuration. |
+| Feature         | Mock Mode                                                             | Live Mode                                                                              |
+| --------------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **Purpose**     | Quick UI testing without real blockchain interactions.                | Real interactions with Flow blockchain.                                                |
+| **Data**        | Uses in‑memory data and deterministic responses.                      | Reads/writes to the actual Flow testnet or mainnet.                                    |
+| **Setup**       | No external dependencies.                                             | Requires a Flow wallet, testnet faucet, and network configuration.                     |
 | **When to use** | During UI development or when you don’t want to spend testnet tokens. | When you want to validate real contract calls or submit PRs that touch the blockchain. |
 
 > **Tip:** The `mock-mode` flag is toggled in the app’s settings. See the
@@ -324,10 +327,10 @@ If you can’t find the answer here, feel free to open an issue or check the
 
 ## 2. Which network should I test against?
 
-| Network | Use case | How to switch |
-|---------|----------|---------------|
-| **Testnet** | Development, CI, and most PRs. | Set `REACT_APP_FLOW_NETWORK=testnet` in your `.env` file. |
-| **Mainnet** | Production releases only. | Set `REACT_APP_FLOW_NETWORK=mainnet` and ensure you have a funded wallet. |
+| Network     | Use case                       | How to switch                                                             |
+| ----------- | ------------------------------ | ------------------------------------------------------------------------- |
+| **Testnet** | Development, CI, and most PRs. | Set `REACT_APP_FLOW_NETWORK=testnet` in your `.env` file.                 |
+| **Mainnet** | Production releases only.      | Set `REACT_APP_FLOW_NETWORK=mainnet` and ensure you have a funded wallet. |
 
 > **Note:** The CI pipeline automatically runs tests against the testnet.  
 > If you need to run against mainnet locally, make sure you have a valid
@@ -337,9 +340,9 @@ If you can’t find the answer here, feel free to open an issue or check the
 
 ## 3. How does issue assignment work?
 
-1. **Labeling** – Issues are labeled with `good first issue`, `help wanted`, etc.  
+1. **Labeling** – Issues are labeled with `good first issue`, `help wanted`, etc.
 2. **Self‑assignment** – You can assign yourself to an issue by clicking the
-   “Assign yourself” button.  
+   “Assign yourself” button.
 3. **Review** – Maintainers review the PR and may reassign if necessary.
 
 If you’re unsure whether an issue is ready for you, open a comment or
@@ -350,11 +353,11 @@ contact the maintainers. See the
 
 ## 4. I’m getting “Failed to fetch” errors when running the app locally. What should I do?
 
-1. **Check your network** – Ensure you’re connected to the internet.  
+1. **Check your network** – Ensure you’re connected to the internet.
 2. **Verify environment variables** – Make sure `.env.local` contains the correct
-   `REACT_APP_FLOW_NETWORK` and any required API keys.  
+   `REACT_APP_FLOW_NETWORK` and any required API keys.
 3. **Run the mock server** – If you’re in mock mode, start the mock server with
-   `npm run mock`.  
+   `npm run mock`.
 4. **Consult the Troubleshooting guide** – Many common network errors are
    documented in the
    [Troubleshooting guide](docs/TROUBLESHOOTING.md).
@@ -362,4 +365,3 @@ contact the maintainers. See the
 ---
 
 ## 5. How do I run the test suite locally?
-

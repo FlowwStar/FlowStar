@@ -7,13 +7,13 @@ environment. Thanks for your interest in contributing!
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-|---|---|---|
-| Node.js | 18+ | [nodejs.org](https://nodejs.org) |
-| npm | bundled with Node | or pnpm / bun |
-| Rust | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` |
-| Soroban CLI | latest | `cargo install stellar-cli --locked` |
-| Freighter wallet | latest | [freighter.app](https://www.freighter.app/) — set to **Testnet** |
+| Tool             | Version           | Notes                                                            |
+| ---------------- | ----------------- | ---------------------------------------------------------------- |
+| Node.js          | 18+               | [nodejs.org](https://nodejs.org)                                 |
+| npm              | bundled with Node | or pnpm / bun                                                    |
+| Rust             | stable            | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs       | sh` |
+| Soroban CLI      | latest            | `cargo install stellar-cli --locked`                             |
+| Freighter wallet | latest            | [freighter.app](https://www.freighter.app/) — set to **Testnet** |
 
 ---
 
@@ -24,7 +24,7 @@ environment. Thanks for your interest in contributing!
 ```bash
 git clone https://github.com/FlowwStar/FlowStar.git
 cd FlowStar
-npm install --legacy-peer-deps   # also installs Husky pre-commit hooks via prepare script
+npm ci   # also installs Husky pre-commit hooks via prepare script
 ```
 
 ### 2. Configure environment variables
@@ -110,11 +110,11 @@ Some FlowStar issues are part of external open-source contribution programs, and
 
 ### What the labels mean
 
-| Label | Meaning |
-|---|---|
-| `Stellar Wave` | The issue is part of the Stellar Wave program. |
-| `GrantFox OSS` | The issue is tracked in GrantFox's open-source program. |
-| `Maybe Rewarded` | The issue *may* be eligible for a GrantFox reward. GrantFox decides whether it is. |
+| Label                                          | Meaning                                                                                                               |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `Stellar Wave`                                 | The issue is part of the Stellar Wave program.                                                                        |
+| `GrantFox OSS`                                 | The issue is tracked in GrantFox's open-source program.                                                               |
+| `Maybe Rewarded`                               | The issue _may_ be eligible for a GrantFox reward. GrantFox decides whether it is.                                    |
 | `Official Campaign \| FWC26`, `Third Campaign` | The issue belongs to a specific time-boxed campaign in a program. Campaign rules and deadlines come from the program. |
 
 Issues without these labels are ordinary contributions. They are just as welcome, but no program tracks them.
@@ -239,12 +239,12 @@ before merging.
 
 Scans `contracts/**/*.rs` for four classes of issues:
 
-| ID | Severity | What it catches |
-|---|---|---|
-| SOROBAN-001 | HIGH | Unchecked arithmetic (`+=`, `-=`, `*=`) on `i128`/`u128`/`u64` variables |
-| SOROBAN-002 | HIGH | Public write functions missing `require_auth()` |
-| SOROBAN-003 | HIGH | `persistent().set()` calls not paired with `extend_ttl()` |
-| SOROBAN-004 | LOW | `panic!("…")` with a string literal instead of `ContractError` |
+| ID          | Severity | What it catches                                                          |
+| ----------- | -------- | ------------------------------------------------------------------------ |
+| SOROBAN-001 | HIGH     | Unchecked arithmetic (`+=`, `-=`, `*=`) on `i128`/`u128`/`u64` variables |
+| SOROBAN-002 | HIGH     | Public write functions missing `require_auth()`                          |
+| SOROBAN-003 | HIGH     | `persistent().set()` calls not paired with `extend_ttl()`                |
+| SOROBAN-004 | LOW      | `panic!("…")` with a string literal instead of `ContractError`           |
 
 ```bash
 node scripts/soroban-security-check.mjs
@@ -281,11 +281,11 @@ cargo clippy
 
 Husky runs lint-staged on every commit:
 
-| File type | Checks |
-|---|---|
-| `*.ts`, `*.tsx` | ESLint (auto-fix) + Prettier |
-| `*.json`, `*.md`, `*.css` | Prettier |
-| `*.rs` | `cargo fmt --check` |
+| File type                 | Checks                       |
+| ------------------------- | ---------------------------- |
+| `*.ts`, `*.tsx`           | ESLint (auto-fix) + Prettier |
+| `*.json`, `*.md`, `*.css` | Prettier                     |
+| `*.rs`                    | `cargo fmt --check`          |
 
 To skip in an emergency: `git commit --no-verify`. Use sparingly.
 
@@ -297,6 +297,7 @@ If hooks aren't running after a fresh clone: `npm run prepare`. On CI, set
 ## Troubleshooting
 
 **Freighter not detected / connecting**
+
 - Confirm Freighter is set to **Testnet** (not Mainnet or Futurenet)
 - Make sure the extension is installed and enabled for `localhost`
 - Reload the page after unlocking Freighter
@@ -304,6 +305,7 @@ If hooks aren't running after a fresh clone: `npm run prepare`. On CI, set
 - Disable other wallet extensions that might conflict
 
 **RPC failures / transaction timeouts**
+
 - The Soroban testnet RPC (`https://soroban-testnet.stellar.org`) can be
   intermittently slow. Retry the operation.
 - Check [Stellar Status](https://status.stellar.org/) for any ongoing incidents.
@@ -311,6 +313,7 @@ If hooks aren't running after a fresh clone: `npm run prepare`. On CI, set
   `lib/stellar.ts`.
 
 **Contract deployment errors**
+
 - Ensure your deployer key is funded: `stellar keys fund deployer --network testnet`
 - If the WASM upload fails, try rebuilding: `stellar contract build` then redeploy
 - Check that `stellar-cli` is up to date: `cargo install stellar-cli --locked --force`
@@ -319,10 +322,12 @@ If hooks aren't running after a fresh clone: `npm run prepare`. On CI, set
 - `Error: account not found` usually means the key isn't funded yet
 
 **`npm install` fails on Husky**
+
 - Run `npm run prepare` manually to re-install hooks
 - If on CI, set `HUSKY=0` environment variable to skip hook installation
 
 **App running in mock mode unexpectedly**
+
 - Hard-refresh the browser (`Ctrl+Shift+R`) to clear any cached module state
 - Confirm that `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` (or `_MAINNET`) is set
   in `.env.local` with a valid contract ID, and that the dev server was

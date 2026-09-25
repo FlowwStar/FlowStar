@@ -25,7 +25,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm install --legacy-peer-deps
+      - run: npm ci
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium firefox webkit
