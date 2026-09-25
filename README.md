@@ -28,13 +28,13 @@ Inspired by [Streamflow](https://streamflow.finance) on Solana.
 
 ## Stack
 
-| Layer | Tech |
-|---|---|
-| Frontend | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui |
-| Smart Contract | Rust, Soroban SDK v26 |
-| Blockchain | Stellar (Soroban) |
-| Wallet | Freighter, xBull, LOBSTR (with WalletConnect v2 fallback), Albedo |
-| RPC | Stellar Soroban Testnet RPC |
+| Layer          | Tech                                                              |
+| -------------- | ----------------------------------------------------------------- |
+| Frontend       | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui                   |
+| Smart Contract | Rust, Soroban SDK v26                                             |
+| Blockchain     | Stellar (Soroban)                                                 |
+| Wallet         | Freighter, xBull, LOBSTR (with WalletConnect v2 fallback), Albedo |
+| RPC            | Stellar Soroban Testnet RPC                                       |
 
 ---
 
@@ -75,52 +75,52 @@ The Soroban contract is at `contracts/streaming/`. Full API reference: see [`doc
 
 ### Core Functions
 
-| Function | Description |
-|---|---|
-| `create_stream` | Fund a new stream (requires prior `approve` on token) |
-| `create_streams_batch` | Create multiple streams in one atomic transaction (up to 20 per batch) |
-| `withdraw` | Recipient (or delegate) withdraws unlocked tokens |
-| `cancel` | Sender cancels — recipient gets unlocked portion, sender gets remainder |
-| `partial_cancel` | Sender reduces a stream's locked balance, releasing funds back |
-| `transfer_stream` | Recipient transfers stream rights to another address |
-| `top_up` | Sender adds additional funds to an active stream |
+| Function               | Description                                                             |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `create_stream`        | Fund a new stream (requires prior `approve` on token)                   |
+| `create_streams_batch` | Create multiple streams in one atomic transaction (up to 20 per batch)  |
+| `withdraw`             | Recipient (or delegate) withdraws unlocked tokens                       |
+| `cancel`               | Sender cancels — recipient gets unlocked portion, sender gets remainder |
+| `partial_cancel`       | Sender reduces a stream's locked balance, releasing funds back          |
+| `transfer_stream`      | Recipient transfers stream rights to another address                    |
+| `top_up`               | Sender adds additional funds to an active stream                        |
 
 ### Query Functions
 
-| Function | Description |
-|---|---|
-| `get_stream` | Read full stream details by ID |
-| `get_withdrawable` | Current withdrawable amount for a stream |
-| `get_sent_streams` | Paginated stream IDs sent by an address |
-| `get_received_streams` | Paginated stream IDs received by an address |
-| `get_sent_stream_count` | Total count of streams sent by an address |
-| `get_received_stream_count` | Total count of streams received by an address |
-| `get_archived_sent_streams` | Paginated archived (cancelled/completed) streams sent by an address |
-| `get_archived_received_streams` | Paginated archived streams received by an address |
-| `get_stream_metadata` | Read optional metadata (name, category, memo) for a stream |
+| Function                        | Description                                                         |
+| ------------------------------- | ------------------------------------------------------------------- |
+| `get_stream`                    | Read full stream details by ID                                      |
+| `get_withdrawable`              | Current withdrawable amount for a stream                            |
+| `get_sent_streams`              | Paginated stream IDs sent by an address                             |
+| `get_received_streams`          | Paginated stream IDs received by an address                         |
+| `get_sent_stream_count`         | Total count of streams sent by an address                           |
+| `get_received_stream_count`     | Total count of streams received by an address                       |
+| `get_archived_sent_streams`     | Paginated archived (cancelled/completed) streams sent by an address |
+| `get_archived_received_streams` | Paginated archived streams received by an address                   |
+| `get_stream_metadata`           | Read optional metadata (name, category, memo) for a stream          |
 
 ### Metadata & Delegation
 
-| Function | Description |
-|---|---|
-| `update_stream_metadata` | Set optional metadata (name, category, memo) for a stream |
-| `set_delegate` | Designate a delegate who can withdraw on the recipient's behalf |
-| `remove_delegate` | Revoke delegation for a stream |
-| `get_delegate` | Read the delegate address for a stream, if set |
-| `cleanup_stream` | Either party removes a fully-drained or cancelled stream from storage |
-| `bump_stream` | Extend the TTL of a stream's ledger data (anyone can call) |
+| Function                 | Description                                                           |
+| ------------------------ | --------------------------------------------------------------------- |
+| `update_stream_metadata` | Set optional metadata (name, category, memo) for a stream             |
+| `set_delegate`           | Designate a delegate who can withdraw on the recipient's behalf       |
+| `remove_delegate`        | Revoke delegation for a stream                                        |
+| `get_delegate`           | Read the delegate address for a stream, if set                        |
+| `cleanup_stream`         | Either party removes a fully-drained or cancelled stream from storage |
+| `bump_stream`            | Extend the TTL of a stream's ledger data (anyone can call)            |
 
 ### Admin Functions
 
-| Function | Description |
-|---|---|
+| Function     | Description                                          |
+| ------------ | ---------------------------------------------------- |
 | `initialize` | One-time contract initialization, sets admin address |
-| `pause` | Prevent new stream creation (admin only) |
-| `unpause` | Resume normal operations (admin only) |
-| `upgrade` | Deploy a new contract wasm (admin only) |
-| `migrate` | Post-upgrade data migration hook (admin only) |
-| `version` | Get contract version number |
-| `name` | Get contract name |
+| `pause`      | Prevent new stream creation (admin only)             |
+| `unpause`    | Resume normal operations (admin only)                |
+| `upgrade`    | Deploy a new contract wasm (admin only)              |
+| `migrate`    | Post-upgrade data migration hook (admin only)        |
+| `version`    | Get contract version number                          |
+| `name`       | Get contract name                                    |
 
 ### Vesting math
 
@@ -151,7 +151,7 @@ cargo test
 ### Install & run
 
 ```bash
-npm install --legacy-peer-deps
+npm ci
 npm run dev
 ```
 

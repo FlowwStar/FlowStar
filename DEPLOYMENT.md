@@ -93,7 +93,7 @@ NEXT_PUBLIC_STREAM_CONTRACT_ID=<your-contract-id>
 Then start the app:
 
 ```bash
-npm install --legacy-peer-deps
+npm ci
 npm run dev
 ```
 
@@ -122,10 +122,10 @@ The frontend reports errors to Sentry through `@sentry/nextjs` ([sentry.client.c
 
 Set these in the production environment (see `.env.local.example`):
 
-| Variable | Purpose |
-| --- | --- |
-| `NEXT_PUBLIC_SENTRY_DSN` | Browser DSN |
-| `SENTRY_DSN` | Server/edge DSN |
+| Variable                                            | Purpose                                                                |
+| --------------------------------------------------- | ---------------------------------------------------------------------- |
+| `NEXT_PUBLIC_SENTRY_DSN`                            | Browser DSN                                                            |
+| `SENTRY_DSN`                                        | Server/edge DSN                                                        |
 | `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` | Source map upload at build time. Keep `SENTRY_AUTH_TOKEN` server-only. |
 
 Recommended alerts in Sentry:
@@ -140,11 +140,11 @@ Performance traces are sampled at 10% (`tracesSampleRate: 0.1`). Wallet addresse
 
 Soroban storage entries expire unless their TTL is extended (see [ADR-001](docs/adr/ADR-001-persistent-storage.md) and the storage notes at the top of [contracts/streaming/src/lib.rs](contracts/streaming/src/lib.rs)):
 
-| Entry | TTL on write | Extended by |
-| --- | --- | --- |
-| Instance storage (`Admin`, `Paused`, `NextId`) | ~1 day (`INSTANCE_TTL_LEDGERS`) | `initialize`, `pause`, `unpause`, stream creation |
-| `Stream(id)` | ~30 days (`PERSISTENT_TTL_LEDGERS`) | every write to the stream; `bump_stream` |
-| `Delegate(id)`, `StreamMetadata(id)`, index lists | ~30 days | only their own writes. `bump_stream` does **not** extend these. |
+| Entry                                             | TTL on write                        | Extended by                                                     |
+| ------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------- |
+| Instance storage (`Admin`, `Paused`, `NextId`)    | ~1 day (`INSTANCE_TTL_LEDGERS`)     | `initialize`, `pause`, `unpause`, stream creation               |
+| `Stream(id)`                                      | ~30 days (`PERSISTENT_TTL_LEDGERS`) | every write to the stream; `bump_stream`                        |
+| `Delegate(id)`, `StreamMetadata(id)`, index lists | ~30 days                            | only their own writes. `bump_stream` does **not** extend these. |
 
 What to monitor:
 
@@ -159,7 +159,7 @@ What to monitor:
     -- bump_stream --stream_id <id>
   ```
   For high-value deployments, run a scheduled job that lists active streams and bumps any whose TTL is within about 7 days of expiry.
-- **Check real TTLs, not estimates.** The stream page's TTL warning (`app/app/stream/[id]/page.tsx`) *estimates* days remaining from the last write. For alerting, read the actual `liveUntilLedgerSeq` returned by the RPC `getLedgerEntries` method for the instance and `Stream(id)` keys.
+- **Check real TTLs, not estimates.** The stream page's TTL warning (`app/app/stream/[id]/page.tsx`) _estimates_ days remaining from the last write. For alerting, read the actual `liveUntilLedgerSeq` returned by the RPC `getLedgerEntries` method for the instance and `Stream(id)` keys.
 
 ### Contract admin activity
 
@@ -217,24 +217,27 @@ Recovery is only possible if these are done **before** the release:
 
 Listed from least to most disruptive:
 
-| Option | When to use | Effect on streams |
-| --- | --- | --- |
-| **Frontend rollback** | The problem is in the web app only | None. The contract is untouched. |
-| **Pause** | The contract is misbehaving and you need time | All writes blocked, **including withdrawals**. Reads still work. |
-| **Upgrade to the previous WASM** | A contract release introduced a bug | Contract ID, streams and escrowed funds are kept |
-| **Upgrade to a fixed WASM** | Rolling back isn't possible (for example a storage layout change) | Contract ID, streams and escrowed funds are kept |
-| **Deploy a new contract** | Last resort only | Existing streams stay in the old contract; see below |
+| Option                           | When to use                                                       | Effect on streams                                                |
+| -------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- |
+| **Frontend rollback**            | The problem is in the web app only                                | None. The contract is untouched.                                 |
+| **Pause**                        | The contract is misbehaving and you need time                     | All writes blocked, **including withdrawals**. Reads still work. |
+| **Upgrade to the previous WASM** | A contract release introduced a bug                               | Contract ID, streams and escrowed funds are kept                 |
+| **Upgrade to a fixed WASM**      | Rolling back isn't possible (for example a storage layout change) | Contract ID, streams and escrowed funds are kept                 |
+| **Deploy a new contract**        | Last resort only                                                  | Existing streams stay in the old contract; see below             |
 
 **Frontend rollback.** Redeploy the previous frontend build on your hosting provider (staging uses Vercel, see `.github/workflows/staging.yml`). `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET`/`_MAINNET` and `NEXT_PUBLIC_STELLAR_NETWORK` are compiled into the build, so changing them requires a rebuild, not only an env change.
 
 **Pause.** The admin can call `pause` to block `create_stream`, `create_streams_batch`, `top_up`, `withdraw`, `cancel`, `partial_cancel`, `transfer_stream`, `update_stream_metadata`, `set_delegate` and `remove_delegate`. The following still work while paused: all read functions, `bump_stream`, `cleanup_stream`, `upgrade` and `migrate`, so you can still upgrade a paused contract.
+
 ```bash
 stellar contract invoke --id <contract-id> --source <admin-identity> --network mainnet -- pause
 stellar contract invoke --id <contract-id> --source <admin-identity> --network mainnet -- unpause
 ```
+
 Pausing also stops recipients from withdrawing funds they have already earned, so keep the contract paused only as long as necessary.
 
 **Upgrade (roll back or roll forward).** `upgrade` swaps the contract's WASM in place, keeping the contract ID and all storage:
+
 ```bash
 # Only needed if the target WASM is not installed on the ledger
 stellar contract upload --wasm <path-to-wasm> --source <admin-identity> --network mainnet
@@ -268,7 +271,6 @@ stellar contract invoke --id <contract-id> --source <admin-identity> --network m
 8. **Follow up.** Write a short post-mortem. Add a regression test in `contracts/streaming/src/` and update this section if the process fell short.
 
 ---
-
 
 **"Wallet not connected"** — Make sure Freighter is installed and set to the same network as your deployment.
 

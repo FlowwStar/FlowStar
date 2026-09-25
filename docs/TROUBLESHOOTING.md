@@ -5,22 +5,23 @@ wallet/RPC/contract-deployment issues, see
 [CONTRIBUTING.md's Troubleshooting section](../CONTRIBUTING.md#troubleshooting)
 — this page covers the setup issues not already covered there.
 
-## `npm install` fails with a peer-dependency conflict
+## `npm ci` fails with a peer-dependency conflict
 
-**Symptom**: `npm install` fails with `ERESOLVE unable to resolve dependency
+**Symptom**: `npm ci` fails with `ERESOLVE unable to resolve dependency
 tree` or similar.
 
-**Fix**: install with `--legacy-peer-deps`, as documented in the README/
-CONTRIBUTING setup steps:
+**Fix**: use the dependency versions committed in `package-lock.json` and
+report a reproducible failure with the Node.js and npm versions. Do not bypass
+peer-dependency validation with `--legacy-peer-deps`; a clean install is part
+of the project's dependency contract.
 
 ```bash
-npm install --legacy-peer-deps
+npm ci
 ```
 
-This also runs Husky's `prepare` script, installing pre-commit hooks. If you
-previously ran a plain `npm install` that failed partway, remove
-`node_modules` and `package-lock.json` before retrying with the flag above to
-avoid a partially-resolved tree.
+This also runs Husky's `prepare` script, installing pre-commit hooks. If a
+previous install failed partway, remove `node_modules` and retry the clean
+install so npm can rebuild the dependency tree from the lockfile.
 
 ## Mock mode vs. live contract confusion
 
