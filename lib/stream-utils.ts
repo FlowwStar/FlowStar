@@ -42,6 +42,10 @@ export function getLockedAmount(stream: StreamData, nowSeconds?: number): bigint
   return stream.depositedAmount - getUnlockedAmount(stream, nowSeconds)
 }
 
+/**
+ * Derives the current lifecycle status of a stream (cancelled, scheduled, completed, or streaming)
+ * based on its start/end times and cancelled flag relative to `nowSeconds`.
+ */
 export function getStreamStatus(
   stream: StreamData,
   nowSeconds: number = Math.floor(Date.now() / 1000),
@@ -118,6 +122,10 @@ export interface FormattedRate {
   bestUnit: string
 }
 
+/**
+ * Calculates and formats streaming unlock rates across multiple timeframes
+ * (second, minute, hour, day, month, year) and selects a human-friendly "best" unit.
+ */
 export function formatRate(
   amountPerSecond: bigint,
   decimals: number,
@@ -169,11 +177,17 @@ export function formatRate(
   }
 }
 
+/**
+ * Truncates a Stellar public address or contract ID to a compact display format (e.g. "GABC…WXYZ").
+ */
 export function shortenAddress(address: string, chars = 4): string {
   if (address.length <= chars * 2 + 2) return address
   return `${address.slice(0, chars + 1)}…${address.slice(-chars)}`
 }
 
+/**
+ * Formats a Unix timestamp in seconds to a human-readable date and time string in en-US locale.
+ */
 export function formatDateTime(unixSeconds: bigint | number): string {
   const ms = Number(unixSeconds) * 1000
   return new Date(ms).toLocaleString('en-US', {

@@ -1,11 +1,11 @@
 import { Metadata } from "next";
 import { RequireWallet } from "@/components/layout/require-wallet";
 import { Dashboard } from "./dashboard";
+import { dashboardCopy } from "@/lib/copy/dashboard";
 
 export const metadata: Metadata = {
-  title: "Your Streams",
-  description:
-    "View and manage your active and historical token streams on FlowStar.",
+  title: dashboardCopy.metadata.title,
+  description: dashboardCopy.metadata.description,
 };
 
 export default function DashboardPage() {
