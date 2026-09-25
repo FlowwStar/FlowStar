@@ -21,6 +21,7 @@ import { parseTokenAmount, formatDateTime } from '@/lib/stream-utils'
 import { parseCsvBatch, parseDuration, resolveCliffTime, type CsvBatchRow } from '@/lib/csv-parser'
 import { downloadCSV } from '@/lib/export'
 import { isValidStellarAddress } from '@/lib/stellar'
+import { batchCreateCopy } from '@/lib/copy/batch-create'
 import type { TokenInfo } from '@/types/stream'
 
 function parseTimestamp(value: string): bigint | null {
@@ -113,34 +114,34 @@ export default function BatchCreatePage() {
 
         const errors: string[] = []
         if (!recipient || !isValidStellarAddress(recipient)) {
-          errors.push('Invalid recipient address')
+          errors.push(batchCreateCopy.rowValidation.invalidRecipient)
         }
         if (!amount || parseDecimalAmount(amount, selectedTokenInfo.decimals) === null) {
-          errors.push('Invalid amount')
+          errors.push(batchCreateCopy.rowValidation.invalidAmount)
         }
         if (!startTime) {
-          errors.push('Invalid start_time')
+          errors.push(batchCreateCopy.rowValidation.invalidStartTime)
         }
         if (!endTime) {
-          errors.push('Invalid end_time')
+          errors.push(batchCreateCopy.rowValidation.invalidEndTime)
         }
         if (startTime && endTime && endTime <= startTime) {
-          errors.push('end_time must be after start_time')
+          errors.push(batchCreateCopy.rowValidation.endTimeBeforeStartTime)
         }
         if (
           source.cliff_time &&
           resolveCliffTime({ cliff_time: source.cliff_time }, null, parseTimestamp) === null
         ) {
-          errors.push('Invalid cliff_time')
+          errors.push(batchCreateCopy.rowValidation.invalidCliffTime)
         }
         if (source.cliff_duration && parseDuration(source.cliff_duration) === null) {
-          errors.push('Invalid cliff_duration')
+          errors.push(batchCreateCopy.rowValidation.invalidCliffDuration)
         }
         if (cliffTime && startTime && endTime && (cliffTime < startTime || cliffTime > endTime)) {
           errors.push(
             source.cliff_time
-              ? 'cliff_time must fall between start_time and end_time'
-              : 'cliff_duration must land between start_time and end_time',
+              ? batchCreateCopy.rowValidation.cliffTimeOutOfRange
+              : batchCreateCopy.rowValidation.cliffDurationOutOfRange,
           )
         }
         if (
@@ -148,7 +149,7 @@ export default function BatchCreatePage() {
           amount &&
           cliffAmount > parseDecimalAmount(amount, selectedTokenInfo.decimals)!
         ) {
-          errors.push('cliff_amount cannot exceed total amount')
+          errors.push(batchCreateCopy.rowValidation.cliffAmountExceedsTotal)
         }
 
         return {
@@ -168,7 +169,7 @@ export default function BatchCreatePage() {
       setQueuedCount(normalized.filter((row) => row.errors.length === 0).length)
 
       if (errors.length === 0 && normalized.length === 0) {
-        setUploadError('CSV file contains no rows.')
+        setUploadError(batchCreateCopy.form.csvEmptyError)
       }
     },
     [selectedTokenInfo.decimals],
@@ -192,7 +193,7 @@ export default function BatchCreatePage() {
       const file = event.target.files?.[0]
       if (!file) return
       if (!file.name.toLowerCase().endsWith('.csv')) {
-        setUploadError('Please upload a .csv file.')
+        setUploadError(batchCreateCopy.form.csvFileTypeError)
         return
       }
       await loadCsv(file)
@@ -209,7 +210,7 @@ export default function BatchCreatePage() {
     // `createStreamsBatch` submits every row as a single on-chain
     // transaction (not one call per row), so there's no real per-row
     // progress to announce — we report the start and the final outcome.
-    setLiveStatus(`Creating ${validRows.length} stream${validRows.length === 1 ? '' : 's'}…`)
+    setLiveStatus(batchCreateCopy.liveStatus.creating(validRows.length, validRows.length !== 1))
 
     const failures: string[] = []
 
@@ -227,18 +228,18 @@ export default function BatchCreatePage() {
       )
       setCompletedCount(validRows.length)
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Transaction failed'
+      const message = err instanceof Error ? err.message : batchCreateCopy.execution.transactionFailedFallback
       failures.push(message)
     }
 
     if (failures.length > 0) {
       setExecutionErrors(failures)
-      setLiveStatus(`Batch failed: ${failures[0]}`)
-      toast.error('Batch create failed.')
+      setLiveStatus(batchCreateCopy.liveStatus.batchFailed(failures[0]))
+      toast.error(batchCreateCopy.toasts.batchCreateFailed)
     } else {
-      setLiveStatus(`${validRows.length} of ${validRows.length} streams created successfully.`)
-      toast.success('Batch create completed', {
-        description: `${validRows.length} streams created successfully.`,
+      setLiveStatus(batchCreateCopy.liveStatus.success(validRows.length))
+      toast.success(batchCreateCopy.toasts.batchCreateCompletedTitle, {
+        description: batchCreateCopy.toasts.batchCreateCompletedDescription(validRows.length),
       })
     }
 
@@ -253,18 +254,22 @@ export default function BatchCreatePage() {
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
-          Back to single create
+          {batchCreateCopy.backToSingleCreate}
         </Link>
 
         <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Batch create streams</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">{batchCreateCopy.heading}</h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Upload a CSV of recipient schedules, preview the rows, and execute creation
-              sequentially.
+              {batchCreateCopy.subheading}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild>
+              <Link href="/app">{batchCreateCopy.returnToDashboard}</Link>
+            </Button>
+            <Button variant="secondary" asChild>
+              <Link href="/app/create">{batchCreateCopy.singleStream}</Link>
             <Button variant="outline" nativeButton={false} asChild>
               <Link href="/app">Return to dashboard</Link>
             </Button>
@@ -278,7 +283,7 @@ export default function BatchCreatePage() {
           <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="token">Token</Label>
+                <Label htmlFor="token">{batchCreateCopy.form.tokenLabel}</Label>
                 <Select
                   value={selectedToken}
                   onValueChange={(value) => {
@@ -299,7 +304,7 @@ export default function BatchCreatePage() {
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="csvFile">CSV file</Label>
+                  <Label htmlFor="csvFile">{batchCreateCopy.form.csvFileLabel}</Label>
                   <Button
                     type="button"
                     variant="ghost"
@@ -308,13 +313,12 @@ export default function BatchCreatePage() {
                     onClick={handleDownloadTemplate}
                   >
                     <Download className="size-3.5" />
-                    Download CSV template
+                    {batchCreateCopy.form.downloadCsvTemplate}
                   </Button>
                 </div>
                 <Input id="csvFile" type="file" accept=".csv" onChange={handleFileChange} />
                 <p className="text-xs text-muted-foreground">
-                  Format: recipient,amount,start_time,end_time,cliff_time,cliff_amount. Use
-                  cliff_duration (e.g. 30d, 12h) as a relative alternative to cliff_time.
+                  {batchCreateCopy.form.csvFormatHint}
                 </p>
               </div>
             </div>
@@ -328,7 +332,7 @@ export default function BatchCreatePage() {
 
           {parseErrors.length > 0 && (
             <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm text-yellow-600 dark:text-yellow-400">
-              <p className="font-semibold">CSV parse warnings</p>
+              <p className="font-semibold">{batchCreateCopy.form.csvParseWarningsTitle}</p>
               <ul className="mt-2 list-disc pl-5 space-y-1">
                 {parseErrors.map((message, index) => (
                   <li key={index}>{message}</li>
@@ -341,15 +345,15 @@ export default function BatchCreatePage() {
             <div className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold">Preview rows</h2>
+                  <h2 className="text-lg font-semibold">{batchCreateCopy.preview.title}</h2>
                   <p className="text-sm text-muted-foreground">
-                    {rows.length} row(s) loaded, {validRows.length} valid.
+                    {batchCreateCopy.preview.description(rows.length, validRows.length)}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-                  <span>Token: {selectedTokenInfo.symbol}</span>
-                  <span>Rows: {rows.length}</span>
-                  <span>Valid: {validRows.length}</span>
+                  <span>{batchCreateCopy.preview.tokenMeta(selectedTokenInfo.symbol)}</span>
+                  <span>{batchCreateCopy.preview.rowsMeta(rows.length)}</span>
+                  <span>{batchCreateCopy.preview.validMeta(validRows.length)}</span>
                 </div>
               </div>
 
@@ -357,13 +361,13 @@ export default function BatchCreatePage() {
                 <table className="w-full border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-border text-muted-foreground">
-                      <th className="py-2 pr-3">#</th>
-                      <th className="py-2 pr-3">Recipient</th>
-                      <th className="py-2 pr-3">Amount</th>
-                      <th className="py-2 pr-3">Start</th>
-                      <th className="py-2 pr-3">End</th>
-                      <th className="py-2 pr-3">Cliff</th>
-                      <th className="py-2 pr-3">Status</th>
+                      <th className="py-2 pr-3">{batchCreateCopy.preview.tableHeaders.index}</th>
+                      <th className="py-2 pr-3">{batchCreateCopy.preview.tableHeaders.recipient}</th>
+                      <th className="py-2 pr-3">{batchCreateCopy.preview.tableHeaders.amount}</th>
+                      <th className="py-2 pr-3">{batchCreateCopy.preview.tableHeaders.start}</th>
+                      <th className="py-2 pr-3">{batchCreateCopy.preview.tableHeaders.end}</th>
+                      <th className="py-2 pr-3">{batchCreateCopy.preview.tableHeaders.cliff}</th>
+                      <th className="py-2 pr-3">{batchCreateCopy.preview.tableHeaders.status}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -382,13 +386,13 @@ export default function BatchCreatePage() {
                         <td className="py-3 pr-3">{formatTimestamp(row.startTime)}</td>
                         <td className="py-3 pr-3">{formatTimestamp(row.endTime)}</td>
                         <td className="py-3 pr-3">
-                          {row.cliffTime ? formatTimestamp(row.cliffTime) : 'none'}
+                          {row.cliffTime ? formatTimestamp(row.cliffTime) : batchCreateCopy.preview.noCliff}
                           {row.cliffAmount !== null ? ` / ${row.cliffAmount.toString()}` : ''}
                         </td>
                         <td className="py-3 pr-3">
                           {row.errors.length === 0 ? (
                             <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-600 dark:text-emerald-400">
-                              Valid
+                              {batchCreateCopy.preview.validStatus}
                             </span>
                           ) : (
                             <span className="rounded-full bg-destructive/10 px-2 py-1 text-destructive">
@@ -406,7 +410,7 @@ export default function BatchCreatePage() {
 
           {executionErrors.length > 0 && (
             <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-              <p className="font-semibold">Execution errors</p>
+              <p className="font-semibold">{batchCreateCopy.execution.errorsTitle}</p>
               <ul className="mt-2 list-disc pl-5 space-y-1">
                 {executionErrors.map((message, index) => (
                   <li key={index}>{message}</li>
@@ -424,16 +428,15 @@ export default function BatchCreatePage() {
             <div className="space-y-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold">Execute batch</h2>
+                  <h2 className="text-lg font-semibold">{batchCreateCopy.execution.title}</h2>
                   <p className="text-sm text-muted-foreground">
-                    Streams are created sequentially. The first invalid row will be skipped and any
-                    failure will pause execution.
+                    {batchCreateCopy.execution.description}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-border bg-background px-4 py-3 text-sm">
-                  <p className="font-medium">Progress</p>
+                  <p className="font-medium">{batchCreateCopy.execution.progressTitle}</p>
                   <p className="text-muted-foreground">
-                    {completedCount} / {queuedCount} completed
+                    {batchCreateCopy.execution.progressCompleted(completedCount, queuedCount)}
                   </p>
                 </div>
               </div>
@@ -450,8 +453,10 @@ export default function BatchCreatePage() {
                   ) : (
                     <Upload className="size-4" />
                   )}
-                  {executing ? 'Executing…' : 'Execute batch'}
+                  {executing ? batchCreateCopy.execution.executingButton : batchCreateCopy.execution.executeButton}
                 </Button>
+                <Button type="button" variant="outline" asChild>
+                  <Link href="/app/create">{batchCreateCopy.execution.reviewSingleStream}</Link>
                 <Button type="button" variant="outline" nativeButton={false} asChild>
                   <Link href="/app/create">Review single stream</Link>
                 </Button>

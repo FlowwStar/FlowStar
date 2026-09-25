@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState } from 'react'
 import {
@@ -20,14 +20,15 @@ import { Label } from '@/components/ui/label'
 import { formatTimeAgo } from '@/lib/stream-utils'
 import { downloadCSV, downloadJSON, webhookHistoryToCSV } from '@/lib/export'
 import { useWebhooks, type WebhookEventType } from '@/hooks/use-webhooks'
+import { settingsCopy } from '@/lib/copy/settings'
 
 const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
-  { value: 'stream.created', label: 'Stream Created' },
-  { value: 'stream.withdrawal', label: 'Withdrawal' },
-  { value: 'stream.cancelled', label: 'Cancelled' },
-  { value: 'stream.completed', label: 'Completed' },
-  { value: 'stream.topped_up', label: 'Topped Up' },
-  { value: 'stream.transferred', label: 'Transferred' },
+  { value: 'stream.created', label: settingsCopy.webhooks.eventLabels.streamCreated },
+  { value: 'stream.withdrawal', label: settingsCopy.webhooks.eventLabels.withdrawal },
+  { value: 'stream.cancelled', label: settingsCopy.webhooks.eventLabels.cancelled },
+  { value: 'stream.completed', label: settingsCopy.webhooks.eventLabels.completed },
+  { value: 'stream.topped_up', label: settingsCopy.webhooks.eventLabels.toppedUp },
+  { value: 'stream.transferred', label: settingsCopy.webhooks.eventLabels.transferred },
 ]
 
 export function WebhookSettings() {
@@ -35,8 +36,8 @@ export function WebhookSettings() {
   // localStorage.setItem throw uncaught / fail silently.
   const { webhooks, history, addWebhook, removeWebhook, toggleWebhook, testWebhook, resendDelivery } = useWebhooks(
     () =>
-      toast.warning("Webhook settings aren't being saved", {
-        description: 'Storage is full or unavailable — your changes may not persist.',
+      toast.warning(settingsCopy.webhooks.toasts.storageWarningTitle, {
+        description: settingsCopy.webhooks.toasts.storageWarningDescription,
       }),
   )
 
@@ -62,25 +63,25 @@ export function WebhookSettings() {
 
   function handleAdd() {
     if (!url.trim()) {
-      setUrlError('URL is required')
+      setUrlError(settingsCopy.webhooks.validation.urlRequired)
       return
     }
     try {
       new URL(url.trim())
       setUrlError('')
     } catch {
-      setUrlError('Please enter a valid webhook URL')
+      setUrlError(settingsCopy.webhooks.validation.urlInvalid)
       return
     }
     if (selectedEvents.length === 0) {
-      setEventsError('Select at least one event type')
+      setEventsError(settingsCopy.webhooks.validation.eventsRequired)
       return
     }
     const secret = addWebhook(url.trim(), selectedEvents)
     setUrl('')
     setNewSecret(secret)
-    toast.success('Webhook registered', {
-      description: 'Save the signing secret shown below — it will not be shown again.',
+    toast.success(settingsCopy.webhooks.toasts.registeredTitle, {
+      description: settingsCopy.webhooks.toasts.registeredDescription,
     })
   }
 
@@ -88,8 +89,8 @@ export function WebhookSettings() {
     setTesting(id)
     try {
       const ok = await testWebhook(id)
-      if (ok) toast.success('Test delivered successfully')
-      else toast.error('Test delivery failed', { description: 'Check the URL and try again.' })
+      if (ok) toast.success(settingsCopy.webhooks.toasts.testSuccess)
+      else toast.error(settingsCopy.webhooks.toasts.testFailedTitle, { description: settingsCopy.webhooks.toasts.testFailedDescription })
     } finally {
       setTesting(null)
     }
@@ -99,8 +100,8 @@ export function WebhookSettings() {
     setResending(index)
     try {
       const ok = await resendDelivery(history[index])
-      if (ok) toast.success('Delivery resent successfully')
-      else toast.error('Resend failed', { description: 'Check the webhook URL and try again.' })
+      if (ok) toast.success(settingsCopy.webhooks.toasts.resendSuccess)
+      else toast.error(settingsCopy.webhooks.toasts.resendFailedTitle, { description: settingsCopy.webhooks.toasts.resendFailedDescription })
     } finally {
       setResending(null)
     }
@@ -110,14 +111,14 @@ export function WebhookSettings() {
     <div className="space-y-8">
       {/* Add webhook */}
       <div id="register-webhook" className="rounded-lg border border-border p-4 space-y-4">
-        <h2 className="font-medium">Register a webhook</h2>
+        <h2 className="font-medium">{settingsCopy.webhooks.register.title}</h2>
 
         <div className="space-y-1.5">
-          <Label htmlFor="webhook-url">Webhook URL</Label>
+          <Label htmlFor="webhook-url">{settingsCopy.webhooks.register.urlLabel}</Label>
           <Input
             id="webhook-url"
             type="url"
-            placeholder="https://your-service.com/webhook"
+            placeholder={settingsCopy.webhooks.register.urlPlaceholder}
             value={url}
             onChange={(e) => {
               setUrl(e.target.value)
@@ -128,7 +129,7 @@ export function WebhookSettings() {
         </div>
 
         <div className="space-y-2">
-          <Label>Event types</Label>
+          <Label>{settingsCopy.webhooks.register.eventsLabel}</Label>
           <div className="flex flex-wrap gap-2">
             {ALL_EVENTS.map((ev) => {
               const isSelected = selectedEvents.includes(ev.value)
@@ -154,15 +155,14 @@ export function WebhookSettings() {
 
         <Button onClick={handleAdd} className="gap-1.5">
           <Plus className="size-4" />
-          Register webhook
+          {settingsCopy.webhooks.register.button}
         </Button>
 
         {newSecret && (
           <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-1.5">
-            <p className="text-sm font-medium">Signing secret</p>
+            <p className="text-sm font-medium">{settingsCopy.webhooks.secret.title}</p>
             <p className="text-xs text-muted-foreground">
-              Use this to verify the <code>X-FlowStar-Signature</code> header on incoming
-              deliveries (see docs/WEBHOOKS.md). It will not be shown again — copy it now.
+              {settingsCopy.webhooks.secret.description}
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs">
@@ -173,13 +173,13 @@ export function WebhookSettings() {
                 size="sm"
                 onClick={() => {
                   navigator.clipboard.writeText(newSecret)
-                  toast.success('Copied to clipboard')
+                  toast.success(settingsCopy.webhooks.secret.copiedToast)
                 }}
               >
-                Copy
+                {settingsCopy.webhooks.secret.copyButton}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setNewSecret(null)}>
-                Dismiss
+                {settingsCopy.webhooks.secret.dismissButton}
               </Button>
             </div>
           </div>
@@ -188,21 +188,20 @@ export function WebhookSettings() {
 
       {/* Registered webhooks */}
       <div className="space-y-3">
-        {webhooks.length > 0 && <h2 className="font-medium">Registered webhooks</h2>}
+        {webhooks.length > 0 && <h2 className="font-medium">{settingsCopy.webhooks.registered.title}</h2>}
         {webhooks.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
             <span className="flex size-12 items-center justify-center rounded-xl bg-secondary text-primary">
               <Webhook className="size-6" />
             </span>
-            <h3 className="mt-4 font-medium">No webhooks registered yet</h3>
+            <h3 className="mt-4 font-medium">{settingsCopy.webhooks.registered.emptyTitle}</h3>
             <p className="mt-1 max-w-xs text-sm text-muted-foreground text-pretty">
-              Register a webhook above to start receiving real-time event notifications for your
-              streams.
+              {settingsCopy.webhooks.registered.emptyDescription}
             </p>
             <Button nativeButton={false} asChild className="mt-5 gap-1.5">
               <a href="#register-webhook">
                 <Plus className="size-4" />
-                Register your first webhook
+                {settingsCopy.webhooks.registered.emptyButton}
               </a>
             </Button>
           </div>
@@ -224,7 +223,7 @@ export function WebhookSettings() {
                       variant="ghost"
                       size="icon"
                       className="size-8"
-                      aria-label={hook.enabled ? 'Disable' : 'Enable'}
+                      aria-label={hook.enabled ? settingsCopy.webhooks.registered.toggleDisableAria : settingsCopy.webhooks.registered.toggleEnableAria}
                       onClick={() => toggleWebhook(hook.id)}
                     >
                       {hook.enabled ? (
@@ -237,7 +236,7 @@ export function WebhookSettings() {
                       variant="ghost"
                       size="icon"
                       className="size-8"
-                      aria-label="Send test"
+                      aria-label={settingsCopy.webhooks.registered.sendTestAria}
                       disabled={testing === hook.id}
                       onClick={() => handleTest(hook.id)}
                     >
@@ -247,7 +246,7 @@ export function WebhookSettings() {
                       variant="ghost"
                       size="icon"
                       className="size-8 text-destructive hover:text-destructive"
-                      aria-label="Remove"
+                      aria-label={settingsCopy.webhooks.registered.removeAria}
                       onClick={() => removeWebhook(hook.id)}
                     >
                       <Trash2 className="size-4" />
@@ -264,7 +263,7 @@ export function WebhookSettings() {
       {history.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="font-medium">Recent deliveries</h2>
+            <h2 className="font-medium">{settingsCopy.webhooks.history.title}</h2>
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
@@ -275,7 +274,7 @@ export function WebhookSettings() {
                 }
               >
                 <Download className="size-3.5" />
-                Export CSV
+                {settingsCopy.webhooks.history.exportCsv}
               </Button>
               <Button
                 variant="ghost"
@@ -284,7 +283,7 @@ export function WebhookSettings() {
                 onClick={() => downloadJSON(history, 'flowstar-webhook-history.json')}
               >
                 <Download className="size-3.5" />
-                Export JSON
+                {settingsCopy.webhooks.history.exportJson}
               </Button>
             </div>
           </div>
@@ -310,7 +309,7 @@ export function WebhookSettings() {
                       variant="ghost"
                       size="icon"
                       className="size-6"
-                      aria-label="Resend delivery"
+                      aria-label={settingsCopy.webhooks.history.resendAria}
                       disabled={resending === i}
                       onClick={() => handleResend(i)}
                     >

@@ -24,6 +24,7 @@ import {
   SECONDS_PER_DAY,
 } from '@/lib/stream-utils'
 import { getFederationNameForAddress } from '@/lib/address-book'
+import { analyticsCopy } from '@/lib/copy/analytics'
 import type { StreamData, StreamStatus } from '@/types/stream'
 
 const AnalyticsCharts = dynamic(
@@ -73,10 +74,10 @@ interface AnalyticsSnapshot {
 }
 
 const RANGE_OPTIONS = [
-  { value: '7d', label: '7 days' },
-  { value: '30d', label: '30 days' },
-  { value: '90d', label: '90 days' },
-  { value: 'all', label: 'All time' },
+  { value: '7d', label: analyticsCopy.rangeOptions.sevenDays },
+  { value: '30d', label: analyticsCopy.rangeOptions.thirtyDays },
+  { value: '90d', label: analyticsCopy.rangeOptions.ninetyDays },
+  { value: 'all', label: analyticsCopy.rangeOptions.allTime },
 ] as const
 
 function buildSnapshot(streams: StreamData[], range: string): AnalyticsSnapshot {
@@ -235,11 +236,11 @@ export default function AnalyticsPage() {
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="size-4" />
-            Back to dashboard
+            {analyticsCopy.backToDashboard}
           </Link>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight">Platform analytics</h1>
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight">{analyticsCopy.heading}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Public signals that highlight traction, usage, and stream growth.
+            {analyticsCopy.subheading}
           </p>
         </div>
         <div className="w-full max-w-[180px]">
@@ -261,7 +262,7 @@ export default function AnalyticsPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total volume streamed</CardDescription>
+            <CardDescription>{analyticsCopy.statCards.totalVolume.title}</CardDescription>
             <CardTitle className="text-2xl font-semibold">
               {loading ? (
                 <span className="inline-block h-7 w-24 animate-pulse rounded bg-muted" />
@@ -273,12 +274,12 @@ export default function AnalyticsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Wallet2 className="size-4" /> Across the visible stream history
+            <Wallet2 className="size-4" /> {analyticsCopy.statCards.totalVolume.footnote}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Active streams</CardDescription>
+            <CardDescription>{analyticsCopy.statCards.activeStreams.title}</CardDescription>
             <CardTitle className="text-2xl font-semibold">
               {loading ? (
                 <span className="inline-block h-7 w-12 animate-pulse rounded bg-muted" />
@@ -288,12 +289,12 @@ export default function AnalyticsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
-            <TrendingUp className="size-4" /> Currently streaming now
+            <TrendingUp className="size-4" /> {analyticsCopy.statCards.activeStreams.footnote}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total streams created</CardDescription>
+            <CardDescription>{analyticsCopy.statCards.totalStreams.title}</CardDescription>
             <CardTitle className="text-2xl font-semibold">
               {loading ? (
                 <span className="inline-block h-7 w-12 animate-pulse rounded bg-muted" />
@@ -303,12 +304,12 @@ export default function AnalyticsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
-            <BarChart3 className="size-4" /> All-time stream count
+            <BarChart3 className="size-4" /> {analyticsCopy.statCards.totalStreams.footnote}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Average duration</CardDescription>
+            <CardDescription>{analyticsCopy.statCards.averageDuration.title}</CardDescription>
             <CardTitle className="text-2xl font-semibold">
               {loading ? (
                 <span className="inline-block h-7 w-14 animate-pulse rounded bg-muted" />
@@ -318,12 +319,12 @@ export default function AnalyticsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock3 className="size-4" /> Average stream length
+            <Clock3 className="size-4" /> {analyticsCopy.statCards.averageDuration.footnote}
           </CardContent>
         </Card>
       </div>
 
-      <SectionErrorBoundary sectionName="Analytics charts">
+      <SectionErrorBoundary sectionName={analyticsCopy.sections.chartsErrorBoundaryName}>
         <AnalyticsCharts
           series={snapshot.series}
           topTokens={snapshot.topTokens}
@@ -337,13 +338,12 @@ export default function AnalyticsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Network context</CardTitle>
-          <CardDescription>Current public view and available tokens.</CardDescription>
+          <CardTitle>{analyticsCopy.sections.networkContextTitle}</CardTitle>
+          <CardDescription>{analyticsCopy.sections.networkContextDescription}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            This dashboard is built from the current app data and will be backed by on-chain
-            aggregation once a public index is available.
+            {analyticsCopy.sections.networkContextNotice}
           </p>
           <div className="flex flex-wrap gap-2">
             {tokens.map((token) => (
