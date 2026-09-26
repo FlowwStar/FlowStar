@@ -27,6 +27,15 @@ async function fetchXlmUsdPrice(): Promise<number> {
   return price
 }
 
+/**
+ * Format a USD amount for display: 4 decimals below $1 (so sub-cent token
+ * prices stay visible), 2 decimals otherwise, with `en-US` thousands
+ * separators from $1,000 up.
+ *
+ * Expects a finite number — `NaN`/`Infinity` are not guarded and will render
+ * as `$NaN`/`$Infinity`, so callers must handle unpriced (`null`) values
+ * themselves before calling this.
+ */
 export function formatUsd(value: number): string {
   if (value < 1) {
     return '$' + value.toFixed(4)
@@ -43,6 +52,21 @@ export function formatUsd(value: number): string {
   )
 }
 
+/**
+ * USD price for a token symbol.
+ *
+ * - `USDC` / `EURC`: pegged to exactly `1` (EURC is treated as 1 USD, not FX
+ *   converted); never loading.
+ * - `XLM`: fetched from stellar.expert and shared via a module-level cache for
+ *   5 minutes. On fetch failure or malformed data, the last known-good cached
+ *   price is kept; with no cache, `usdPrice` is `null`. After 5 minutes the
+ *   price is cleared to `null` rather than shown indefinitely.
+ * - Any other (unknown/unpriced) symbol: `usdPrice` and `lastUpdated` are
+ *   `null` — never `0` or `NaN` — so callers can distinguish "no price" from
+ *   "worthless".
+ *
+ * `stale` is `true` once the displayed price is more than 2 minutes old.
+ */
 export function useTokenPrice(symbol: string): TokenPrice {
   const [price, setPrice] = useState<number | null>(null)
   const [fetchedAt, setFetchedAt] = useState<number | null>(null)
@@ -118,6 +142,19 @@ interface PortfolioValue {
 // We support a fixed set of symbols to avoid conditional hook calls.
 const KNOWN_SYMBOLS = ['XLM', 'USDC', 'EURC']
 
+/**
+ * Total USD value still locked in `streams` (deposited − withdrawn, scaled by
+ * each token's decimals), priced via {@link useTokenPrice}.
+ *
+ * Unknown/unpriced tokens (anything outside `XLM`/`USDC`/`EURC`, or a known
+ * token whose price is currently `null`) are skipped rather than zeroing or
+ * nulling the whole portfolio, so the total may be partial.
+ *
+ * - `totalUsd` is `0` for an empty list, and `null` only when there are
+ *   streams but none of them could be priced.
+ * - `loading` / `stale` are `true` if any known token in use is
+ *   loading / stale.
+ */
 export function usePortfolioValue(streams: StreamData[]): PortfolioValue {
   const xlm = useTokenPrice('XLM')
   const usdc = useTokenPrice('USDC')
