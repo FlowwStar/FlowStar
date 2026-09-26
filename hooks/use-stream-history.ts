@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNetwork } from '@/components/providers/network-provider'
 
+/** Kind of lifecycle event shown on a stream's timeline. */
 export type TimelineEventType =
   | 'created'
   | 'withdrawal'
@@ -10,17 +11,28 @@ export type TimelineEventType =
   | 'transfer'
   | 'cancellation'
 
+/** One entry on a stream's timeline, built from a contract event. */
 export interface TimelineEvent {
   type: TimelineEventType
+  /** Hash of the transaction that emitted the event; `''` if the RPC omitted it. */
   txHash: string
+  /** ms since epoch from the event's `ledgerClosedAt`, or fetch time if missing. */
   timestamp: number
   ledger: number
+  /** Fixed human-readable label for `type`, e.g. "Stream created". */
   description: string
+  /** Not populated yet: the event payload (`value.xdr`) isn't decoded. */
   amount?: string
+  /** Not populated yet. */
   from?: string
+  /** Not populated yet. */
   to?: string
 }
 
+/**
+ * Classifies a raw event by case-insensitive substring match on its topic
+ * strings. Returns `null` for events that don't map to a timeline type.
+ */
 function decodeEventType(topics: string[]): TimelineEventType | null {
   const joined = topics.join(',').toLowerCase()
   if (joined.includes('create') || joined.includes('stream_created')) return 'created'
@@ -38,6 +50,12 @@ interface HorizonTransaction {
   envelope_xdr?: string
 }
 
+/**
+ * Unused: not called anywhere; `useStreamHistory` reads only from Soroban RPC
+ * (see #363). It lists Horizon transactions for the contract account and
+ * labels every one as `'created'`. Horizon generally doesn't index Soroban
+ * contract accounts, so it usually returns `[]`.
+ */
 async function fetchHorizonTransactions(
   horizonUrl: string,
   contractId: string,
@@ -72,6 +90,18 @@ async function fetchHorizonTransactions(
   return events
 }
 
+/**
+ * Fetches up to 200 of the streaming contract's events via Soroban RPC
+ * `getEvents`, starting at ledger 1, and maps them to timeline entries.
+ *
+ * Caveats:
+ * - `streamId` is accepted but not used to filter, so the result covers
+ *   every stream on the contract, not just this one.
+ * - RPC nodes keep events only for a limited window, so `startLedger: 1` is
+ *   usually rejected. That error has no `result`, so the function returns `[]`.
+ *
+ * Never throws. Returns `[]` on any failure.
+ */
 async function fetchRpcEvents(
   rpcUrl: string,
   contractId: string,
@@ -158,6 +188,23 @@ async function fetchRpcEvents(
   }
 }
 
+/**
+ * Loads the event timeline for a stream.
+ *
+ * Data source: Soroban RPC `getEvents` on the network's stream contract
+ * (`config.rpcUrl`, `config.streamContractId`) only. Horizon is not queried.
+ * See `fetchRpcEvents` for current limitations: results aren't filtered to
+ * `streamId`, and the history window is limited by RPC retention.
+ *
+ * Fetches on mount and whenever `streamId`, the RPC URL, or the contract ID
+ * changes. Does nothing if `streamId` is empty.
+ *
+ * @param streamId - ID of the stream whose history to load.
+ * @returns
+ * - `events`: `TimelineEvent[]`, newest first. Empty on error.
+ * - `loading`: true while a fetch is in progress.
+ * - `refetch()`: reloads the timeline.
+ */
 export function useStreamHistory(streamId: string) {
   const { config, network } = useNetwork()
   const [events, setEvents] = useState<TimelineEvent[]>([])
