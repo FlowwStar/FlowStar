@@ -135,6 +135,26 @@ function saveHistory(history: WebhookDelivery[]): boolean {
   }
 }
 
+/**
+ * POSTs `payload` to `url` with an HMAC signature, retrying on failure.
+ *
+ * Retry/backoff strategy:
+ * - Up to `retries` attempts total (default 3), i.e. the initial attempt plus
+ *   up to 2 retries.
+ * - A retry is scheduled after a non-2xx response or a thrown network error,
+ *   using exponential backoff: `1000 * 2 ** attempt` ms, so 1s, then 2s
+ *   (attempt is 0-indexed).
+ * - The final attempt never sleeps; it returns immediately with
+ *   `success: false` and the last observed `statusCode` (or `null` when the
+ *   request threw).
+ *
+ * The signature is computed once over the serialized body and reused across
+ * attempts, so retries deliver byte-identical payloads.
+ *
+ * @returns `{ statusCode, success }` — `statusCode` is the last HTTP status
+ *   seen (or `null` if the request never completed), and `success` is true
+ *   only when a response with `res.ok` was received.
+ */
 async function deliverWithRetry(
   url: string,
   secret: string,
@@ -164,6 +184,31 @@ async function deliverWithRetry(
   return { statusCode: null, success: false }
 }
 
+/**
+ * Manages this browser's webhook registrations and their delivery history.
+ *
+ * State is persisted to `localStorage` (registrations under
+ * `flowstar_webhooks`, history under `flowstar_webhook_history`, capped at
+ * `MAX_HISTORY` entries) and hydrated on mount. Writes are guarded and, on
+ * failure, reported through the optional `onSaveError` callback at most once
+ * per failure streak (see issue #677).
+ *
+ * @param onSaveError Optional callback invoked the first time a persistence
+ *   write fails, so callers can surface a warning instead of silently losing
+ *   the write. Not called again until a subsequent write succeeds.
+ *
+ * @returns An object with:
+ * - `webhooks` — the current `WebhookConfig[]` registrations.
+ * - `history` — the most recent `WebhookDelivery[]`, newest first.
+ * - `addWebhook(url, events)` — registers a webhook and returns its newly
+ *   generated signing `secret` (shown once; not retrievable later).
+ * - `removeWebhook(id)` — deletes the registration with the given id.
+ * - `toggleWebhook(id)` — flips the `enabled` flag of the given registration.
+ * - `fireEvent(eventType, data)` — delivers `data` to every enabled webhook
+ *   subscribed to `eventType`, recording each attempt in `history`.
+ * - `resendDelivery(delivery)` — re-delivers a stored delivery's payload to
+ *   its webhook; resolves to whether the resend succeeded.
+ */
 export function useWebhooks(onSaveError?: () => void) {
   const [webhooks, setWebhooks] = useState<WebhookConfig[]>([])
   const [history, setHistory] = useState<WebhookDelivery[]>([])
@@ -264,37 +309,5 @@ export function useWebhooks(onSaveError?: () => void) {
       const hook = webhooks.find((h) => h.id === delivery.webhookId)
       if (!hook || !delivery.payload) return false
       const result = await deliverWithRetry(hook.url, delivery.payload)
-      const newDelivery: WebhookDelivery = {
-        webhookId: delivery.webhookId,
-        eventType: delivery.eventType,
-        statusCode: result.statusCode,
-        deliveredAt: Date.now(),
-        success: result.success,
-        payload: delivery.payload,
-      }
-      setHistory((prev) => {
-        const next = [newDelivery, ...prev]
-        reportSaveResult(saveHistory(next))
-        return next
-      })
-      return result.success
-    },
-    [webhooks, reportSaveResult],
-  )
 
-  const testWebhook = useCallback(
-    async (id: string): Promise<boolean> => {
-      const hook = webhooks.find((h) => h.id === id)
-      if (!hook) return false
-      const payload = buildPayload('stream.created', {
-        stream_id: 0,
-        note: 'FlowStar webhook test',
-      })
-      const result = await deliverWithRetry(hook.url, hook.secret, payload, 1)
-      return result.success
-    },
-    [webhooks],
-  )
-
-  return { webhooks, history, addWebhook, removeWebhook, toggleWebhook, fireEvent, testWebhook, resendDelivery }
-}
+/* … truncated 1031 chars — edit only what you need near the top … */
