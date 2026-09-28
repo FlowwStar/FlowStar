@@ -308,6 +308,50 @@ export function useWebhooks(onSaveError?: () => void) {
     async (delivery: WebhookDelivery): Promise<boolean> => {
       const hook = webhooks.find((h) => h.id === delivery.webhookId)
       if (!hook || !delivery.payload) return false
-      const result = await deliverWithRetry(hook.url, delivery.payload)
+      const result = await deliverWithRetry(hook.url, hook.secret, delivery.payload)
 
-/* … truncated 1031 chars — edit only what you need near the top … */
+      const newDelivery: WebhookDelivery = {
+        webhookId: delivery.webhookId,
+        eventType: delivery.eventType,
+        statusCode: result.statusCode,
+        deliveredAt: Date.now(),
+        success: result.success,
+        payload: delivery.payload,
+      }
+      setHistory((prev) => {
+        const next = [newDelivery, ...prev]
+        reportSaveResult(saveHistory(next))
+        return next
+      })
+      return result.success
+    },
+    [webhooks, reportSaveResult],
+  )
+
+  const testWebhook = useCallback(
+    async (id: string): Promise<boolean> => {
+      const hook = webhooks.find((h) => h.id === id)
+      if (!hook) return false
+      const payload = {
+        schema_version: WEBHOOK_SCHEMA_VERSION,
+        event: 'stream.created',
+        timestamp: new Date().toISOString(),
+        data: { stream_id: 0, note: 'FlowStar webhook test' },
+      }
+      const result = await deliverWithRetry(hook.url, hook.secret, payload, 1)
+      return result.success
+    },
+    [webhooks],
+  )
+
+  return {
+    webhooks,
+    history,
+    addWebhook,
+    removeWebhook,
+    toggleWebhook,
+    fireEvent,
+    testWebhook,
+    resendDelivery,
+  }
+}
