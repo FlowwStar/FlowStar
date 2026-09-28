@@ -360,14 +360,14 @@ export async function simulateCreateStreamPreview(
     const estimatedFee = Math.ceil(minFee * FEE_BUFFER)
     const feeXlm = (estimatedFee / 1e7).toFixed(4)
     const feeUsd = `~$${((estimatedFee / 1e7) * 0.08).toFixed(4)}`
-    const resources = successSim.transactionData.build().resources()
+    const resources = successSim.transactionData.build().resources
 
     return {
       success: true,
       estimatedFeeXlm: feeXlm,
       estimatedFeeUsd: feeUsd,
-      cpuInstructions: resources.instructions(),
-      memoryBytes: resources.readBytes() + resources.writeBytes(),
+      cpuInstructions: resources.instructions,
+      memoryBytes: resources.diskReadBytes + resources.writeBytes,
     }
   } catch (err) {
     return {
