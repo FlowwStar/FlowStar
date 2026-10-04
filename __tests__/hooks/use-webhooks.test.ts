@@ -46,6 +46,7 @@ describe('useWebhooks', () => {
         events: ['stream.created'],
         enabled: true,
         createdAt: 1000,
+        secret: 'test-secret',
       },
     ]
     localStorage.setItem('flowstar_webhooks', JSON.stringify(stored))

@@ -81,7 +81,11 @@ vi.mock('@/hooks/use-hidden-streams', () => ({
 }))
 
 vi.mock('next/link', () => ({
-  default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+  default: ({
+    href,
+    children,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
     <a href={href} {...props}>
       {children}
     </a>
@@ -163,9 +167,7 @@ function makeStream(overrides: Partial<StreamData> = {}): StreamData {
 }
 
 /** Minimal useStreams return value for the given arrays. */
-function streamsResult(
-  overrides: Partial<ReturnType<typeof mockUseStreams>> = {},
-) {
+function streamsResult(overrides: Partial<ReturnType<typeof mockUseStreams>> = {}) {
   return {
     sent: [],
     received: [],
@@ -194,6 +196,7 @@ beforeEach(() => {
   mockUseHiddenStreams.mockReturnValue({
     hiddenIds: new Set<string>(),
     blockedSenders: new Set<string>(),
+    pinnedIds: new Set<string>(),
   })
   mockUseStreams.mockReturnValue(streamsResult())
 })
@@ -327,7 +330,11 @@ describe('populated state', () => {
 // ─── Tab-filter views ─────────────────────────────────────────────────────────
 
 describe('tab switching', () => {
-  const sentStream = makeStream({ id: 'tab-sent', sender: WALLET_ADDRESS, recipient: RECIPIENT_ADDRESS })
+  const sentStream = makeStream({
+    id: 'tab-sent',
+    sender: WALLET_ADDRESS,
+    recipient: RECIPIENT_ADDRESS,
+  })
   const recvStream = makeStream({ id: 'tab-recv', sender: OTHER_SENDER, recipient: WALLET_ADDRESS })
 
   beforeEach(() => {

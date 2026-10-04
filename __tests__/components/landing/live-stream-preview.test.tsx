@@ -26,8 +26,18 @@ vi.mock('@/hooks/use-now', () => ({
 }))
 
 vi.mock('@/components/ui/progress-bar', () => ({
-  ProgressBar: ({ value, indeterminateShimmer }: { value: number; indeterminateShimmer?: boolean }) => (
-    <div data-testid="progress-bar" data-value={value} data-shimmer={indeterminateShimmer ? 'true' : 'false'} />
+  ProgressBar: ({
+    value,
+    indeterminateShimmer,
+  }: {
+    value: number
+    indeterminateShimmer?: boolean
+  }) => (
+    <div
+      data-testid="progress-bar"
+      data-value={value}
+      data-shimmer={indeterminateShimmer ? 'true' : 'false'}
+    />
   ),
 }))
 
@@ -106,9 +116,10 @@ describe('LiveStreamPreview', () => {
       const progressBar1 = screen.getByTestId('progress-bar')
       const value1 = parseFloat(progressBar1.getAttribute('data-value') || '0')
 
-      // Advance time by 10 seconds and re-render
-      vi.setSystemTime(new Date((NOW_SEC + 10) * 1000))
-      mockUseNow.mockReturnValue(NOW_SEC + 10)
+      // Advance time by 1 hour and re-render (progress is quantized to 0.01%,
+      // roughly 4 minutes of a 30-day stream, so a few seconds is not enough)
+      vi.setSystemTime(new Date((NOW_SEC + 3600) * 1000))
+      mockUseNow.mockReturnValue(NOW_SEC + 3600)
       rerender(<LiveStreamPreview />)
 
       const progressBar2 = screen.getByTestId('progress-bar')

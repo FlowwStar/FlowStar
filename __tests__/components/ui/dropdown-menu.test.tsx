@@ -195,9 +195,7 @@ describe('DropdownMenu — data-slot attributes', () => {
         </DropdownMenuContent>
       </DropdownMenu>,
     )
-    const trigger = screen
-      .getByText('Open')
-      .closest('[data-slot="dropdown-menu-trigger"]')
+    const trigger = screen.getByText('Open').closest('[data-slot="dropdown-menu-trigger"]')
     expect(trigger).toBeInTheDocument()
   })
 
@@ -379,8 +377,9 @@ describe('DropdownMenuItem — render prop', () => {
       </DropdownMenu>,
     )
     fireEvent.click(screen.getByText('Open'))
-    const link = screen.getByRole('link', { name: 'Dashboard' })
-    expect(link).toBeInTheDocument()
+    // Base UI keeps menu semantics on the rendered element (role="menuitem").
+    const link = screen.getByRole('menuitem', { name: 'Dashboard' })
+    expect(link.tagName).toBe('A')
     expect(link).toHaveAttribute('href', '/dashboard')
   })
 })

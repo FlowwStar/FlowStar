@@ -22,7 +22,7 @@
  * • lib/copy/settings    — returns static copy
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
 // ─── Mock hooks and components ────────────────────────────────────────────────
@@ -48,7 +48,7 @@ vi.mock('@/components/layout/require-wallet', () => ({
   },
 }))
 
-vi.mock('@/components/settings/usd-toggle', () => ({
+vi.mock('@/app/app/settings/usd-toggle', () => ({
   UsdToggle: () => <div data-testid="usd-toggle">USD Toggle</div>,
 }))
 
@@ -143,7 +143,7 @@ describe('Settings Page', () => {
 
     it('renders Address Book section', () => {
       render(<SettingsPage />)
-      expect(screen.getByText('Address Book')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Address Book' })).toBeInTheDocument()
       expect(screen.getByText('Manage saved addresses')).toBeInTheDocument()
       expect(screen.getByTestId('address-book')).toBeInTheDocument()
     })
