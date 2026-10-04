@@ -16,14 +16,20 @@ const meta: Meta<typeof TxPreviewDialog> = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+const now = BigInt(Math.floor(Date.now() / 1000))
+
 const mockInput: CreateStreamInput = {
-  recipientAddress: 'GDZSTFXVCDTUJ76ZAV2HA72KYRMF5QJMJBFPMJDHKHXU4LBKCZW75J2Z',
-  tokenAddress: 'CBBT7UGKPGP7EOUDJYVWGXQKD4CWPVD54PH43D5F7WAJT3XJVJ2XPMA',
-  startTime: Math.floor(Date.now() / 1000),
-  endTime: Math.floor(Date.now() / 1000) + 86400 * 30, // 30 days
-  totalAmount: '1000000000', // 1000 USDC
-  cancelable: true,
-  transferable: true,
+  recipient: 'GDZSTFXVCDTUJ76ZAV2HA72KYRMF5QJMJBFPMJDHKHXU4LBKCZW75J2Z',
+  token: {
+    address: 'CBBT7UGKPGP7EOUDJYVWGXQKD4CWPVD54PH43D5F7WAJT3XJVJ2XPMA',
+    symbol: 'USDC',
+    decimals: 6,
+  },
+  totalAmount: 1000000000n, // 1000 USDC
+  startTime: now,
+  endTime: now + 86400n * 30n, // 30 days
+  cliffTime: now,
+  cliffAmount: 0n,
 }
 
 function DialogTrigger() {

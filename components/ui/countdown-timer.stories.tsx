@@ -1,13 +1,16 @@
-import type { Meta, StoryObj } from "@storybook/react"
-import { CountdownTimer } from "./countdown-timer"
+import type { Meta, StoryObj } from '@storybook/react'
+import { CountdownTimer } from './countdown-timer'
 
 const meta = {
-  title: "UI/CountdownTimer",
+  title: 'UI/CountdownTimer',
   component: CountdownTimer,
   parameters: {
-    layout: "centered",
+    layout: 'centered',
   },
-  tags: ["autodocs"],
+  tags: ['autodocs'],
+  args: {
+    target: 0n,
+  },
 } satisfies Meta<typeof CountdownTimer>
 
 export default meta
@@ -118,10 +121,7 @@ export const WithCustomClassName: Story = {
     return (
       <div className="space-y-2">
         <p className="text-sm text-muted-foreground">With custom styling</p>
-        <CountdownTimer
-          target={futureTime}
-          className="text-lg font-bold text-accent"
-        />
+        <CountdownTimer target={futureTime} className="text-lg font-bold text-accent" />
       </div>
     )
   },
