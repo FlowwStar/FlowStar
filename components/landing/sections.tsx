@@ -171,11 +171,11 @@ export function CTA() {
           Start streaming in minutes
         </h2>
         <p className="relative mx-auto mt-4 max-w-md text-pretty text-muted-foreground">
-          Connect a wallet and create your first stream on Stellar testnet. No
-          setup, no custody, no code.
+          Connect a wallet and create your first stream on Stellar testnet. No setup, no custody, no
+          code.
         </p>
         <div className="relative mt-8 flex justify-center">
-          <Button nativeButton={false} asChild size="lg">
+          <Button asChild size="lg">
             <Link href="/app/create">
               Create a stream
               <ArrowRight className="size-4" />
@@ -193,8 +193,8 @@ export function Footer() {
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 sm:flex-row sm:px-6">
         <Brand />
         <p className="text-xs text-muted-foreground">
-          {APP_NAME} streams tokens on Stellar. Demo frontend — connect your
-          Soroban contracts to go live.
+          {APP_NAME} streams tokens on Stellar. Demo frontend — connect your Soroban contracts to go
+          live.
         </p>
       </div>
     </footer>

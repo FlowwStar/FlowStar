@@ -1,3 +1,4 @@
+import * as React from 'react'
 import { Button as ButtonPrimitive } from '@base-ui/react/button'
 import { cva, type VariantProps } from 'class-variance-authority'
 
@@ -48,15 +49,13 @@ function Button({
   children,
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { asChild?: boolean }) {
-  if (asChild && children) {
-    return (
-      <ButtonPrimitive
-        data-slot="button"
-        className={cn(buttonVariants({ variant, size, className }))}
-        render={children as React.ReactElement}
-        {...props}
-      />
-    )
+  // Style the child directly instead of rendering it through ButtonPrimitive,
+  // so links keep their native link semantics (no role="button").
+  if (asChild && React.isValidElement<{ className?: string }>(children)) {
+    return React.cloneElement(children, {
+      'data-slot': 'button',
+      className: cn(buttonVariants({ variant, size, className }), children.props.className),
+    } as React.HTMLAttributes<HTMLElement>)
   }
   return (
     <ButtonPrimitive

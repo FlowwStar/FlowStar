@@ -28,11 +28,7 @@ export function LandingHeader() {
         <Brand />
         <nav className="hidden items-center gap-8 text-sm text-muted-foreground md:flex">
           {NAV_LINKS.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="transition-colors hover:text-foreground"
-            >
+            <a key={link.href} href={link.href} className="transition-colors hover:text-foreground">
               {link.label}
             </a>
           ))}
@@ -47,11 +43,7 @@ export function LandingHeader() {
                 className="md:hidden"
                 aria-label="Open navigation menu"
               >
-                {mobileNavOpen ? (
-                  <X className="size-5" />
-                ) : (
-                  <Menu className="size-5" />
-                )}
+                {mobileNavOpen ? <X className="size-5" /> : <Menu className="size-5" />}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -66,11 +58,7 @@ export function LandingHeader() {
                 <DropdownMenuItem
                   key={link.href}
                   render={
-                    <a
-                      href={link.href}
-                      onClick={() => setMobileNavOpen(false)}
-                      className="w-full"
-                    >
+                    <a href={link.href} onClick={() => setMobileNavOpen(false)} className="w-full">
                       {link.label}
                     </a>
                   }
@@ -79,7 +67,7 @@ export function LandingHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <Button nativeButton={false} asChild size="sm">
+          <Button asChild size="sm">
             <Link href="/app">
               Open app
               <ArrowRight className="size-4" />
@@ -109,18 +97,17 @@ export function Hero() {
             Stream money by the second
           </h1>
           <p className="mt-5 max-w-md text-pretty text-lg leading-relaxed text-muted-foreground">
-            FlowStar turns one-time transfers into continuous streams. Perfect
-            for payroll, token vesting, and grants that unlock in real time —
-            withdraw anytime, cancel anytime.
+            FlowStar turns one-time transfers into continuous streams. Perfect for payroll, token
+            vesting, and grants that unlock in real time — withdraw anytime, cancel anytime.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Button nativeButton={false} asChild size="lg">
+            <Button asChild size="lg">
               <Link href="/app/create">
                 Create a stream
                 <ArrowRight className="size-4" />
               </Link>
             </Button>
-            <Button nativeButton={false} asChild size="lg" variant="secondary">
+            <Button asChild size="lg" variant="secondary">
               <Link href="/app">Open dashboard</Link>
             </Button>
           </div>

@@ -104,9 +104,9 @@ describe('Button', () => {
   describe('asChild prop', () => {
     it('renders child element when asChild is true', () => {
       const { container } = render(
-        <Button nativeButton={false} asChild>
+        <Button asChild>
           <a href="/test">Link Button</a>
-        </Button>
+        </Button>,
       )
       const link = container.querySelector('a')
       expect(link).toBeInTheDocument()
@@ -116,9 +116,9 @@ describe('Button', () => {
 
     it('applies Button styles to child element when asChild is true', () => {
       const { container } = render(
-        <Button variant="secondary" size="sm" nativeButton={false} asChild>
+        <Button variant="secondary" size="sm" asChild>
           <a href="/test">Link Button</a>
-        </Button>
+        </Button>,
       )
       const link = container.querySelector('a')
       expect(link?.className).toContain('bg-secondary')

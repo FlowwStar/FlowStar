@@ -17,11 +17,9 @@ export function EmptyStreams({
         <Waves className="size-6" />
       </span>
       <h3 className="mt-4 font-medium">{title}</h3>
-      <p className="mt-1 max-w-xs text-sm text-muted-foreground text-pretty">
-        {description}
-      </p>
+      <p className="mt-1 max-w-xs text-sm text-muted-foreground text-pretty">{description}</p>
       {showCreate && (
-        <Button nativeButton={false} asChild className="mt-5 gap-1.5">
+        <Button asChild className="mt-5 gap-1.5">
           <Link href="/app/create">
             <Plus className="size-4" />
             Create a stream
