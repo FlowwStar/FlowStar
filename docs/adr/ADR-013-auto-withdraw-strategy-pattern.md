@@ -1,4 +1,4 @@
-# ADR-009: Auto-Withdraw Strategy Pattern
+# ADR-013: Auto-Withdraw Strategy Pattern
 
 ## Status
 
@@ -19,12 +19,12 @@ this as a configurable, per-stream, client-side polling strategy.
 
 `WithdrawStrategy` is one of four values, selected per-stream by the user:
 
-| Strategy | Intended behavior |
-|---|---|
-| `time-based` (default) | Withdraw the full withdrawable amount on every interval tick, no additional condition. |
-| `threshold-based` | Only withdraw once the withdrawable amount reaches `thresholdPercentage`% of the stream's total `depositedAmount`. |
-| `gas-optimized` | Skip a tick if less than 1 day has passed since the last withdrawal (successful or not) — reduces transaction-fee overhead by batching unlocked funds into less-frequent, larger withdrawals. |
-| `max` | Functionally identical to `time-based` today (see Consequences) — intended as "withdraw the maximum possible amount," which under the current unlock model is already what `time-based` does. |
+| Strategy               | Intended behavior                                                                                                                                                                             |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `time-based` (default) | Withdraw the full withdrawable amount on every interval tick, no additional condition.                                                                                                        |
+| `threshold-based`      | Only withdraw once the withdrawable amount reaches `thresholdPercentage`% of the stream's total `depositedAmount`.                                                                            |
+| `gas-optimized`        | Skip a tick if less than 1 day has passed since the last withdrawal (successful or not) — reduces transaction-fee overhead by batching unlocked funds into less-frequent, larger withdrawals. |
+| `max`                  | Functionally identical to `time-based` today (see Consequences) — intended as "withdraw the maximum possible amount," which under the current unlock model is already what `time-based` does. |
 
 All strategies are additionally bounded by two settings, applied after the
 strategy-specific calculation:
@@ -62,12 +62,14 @@ is open in a browser tab; it is not a background service.
 ## Consequences
 
 **Easier:**
+
 - Recipients get a real automated-withdrawal feature without a backend
   service or keeper network — it's a pure client-side polling loop.
 - Per-stream persistence and per-stream settings keys mean streams don't
   interfere with each other's automation config.
 
 **Harder / accepted limitations:**
+
 - **No background execution**: if the user closes the tab, auto-withdraw
   stops. This is a fundamental limitation of a client-only implementation,
   not a bug — a real fix would require a server-side keeper/cron process,

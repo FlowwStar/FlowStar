@@ -14,7 +14,7 @@ This guide covers deploying the FlowStar streaming contract to Stellar testnet o
   ```bash
   cargo install stellar-cli --locked
   ```
-- **Node.js 18+** for the frontend
+- **Node.js 22.22+** for the frontend
 
 ---
 

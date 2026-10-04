@@ -11,6 +11,7 @@ export default [
       'contracts/**',
       'e2e/**',
       'public/**',
+      'coverage/**',
     ],
   },
   js.configs.recommended,
