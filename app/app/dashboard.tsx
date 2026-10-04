@@ -73,9 +73,7 @@ export function Dashboard() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">{dashboardCopy.header.title}</h1>
-            <p className="text-muted-foreground text-sm">
-              {dashboardCopy.header.description}
-            </p>
+            <p className="text-muted-foreground text-sm">{dashboardCopy.header.description}</p>
           </div>
           <div className="flex items-center gap-2">
             {/* "Refreshing…" indicator — shown briefly on tab re-focus after a
@@ -100,7 +98,10 @@ export function Dashboard() {
               >
                 <ArrowDownToLine className="mr-2 h-4 w-4" />
                 {isWithdrawingAll
-                  ? dashboardCopy.header.withdrawingAll(withdrawProgress.current, withdrawProgress.total)
+                  ? dashboardCopy.header.withdrawingAll(
+                      withdrawProgress.current,
+                      withdrawProgress.total,
+                    )
                   : dashboardCopy.header.withdrawAll(withdrawableStreams.length)}
                 <span className="sr-only">
                   {isWithdrawingAll
@@ -109,7 +110,7 @@ export function Dashboard() {
                 </span>
               </Button>
             )}
-            <Button size="sm" nativeButton={false} asChild>
+            <Button size="sm" asChild>
               <Link href="/app/create">
                 <Plus className="mr-2 h-4 w-4" />
                 {dashboardCopy.header.newStream}
@@ -130,7 +131,8 @@ export function Dashboard() {
             <WifiOff className="size-4 shrink-0" />
             <span>
               {dashboardCopy.offlineBanner.message}
-              {lastUpdated && dashboardCopy.offlineBanner.fromTime(new Date(lastUpdated).toLocaleString())}
+              {lastUpdated &&
+                dashboardCopy.offlineBanner.fromTime(new Date(lastUpdated).toLocaleString())}
               {dashboardCopy.offlineBanner.outdatedWarning}
             </span>
           </div>
@@ -149,7 +151,9 @@ export function Dashboard() {
         <Tabs defaultValue="all">
           <TabsList>
             <TabsTrigger value="all">{dashboardCopy.tabs.all(all.length)}</TabsTrigger>
-            <TabsTrigger value="receiving">{dashboardCopy.tabs.receiving(received.length)}</TabsTrigger>
+            <TabsTrigger value="receiving">
+              {dashboardCopy.tabs.receiving(received.length)}
+            </TabsTrigger>
             <TabsTrigger value="sending">{dashboardCopy.tabs.sending(sent.length)}</TabsTrigger>
           </TabsList>
 

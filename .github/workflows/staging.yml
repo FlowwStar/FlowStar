@@ -16,6 +16,9 @@ jobs:
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      # Secrets are unavailable to fork/Dependabot PRs (and unset until Vercel
+      # is configured); deploy steps are skipped then, the build still runs.
+      HAS_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -33,11 +36,12 @@ jobs:
           NEXT_PUBLIC_APP_ENV: staging
 
       - name: Install Vercel CLI
+        if: env.HAS_VERCEL_TOKEN == 'true'
         run: npm install -g vercel@latest
 
       # Deploy preview for PRs, production-like staging deploy for staging branch
       - name: Deploy to Vercel (staging branch)
-        if: github.ref == 'refs/heads/staging'
+        if: github.ref == 'refs/heads/staging' && env.HAS_VERCEL_TOKEN == 'true'
         run: |
           vercel deploy \
             --token ${{ secrets.VERCEL_TOKEN }} \
@@ -49,7 +53,7 @@ jobs:
           echo "Deployed to: $(cat deployment-url.txt)"
 
       - name: Deploy preview (PR)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && env.HAS_VERCEL_TOKEN == 'true'
         run: |
           vercel deploy \
             --token ${{ secrets.VERCEL_TOKEN }} \
@@ -62,7 +66,8 @@ jobs:
           echo "PREVIEW_URL=$PREVIEW_URL" >> $GITHUB_ENV
 
       - name: Comment PR with preview URL
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && env.HAS_VERCEL_TOKEN == 'true'
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           script: |

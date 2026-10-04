@@ -41,6 +41,7 @@ describe('StreamGanttView', () => {
         startTime: 2_000n,
         endTime: 8_000n,
         cliffTime: 3_000n,
+        metadata: { name: 'Beta', category: 'payroll', memo: 'memo' },
       }),
     ]
 
@@ -61,13 +62,18 @@ describe('StreamGanttView', () => {
     const [first, second] = Array.from(bars)
 
     expect(first).toHaveStyle({ left: `${pct(Number(streams[0].startTime))}%` })
-    expect(first).toHaveStyle({ width: `${pct(Number(streams[0].endTime)) - pct(Number(streams[0].startTime))}%` })
+    expect(first).toHaveStyle({
+      width: `${pct(Number(streams[0].endTime)) - pct(Number(streams[0].startTime))}%`,
+    })
 
     expect(second).toHaveStyle({ left: `${pct(Number(streams[1].startTime))}%` })
-    expect(second).toHaveStyle({ width: `${pct(Number(streams[1].endTime)) - pct(Number(streams[1].startTime))}%` })
+    expect(second).toHaveStyle({
+      width: `${pct(Number(streams[1].endTime)) - pct(Number(streams[1].startTime))}%`,
+    })
 
     expect(screen.getByText('Today')).toBeInTheDocument()
     expect(screen.getByText('Alpha')).toBeInTheDocument()
+    expect(screen.getByText('Beta')).toBeInTheDocument()
     expect(screen.getByText('Streaming')).toBeInTheDocument()
   })
 })

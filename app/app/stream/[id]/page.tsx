@@ -894,7 +894,7 @@ function StreamDetail({ id }: { id: string }) {
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <p className="text-lg font-medium">{copy.notFound.title}</p>
         <p className="mt-1 text-sm text-muted-foreground">{copy.notFound.body}</p>
-        <Button nativeButton={false} asChild className="mt-6">
+        <Button asChild className="mt-6">
           <Link href="/app">{copy.notFound.backButton}</Link>
         </Button>
       </div>

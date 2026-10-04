@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import React from 'react'
 import { LandingHeader, Hero } from '@/components/landing/hero'
 
@@ -24,7 +24,7 @@ vi.mock('@/components/brand', () => ({
 }))
 
 vi.mock('@/components/ui/button', () => ({
-  Button: ({ children, asChild, nativeButton, size, variant, ...props }: any) => {
+  Button: ({ children, asChild, size, variant, ...props }: any) => {
     if (asChild) {
       // forward button-like props to the single child
       const child = React.Children.only(children) as React.ReactElement
@@ -38,7 +38,7 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children, open, onOpenChange }: any) => (
     <div data-testid="dropdown-menu" data-open={open}>
       {React.Children.map(children, (child) =>
-        React.cloneElement(child as React.ReactElement, { _onOpenChange: onOpenChange }),
+        React.cloneElement(child as React.ReactElement<any>, { _onOpenChange: onOpenChange }),
       )}
     </div>
   ),
@@ -56,9 +56,7 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
       </button>
     )
   },
-  DropdownMenuContent: ({ children }: any) => (
-    <div data-testid="dropdown-content">{children}</div>
-  ),
+  DropdownMenuContent: ({ children }: any) => <div data-testid="dropdown-content">{children}</div>,
   DropdownMenuItem: ({ children, render: renderProp }: any) =>
     renderProp ? (
       <div data-testid="dropdown-item">{renderProp}</div>
@@ -79,18 +77,22 @@ describe('LandingHeader', () => {
     expect(screen.getByTestId('brand')).toBeInTheDocument()
   })
 
+  // The mobile dropdown links are always rendered by the dropdown stub, so
+  // scope desktop-nav assertions to the <nav> element.
   it('renders all desktop nav links', () => {
     render(<LandingHeader />)
-    expect(screen.getByRole('link', { name: 'Features' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'How it works' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Use cases' })).toBeInTheDocument()
+    const nav = within(screen.getByRole('navigation'))
+    expect(nav.getByRole('link', { name: 'Features' })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: 'How it works' })).toBeInTheDocument()
+    expect(nav.getByRole('link', { name: 'Use cases' })).toBeInTheDocument()
   })
 
   it('desktop nav links point to the correct hash anchors', () => {
     render(<LandingHeader />)
-    expect(screen.getByRole('link', { name: 'Features' })).toHaveAttribute('href', '#features')
-    expect(screen.getByRole('link', { name: 'How it works' })).toHaveAttribute('href', '#how')
-    expect(screen.getByRole('link', { name: 'Use cases' })).toHaveAttribute('href', '#use-cases')
+    const nav = within(screen.getByRole('navigation'))
+    expect(nav.getByRole('link', { name: 'Features' })).toHaveAttribute('href', '#features')
+    expect(nav.getByRole('link', { name: 'How it works' })).toHaveAttribute('href', '#how')
+    expect(nav.getByRole('link', { name: 'Use cases' })).toHaveAttribute('href', '#use-cases')
   })
 
   it('renders the "Open app" CTA link pointing to /app', () => {
@@ -102,9 +104,7 @@ describe('LandingHeader', () => {
 
   it('renders the mobile nav trigger button with correct aria-label', () => {
     render(<LandingHeader />)
-    expect(
-      screen.getByRole('button', { name: 'Open navigation menu' }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open navigation menu' })).toBeInTheDocument()
   })
 
   it('shows the Menu icon when mobile nav is closed', () => {

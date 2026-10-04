@@ -58,9 +58,7 @@ authorized to call `withdraw()` for that stream, without handing over their
 own keys — e.g. an ops wallet pulling payroll for a cold-storage recipient.
 While a delegate is set, only the delegate (not the recipient directly) can
 authorize a withdrawal; funds still go to the recipient regardless of who
-triggered it. See [ADR-008](./adr/ADR-008-delegate-withdrawal-authorization.md) (note: this
-ADR number is shared with a second, unrelated ADR about notification
-polling — see [docs/adr/README.md](./adr/README.md)'s note on the collision).
+triggered it. See [ADR-008](./adr/ADR-008-delegate-withdrawal-authorization.md).
 
 ### Archived stream
 

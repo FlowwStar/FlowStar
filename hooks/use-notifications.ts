@@ -7,7 +7,7 @@ import { fetchStreamsForAddress } from '@/lib/contract'
 import { isNotificationTypeEnabled } from '@/hooks/use-notification-preferences'
 
 // Polling interval, ledger-cursor dedup, and per-wallet scoping are
-// documented in docs/adr/ADR-008-notification-polling-and-dedup.md.
+// documented in docs/adr/ADR-011-notification-polling-and-dedup.md.
 const POLL_INTERVAL = 30_000
 /** Ledger cursor used for dedup. Global key: not scoped per wallet or network yet. */
 const STORAGE_KEY = 'flowstar:last-seen-ledger'
@@ -230,7 +230,7 @@ async function fetchOldestLedger(rpcUrl: string): Promise<number | null> {
 /**
  * Polls the streaming contract's events and turns the ones that concern the
  * connected wallet into in-app (and, if permitted, browser) notifications.
- * Full rationale: docs/adr/ADR-008-notification-polling-and-dedup.md.
+ * Full rationale: docs/adr/ADR-011-notification-polling-and-dedup.md.
  *
  * Polling contract:
  * - Runs only while `walletAddress` and a stream contract ID are both set,

@@ -1,13 +1,16 @@
-import type { Meta, StoryObj } from "@storybook/react"
-import { AccessibleCountdownTimer } from "./accessible-countdown-timer"
+import type { Meta, StoryObj } from '@storybook/react'
+import { AccessibleCountdownTimer } from './accessible-countdown-timer'
 
 const meta = {
-  title: "UI/AccessibleCountdownTimer",
+  title: 'UI/AccessibleCountdownTimer',
   component: AccessibleCountdownTimer,
   parameters: {
-    layout: "centered",
+    layout: 'centered',
   },
-  tags: ["autodocs"],
+  tags: ['autodocs'],
+  args: {
+    target: 0n,
+  },
 } satisfies Meta<typeof AccessibleCountdownTimer>
 
 export default meta
@@ -124,9 +127,7 @@ export const CustomEndedLabel: Story = {
       <div className="space-y-2">
         <p className="text-sm text-muted-foreground">Custom ended label: "Completed"</p>
         <AccessibleCountdownTimer target={pastTime} endedLabel="Completed" />
-        <p className="text-xs text-muted-foreground">
-          Screen reader will announce: "Completed"
-        </p>
+        <p className="text-xs text-muted-foreground">Screen reader will announce: "Completed"</p>
       </div>
     )
   },

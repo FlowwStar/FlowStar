@@ -34,11 +34,18 @@ const ALL_EVENTS: { value: WebhookEventType; label: string }[] = [
 export function WebhookSettings() {
   // Issue #677: surface webhook-config save failures instead of letting
   // localStorage.setItem throw uncaught / fail silently.
-  const { webhooks, history, addWebhook, removeWebhook, toggleWebhook, testWebhook, resendDelivery } = useWebhooks(
-    () =>
-      toast.warning(settingsCopy.webhooks.toasts.storageWarningTitle, {
-        description: settingsCopy.webhooks.toasts.storageWarningDescription,
-      }),
+  const {
+    webhooks,
+    history,
+    addWebhook,
+    removeWebhook,
+    toggleWebhook,
+    testWebhook,
+    resendDelivery,
+  } = useWebhooks(() =>
+    toast.warning(settingsCopy.webhooks.toasts.storageWarningTitle, {
+      description: settingsCopy.webhooks.toasts.storageWarningDescription,
+    }),
   )
 
   const [url, setUrl] = useState('')
@@ -90,7 +97,10 @@ export function WebhookSettings() {
     try {
       const ok = await testWebhook(id)
       if (ok) toast.success(settingsCopy.webhooks.toasts.testSuccess)
-      else toast.error(settingsCopy.webhooks.toasts.testFailedTitle, { description: settingsCopy.webhooks.toasts.testFailedDescription })
+      else
+        toast.error(settingsCopy.webhooks.toasts.testFailedTitle, {
+          description: settingsCopy.webhooks.toasts.testFailedDescription,
+        })
     } finally {
       setTesting(null)
     }
@@ -101,7 +111,10 @@ export function WebhookSettings() {
     try {
       const ok = await resendDelivery(history[index])
       if (ok) toast.success(settingsCopy.webhooks.toasts.resendSuccess)
-      else toast.error(settingsCopy.webhooks.toasts.resendFailedTitle, { description: settingsCopy.webhooks.toasts.resendFailedDescription })
+      else
+        toast.error(settingsCopy.webhooks.toasts.resendFailedTitle, {
+          description: settingsCopy.webhooks.toasts.resendFailedDescription,
+        })
     } finally {
       setResending(null)
     }
@@ -188,7 +201,9 @@ export function WebhookSettings() {
 
       {/* Registered webhooks */}
       <div className="space-y-3">
-        {webhooks.length > 0 && <h2 className="font-medium">{settingsCopy.webhooks.registered.title}</h2>}
+        {webhooks.length > 0 && (
+          <h2 className="font-medium">{settingsCopy.webhooks.registered.title}</h2>
+        )}
         {webhooks.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40 px-6 py-16 text-center">
             <span className="flex size-12 items-center justify-center rounded-xl bg-secondary text-primary">
@@ -198,7 +213,7 @@ export function WebhookSettings() {
             <p className="mt-1 max-w-xs text-sm text-muted-foreground text-pretty">
               {settingsCopy.webhooks.registered.emptyDescription}
             </p>
-            <Button nativeButton={false} asChild className="mt-5 gap-1.5">
+            <Button asChild className="mt-5 gap-1.5">
               <a href="#register-webhook">
                 <Plus className="size-4" />
                 {settingsCopy.webhooks.registered.emptyButton}
@@ -223,7 +238,11 @@ export function WebhookSettings() {
                       variant="ghost"
                       size="icon"
                       className="size-8"
-                      aria-label={hook.enabled ? settingsCopy.webhooks.registered.toggleDisableAria : settingsCopy.webhooks.registered.toggleEnableAria}
+                      aria-label={
+                        hook.enabled
+                          ? settingsCopy.webhooks.registered.toggleDisableAria
+                          : settingsCopy.webhooks.registered.toggleEnableAria
+                      }
                       onClick={() => toggleWebhook(hook.id)}
                     >
                       {hook.enabled ? (

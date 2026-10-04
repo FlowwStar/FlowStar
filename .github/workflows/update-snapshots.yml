@@ -12,13 +12,13 @@ jobs:
   update-snapshots:
     name: Regenerate visual baselines
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
-          # Use a PAT so the commit push has write access
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
@@ -35,15 +35,6 @@ jobs:
         env:
           NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ""
           NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET: ""
-
-      - name: Start app
-        run: npm run start &
-        env:
-          NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ""
-          NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET: ""
-
-      - name: Wait for app to be ready
-        run: npx wait-on http://localhost:3000 --timeout 60000
 
       - name: Update snapshots
         run: npx playwright test --update-snapshots

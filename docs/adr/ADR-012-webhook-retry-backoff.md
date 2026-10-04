@@ -1,4 +1,4 @@
-# ADR-009: Webhook Delivery Retry, Backoff, and History Retention
+# ADR-012: Webhook Delivery Retry, Backoff, and History Retention
 
 ## Status
 
@@ -44,6 +44,7 @@ growing unbounded as streams accumulate over the life of the app.
 ## Consequences
 
 **Easier:**
+
 - A transient failure (cold start, brief network blip) self-heals without
   any user action.
 - Bounded worst-case latency per event (~3 seconds of backoff plus request
@@ -51,6 +52,7 @@ growing unbounded as streams accumulate over the life of the app.
 - Fixed history size means no unbounded `localStorage` growth to worry about.
 
 **Harder / accepted limitations:**
+
 - A webhook endpoint down for longer than ~3 seconds (the total backoff
   window) will simply fail that delivery — there is no later retry, since
   nothing persists the failure for a background retry attempt. Users must

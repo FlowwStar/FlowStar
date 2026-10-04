@@ -14,7 +14,8 @@ vi.mock('sonner', () => ({
 }))
 
 // Mock formatTimeAgo so delivery history timestamps render without issues
-vi.mock('@/lib/stream-utils', () => ({
+vi.mock('@/lib/stream-utils', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/stream-utils')>()),
   formatTimeAgo: vi.fn(() => 'just now'),
 }))
 
@@ -112,7 +113,7 @@ describe('WebhookSettings – URL input', () => {
       'https://example.com/hook',
       expect.arrayContaining(['stream.created']),
     )
-    expect(toast.success).toHaveBeenCalledWith('Webhook registered')
+    expect(toast.success).toHaveBeenCalledWith('Webhook registered', expect.any(Object))
   })
 
   it('clears the URL input after a successful registration', async () => {
@@ -188,6 +189,7 @@ describe('WebhookSettings – registered webhook list', () => {
     events: ['stream.created' as const, 'stream.withdrawal' as const],
     enabled: true,
     createdAt: Date.now(),
+    secret: 'test-secret',
   }
 
   beforeEach(() => {

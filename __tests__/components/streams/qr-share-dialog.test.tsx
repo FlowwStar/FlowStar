@@ -3,8 +3,10 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { QrShareDialog } from '@/components/streams/qr-share-dialog'
 import type { StreamData } from '@/types/stream'
 
-const mockToastSuccess = vi.fn()
-const mockWriteText = vi.fn()
+const { mockToastSuccess, mockWriteText } = vi.hoisted(() => ({
+  mockToastSuccess: vi.fn(),
+  mockWriteText: vi.fn(),
+}))
 
 vi.mock('sonner', () => ({
   toast: {
@@ -54,7 +56,7 @@ describe('QrShareDialog', () => {
   })
 
   it('renders a QR code for the given stream URL', () => {
-    const { container } = render(
+    render(
       <QrShareDialog
         open
         onOpenChange={vi.fn()}
@@ -67,20 +69,19 @@ describe('QrShareDialog', () => {
     expect(screen.getByText('Share stream')).toBeInTheDocument()
     expect(screen.getByText(STREAM_URL)).toBeInTheDocument()
 
-    const qrSvg = container.querySelector('[data-testid="qr-svg"]')
-    expect(qrSvg).toBeInTheDocument()
+    // The dialog renders in a portal, so query the document rather than `container`.
+    const qrSvg = screen.getByTestId('qr-svg')
     expect(qrSvg).toHaveAttribute('data-value', STREAM_URL)
-    expect(container.querySelector('[data-testid="qr-canvas"]')).toHaveAttribute(
-      'data-value',
-      STREAM_URL,
-    )
+    expect(screen.getByTestId('qr-canvas')).toHaveAttribute('data-value', STREAM_URL)
   })
 
   it('copies the stream URL and downloads the QR image when actions are triggered', () => {
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-    const toDataURLSpy = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(() => {
-      return 'data:image/png;base64,abc123'
-    })
+    const toDataURLSpy = vi
+      .spyOn(HTMLCanvasElement.prototype, 'toDataURL')
+      .mockImplementation(() => {
+        return 'data:image/png;base64,abc123'
+      })
 
     render(
       <QrShareDialog

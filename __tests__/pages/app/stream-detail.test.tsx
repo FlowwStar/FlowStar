@@ -38,8 +38,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import type { StreamData, TokenInfo } from '@/types/stream'
+import { Suspense } from 'react'
 
 // ─── Static constants ─────────────────────────────────────────────────────────
 
@@ -224,8 +225,18 @@ function makeStream(overrides: Partial<StreamData> = {}): StreamData {
 }
 
 /** Render the page component with a resolved params Promise. */
-function renderPage(id: string) {
-  return render(<StreamPage params={Promise.resolve({ id })} />)
+// StreamPage unwraps `params` with React's `use()`, which suspends, so it
+// needs a Suspense boundary to render once the promise resolves.
+async function renderPage(id: string) {
+  let result!: ReturnType<typeof render>
+  await act(async () => {
+    result = render(
+      <Suspense fallback={null}>
+        <StreamPage params={Promise.resolve({ id })} />
+      </Suspense>,
+    )
+  })
+  return result
 }
 
 // ─── Default mock setup ───────────────────────────────────────────────────────
@@ -291,16 +302,16 @@ describe('loading state', () => {
   })
 
   it('renders the skeleton while loading', async () => {
-    const { container } = renderPage('stream-abc')
+    const { container } = await renderPage('stream-abc')
     // The skeleton has animate-pulse class on its root
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(container.querySelector('.animate-pulse')).toBeTruthy()
     })
   })
 
   it('does not render the header card content while loading', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.queryByTestId('stream-status-badge')).not.toBeInTheDocument()
     })
   })
@@ -314,32 +325,30 @@ describe('not-found state (bad ID)', () => {
   })
 
   it('renders the "Stream not found" message', async () => {
-    renderPage('nonexistent-id')
-    await vi.waitFor(() => {
+    await renderPage('nonexistent-id')
+    await waitFor(() => {
       expect(screen.getByText(/stream not found/i)).toBeInTheDocument()
     })
   })
 
   it('renders the not-found body text', async () => {
-    renderPage('nonexistent-id')
-    await vi.waitFor(() => {
-      expect(
-        screen.getByText(/this stream may not exist or may have expired/i),
-      ).toBeInTheDocument()
+    await renderPage('nonexistent-id')
+    await waitFor(() => {
+      expect(screen.getByText(/this stream may not exist or may have expired/i)).toBeInTheDocument()
     })
   })
 
   it('renders a "Back to dashboard" link for the not-found state', async () => {
-    renderPage('nonexistent-id')
-    await vi.waitFor(() => {
+    await renderPage('nonexistent-id')
+    await waitFor(() => {
       const link = screen.getByRole('link', { name: /back to dashboard/i })
       expect(link).toHaveAttribute('href', '/app')
     })
   })
 
   it('does not render the stream header card for a missing stream', async () => {
-    renderPage('nonexistent-id')
-    await vi.waitFor(() => {
+    await renderPage('nonexistent-id')
+    await waitFor(() => {
       expect(screen.queryByTestId('stream-status-badge')).not.toBeInTheDocument()
       expect(screen.queryByTestId('unlock-chart')).not.toBeInTheDocument()
     })
@@ -350,65 +359,65 @@ describe('not-found state (bad ID)', () => {
 
 describe('found state — page composition', () => {
   it('renders the back link to the dashboard', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       const link = screen.getByRole('link', { name: /dashboard/i })
       expect(link).toHaveAttribute('href', '/app')
     })
   })
 
   it('renders the stream status badge', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByTestId('stream-status-badge')).toBeInTheDocument()
     })
   })
 
   it('renders the live unlock counter (AccessibleUnlockAmount)', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByTestId('accessible-unlock-amount')).toBeInTheDocument()
     })
   })
 
   it('renders the progress bar', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByTestId('progress-bar')).toBeInTheDocument()
     })
   })
 
   it('renders the UnlockChart section', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByTestId('unlock-chart')).toBeInTheDocument()
     })
   })
 
   it('renders the StreamTimeline section', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByTestId('stream-timeline')).toBeInTheDocument()
     })
   })
 
   it('renders the Details section heading', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByText('Details')).toBeInTheDocument()
     })
   })
 
   it('renders the Share button', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByRole('button', { name: /share stream/i })).toBeInTheDocument()
     })
   })
 
   it('renders the download receipt button', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByTestId('download-receipt-btn')).toBeInTheDocument()
     })
   })
@@ -436,22 +445,22 @@ describe('sender actions', () => {
   })
 
   it('renders the "Cancel stream" button for the sender', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByRole('button', { name: /cancel stream/i })).toBeInTheDocument()
     })
   })
 
   it('renders the "Duplicate stream" button for the sender', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByRole('button', { name: /duplicate stream/i })).toBeInTheDocument()
     })
   })
 
   it('does not render the "Withdraw" button for the sender', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.queryByRole('button', { name: /^withdraw/i })).not.toBeInTheDocument()
     })
   })
@@ -482,15 +491,15 @@ describe('recipient actions', () => {
   })
 
   it('renders the "Withdraw" button for the recipient with withdrawable balance', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByRole('button', { name: /withdraw/i })).toBeInTheDocument()
     })
   })
 
   it('does not render the "Cancel stream" button for the recipient', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.queryByRole('button', { name: /cancel stream/i })).not.toBeInTheDocument()
     })
   })
@@ -508,8 +517,8 @@ describe('unauthenticated visitor', () => {
   })
 
   it('renders the connect-wallet prompt for unauthenticated visitors', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(
         screen.getByText(/connect your wallet to withdraw, cancel, or interact/i),
       ).toBeInTheDocument()
@@ -517,8 +526,8 @@ describe('unauthenticated visitor', () => {
   })
 
   it('renders the ConnectWalletButton inside the connect prompt', async () => {
-    renderPage('stream-abc')
-    await vi.waitFor(() => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
       expect(screen.getByTestId('connect-wallet-btn')).toBeInTheDocument()
     })
   })

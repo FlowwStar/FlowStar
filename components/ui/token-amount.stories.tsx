@@ -18,21 +18,18 @@ const mockUSDC: TokenInfo = {
   symbol: 'USDC',
   decimals: 6,
   address: 'GBBD47UZQ', // truncated for example
-  issuer: 'GBBD47UZQD',
 }
 
 const mockEUR: TokenInfo = {
   symbol: 'EUR',
   decimals: 2,
   address: 'CEUR5CRBJZ',
-  issuer: 'CEUR5CRBJZTRWZXWV',
 }
 
 const mockWBTC: TokenInfo = {
   symbol: 'WBTC',
   decimals: 8,
   address: 'CWBTC52345',
-  issuer: 'CWBTC52345678901',
 }
 
 export const SmallAmount: Story = {

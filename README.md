@@ -145,7 +145,7 @@ cargo test
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.22+ (matches CI)
 - [Freighter](https://www.freighter.app/) browser extension (set to Testnet)
 
 ### Install & run

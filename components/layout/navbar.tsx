@@ -82,7 +82,7 @@ export function Navbar() {
               <span className="hidden sm:inline">New stream</span>
             </Button>
           ) : (
-            <Button nativeButton={false} asChild variant="ghost" size="sm" className="gap-1.5">
+            <Button asChild variant="ghost" size="sm" className="gap-1.5">
               <Link href="/app/create">
                 <Plus className="size-4" />
                 <span className="hidden sm:inline">New stream</span>
@@ -150,7 +150,8 @@ export function Navbar() {
       <nav className="overflow-x-auto border-t border-border px-4 py-2 md:hidden">
         <div className="flex items-center gap-1">
           {NAV_LINKS.map((link) => {
-            const active = link.href === '/app' ? pathname === '/app' : pathname.startsWith(link.href)
+            const active =
+              link.href === '/app' ? pathname === '/app' : pathname.startsWith(link.href)
             return (
               <Link
                 key={link.href}

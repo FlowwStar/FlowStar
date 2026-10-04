@@ -97,7 +97,10 @@ async function signPayload(secret: string, body: string): Promise<string> {
 function loadWebhooks(): WebhookConfig[] {
   if (typeof window === 'undefined') return []
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]')
+    const hooks: WebhookConfig[] = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]')
+    // Webhooks registered before HMAC signing have no secret; without one,
+    // deliveries would be signed with the literal key "undefined".
+    return hooks.map((h) => (h.secret ? h : { ...h, secret: generateSecret() }))
   } catch {
     return []
   }

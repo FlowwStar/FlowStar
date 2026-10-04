@@ -1,4 +1,4 @@
-# ADR-008: Notification Polling, Dedup, and Per-Wallet Scoping
+# ADR-011: Notification Polling, Dedup, and Per-Wallet Scoping
 
 ## Status
 

@@ -124,19 +124,15 @@ export default function AppError({ error, reset }: Props) {
       <Card className="w-full max-w-2xl border-border">
         <CardHeader>
           <CardTitle className="text-xl">{title}</CardTitle>
-          <CardDescription className="text-sm">
-            {message}
-          </CardDescription>
+          <CardDescription className="text-sm">{message}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={() => reset()}>
-              Try again
-            </Button>
+            <Button onClick={() => reset()}>Try again</Button>
             <Button variant="secondary" onClick={() => router.refresh()}>
               Refresh
             </Button>
-            <Button variant="outline" nativeButton={false} asChild>
+            <Button variant="outline" asChild>
               <Link href="/">Go home</Link>
             </Button>
           </div>

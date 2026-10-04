@@ -29,7 +29,7 @@
  * Following the pattern established in __tests__/pages/app/settings.test.tsx.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { StreamData, TokenInfo } from '@/types/stream'
 
@@ -55,10 +55,10 @@ vi.mock('@/components/providers/network-provider', () => ({
 
 // Stub next/dynamic so AnalyticsCharts renders synchronously in tests
 vi.mock('next/dynamic', () => ({
-  default: (loader: () => Promise<unknown>) => {
+  default: () => {
     // Return the stub immediately (ignores async loading)
-    return function DynamicStub(props: Record<string, unknown>) {
-      return <div data-testid="analytics-charts" data-props={JSON.stringify(props)} />
+    return function DynamicStub() {
+      return <div data-testid="analytics-charts" />
     }
   },
 }))
@@ -85,8 +85,14 @@ vi.mock('@/lib/address-book', () => ({
 }))
 
 vi.mock('next/link', () => ({
-  default: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
-    <a href={href} {...props}>{children}</a>
+  default: ({
+    href,
+    children,
+    ...props
+  }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
   ),
 }))
 
@@ -134,9 +140,16 @@ function defaultStreamsResult(overrides: Partial<{ all: StreamData[]; loading: b
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The page filters by `Date.now()`; pin it to the fixtures' NOW_SEC.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW_SEC * 1000)
 
   mockUseNetwork.mockReturnValue({ network: 'testnet' })
   mockUseStreams.mockReturnValue(defaultStreamsResult())
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 // ─── Loading state (fix #674) ─────────────────────────────────────────────────
@@ -149,7 +162,7 @@ describe('loading state — fix #674', () => {
   it('renders loading skeleton in the Total volume stat card', () => {
     render(<AnalyticsPage />)
     // The skeleton is a <span> with animate-pulse; we find the stat card by title
-    const card = screen.getByText('Total volume streamed').closest('[class*="card"], [class]')!
+    const card = screen.getByText('Total volume streamed').closest('[data-slot="card"]')!
     // When loading, the value cell renders a skeleton span instead of a number
     const skeleton = card?.querySelector('span.animate-pulse')
     expect(skeleton).toBeTruthy()
@@ -157,19 +170,19 @@ describe('loading state — fix #674', () => {
 
   it('renders loading skeleton in the Active streams stat card', () => {
     render(<AnalyticsPage />)
-    const card = screen.getByText('Active streams').closest('[class*="card"], [class]')!
+    const card = screen.getByText('Active streams').closest('[data-slot="card"]')!
     expect(card?.querySelector('span.animate-pulse')).toBeTruthy()
   })
 
   it('renders loading skeleton in the Total streams stat card', () => {
     render(<AnalyticsPage />)
-    const card = screen.getByText('Total streams created').closest('[class*="card"], [class]')!
+    const card = screen.getByText('Total streams created').closest('[data-slot="card"]')!
     expect(card?.querySelector('span.animate-pulse')).toBeTruthy()
   })
 
   it('renders loading skeleton in the Average duration stat card', () => {
     render(<AnalyticsPage />)
-    const card = screen.getByText('Average duration').closest('[class*="card"], [class]')!
+    const card = screen.getByText('Average duration').closest('[data-slot="card"]')!
     expect(card?.querySelector('span.animate-pulse')).toBeTruthy()
   })
 })
@@ -184,9 +197,7 @@ describe('empty dataset (loaded, no streams)', () => {
 
   it('renders the page subheading', () => {
     render(<AnalyticsPage />)
-    expect(
-      screen.getByText(/public signals that highlight traction/i),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/public signals that highlight traction/i)).toBeInTheDocument()
   })
 
   it('renders the "Back to dashboard" link', () => {
