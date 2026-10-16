@@ -77,6 +77,30 @@ Config: `playwright.config.ts`. Test files live under `./e2e`. Runs against
 Chrome, Firefox, Safari (WebKit), and mobile viewports (Pixel 5, iPhone 13) —
 see the `projects` array in the config for the full list.
 
+### Visual baselines (screenshot tests)
+
+`e2e/visual.spec.ts` compares pages against baseline PNGs stored in
+`e2e/__screenshots__/`.
+
+- **CI never regenerates baselines.** If no baseline PNGs are committed yet,
+  CI runs the functional e2e tests with `--ignore-snapshots` and prints a
+  warning instead of failing on missing screenshots. Once baselines are
+  committed, CI compares against them.
+- **Regenerate baselines** when you intentionally change how a page looks
+  (layout, colors, copy that appears in a screenshot) or add a new
+  `toHaveScreenshot` assertion.
+- **How to regenerate:** push your branch, then open **Actions → Update
+  Playwright Snapshots → Run workflow** and enter the branch name (or leave
+  it empty to use the branch selected in the dropdown). The workflow
+  (`.github/workflows/update-snapshots.yml`) builds the app in mock mode, runs
+  `npx playwright test --update-snapshots` on Linux, and commits the changed
+  files under `e2e/__screenshots__/` to that branch.
+- **Don't commit baselines generated locally on Windows or macOS.** Font
+  rendering and anti-aliasing differ between operating systems, so those PNGs
+  won't match what CI renders on Linux and the screenshot tests would fail.
+  `npm run test:e2e:update` is fine for a local check, but discard the
+  resulting changes under `e2e/__screenshots__/` instead of committing them.
+
 ## Contract tests (`cargo test`)
 
 ```bash
