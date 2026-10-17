@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { streamsToCSV } from '@/lib/export'
+import { streamsToCSV, webhookHistoryToCSV } from '@/lib/export'
 import type { StreamData } from '@/types/stream'
 
 const TOKEN = { address: 'CUSDC', symbol: 'USDC', decimals: 7 }
@@ -80,5 +80,73 @@ describe('streamsToCSV', () => {
     const header = csv.split('\n')[0]
     expect(header).toContain('Rate (per day)')
     expect(header).toContain('Rate (per month)')
+  })
+})
+
+interface WebhookDelivery {
+  webhookId: string
+  eventType: string
+  statusCode: number | null
+  deliveredAt: string
+  success: boolean
+}
+
+function makeDelivery(overrides?: Partial<WebhookDelivery>): WebhookDelivery {
+  return {
+    webhookId: 'wh-1',
+    eventType: 'stream.created',
+    statusCode: 200,
+    deliveredAt: '2024-01-01T00:00:00.000Z',
+    success: true,
+    ...overrides,
+  }
+}
+
+describe('webhookHistoryToCSV', () => {
+  it('includes the expected header row', () => {
+    const csv = webhookHistoryToCSV([makeDelivery()])
+    expect(csv.split('\n')[0]).toBe('Webhook ID,Event Type,Status Code,Delivered At,Success')
+  })
+
+  it('generates one row per delivery', () => {
+    const history = [
+      makeDelivery(),
+      makeDelivery({ webhookId: 'wh-2', eventType: 'stream.cancelled', statusCode: 500 }),
+    ]
+    const csv = webhookHistoryToCSV(history)
+    const lines = csv.split('\n').filter(Boolean)
+    expect(lines).toHaveLength(history.length + 1)
+    expect(lines[1]).toContain('wh-1')
+    expect(lines[1]).toContain('stream.created')
+    expect(lines[1]).toContain('200')
+    expect(lines[2]).toContain('wh-2')
+    expect(lines[2]).toContain('stream.cancelled')
+    expect(lines[2]).toContain('500')
+  })
+
+  it('renders a null status code as an empty field', () => {
+    const csv = webhookHistoryToCSV([makeDelivery({ statusCode: null })])
+    const cols = csv.split('\n')[1].split(',')
+    expect(cols[2]).toBe('')
+  })
+
+  it('renders success as true/false', () => {
+    const csv = webhookHistoryToCSV([
+      makeDelivery({ success: true }),
+      makeDelivery({ webhookId: 'wh-2', success: false }),
+    ])
+    const lines = csv.split('\n')
+    expect(lines[1].split(',')[4]).toBe('true')
+    expect(lines[2].split(',')[4]).toBe('false')
+  })
+
+  it('escapes values containing commas', () => {
+    const csv = webhookHistoryToCSV([makeDelivery({ webhookId: 'id,with,commas' })])
+    expect(csv).toContain('"id,with,commas"')
+  })
+
+  it('escapes values containing double quotes', () => {
+    const csv = webhookHistoryToCSV([makeDelivery({ eventType: 'he said "hi"' })])
+    expect(csv).toContain('"he said ""hi"""')
   })
 })
