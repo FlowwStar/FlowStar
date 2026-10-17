@@ -1,3 +1,5 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { streamsToCSV, downloadCSV, downloadJSON } from '@/lib/export'
 import { describe, it, expect } from 'vitest'
 import { streamsToCSV, webhookHistoryToCSV } from '@/lib/export'
 import type { StreamData } from '@/types/stream'
@@ -83,6 +85,101 @@ describe('streamsToCSV', () => {
   })
 })
 
+describe('downloadCSV / downloadJSON', () => {
+  const FAKE_URL = 'blob:fake-object-url'
+  let createObjectURL: ReturnType<typeof vi.fn>
+  let revokeObjectURL: ReturnType<typeof vi.fn>
+  let clickSpy: ReturnType<typeof vi.spyOn>
+  let createdAnchors: HTMLAnchorElement[]
+
+  beforeEach(() => {
+    createObjectURL = vi.fn(() => FAKE_URL)
+    revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL,
+      revokeObjectURL,
+    })
+
+    createdAnchors = []
+    const originalCreateElement = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation(
+      (tagName: string, options?: ElementCreationOptions) => {
+        const el = originalCreateElement(tagName, options)
+        if (tagName.toLowerCase() === 'a') {
+          createdAnchors.push(el as HTMLAnchorElement)
+        }
+        return el
+      },
+    )
+    clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('downloadCSV creates a Blob with the CSV MIME type and content', () => {
+    const csv = 'a,b\n1,2'
+    downloadCSV(csv, 'streams.csv')
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    const blob = createObjectURL.mock.calls[0][0] as Blob
+    expect(blob).toBeInstanceOf(Blob)
+    expect(blob.type).toBe('text/csv;charset=utf-8;')
+    return blob.text().then((text) => {
+      expect(text).toBe(csv)
+    })
+  })
+
+  it('downloadCSV triggers a download with the given filename', () => {
+    downloadCSV('a,b\n1,2', 'my-streams.csv')
+
+    expect(createdAnchors).toHaveLength(1)
+    const anchor = createdAnchors[0]
+    expect(anchor.download).toBe('my-streams.csv')
+    expect(anchor.href).toBe(FAKE_URL)
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('downloadCSV revokes the object URL', () => {
+    downloadCSV('a,b\n1,2', 'streams.csv')
+
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledWith(FAKE_URL)
+  })
+
+  it('downloadJSON creates a Blob with the JSON MIME type and pretty-printed content', () => {
+    const data = { foo: 'bar', nested: { n: 1 } }
+    downloadJSON(data, 'data.json')
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    const blob = createObjectURL.mock.calls[0][0] as Blob
+    expect(blob).toBeInstanceOf(Blob)
+    expect(blob.type).toBe('application/json;charset=utf-8;')
+    return blob.text().then((text) => {
+      expect(text).toBe(JSON.stringify(data, null, 2))
+    })
+  })
+
+  it('downloadJSON triggers a download with the given filename', () => {
+    downloadJSON({ foo: 'bar' }, 'my-data.json')
+
+    expect(createdAnchors).toHaveLength(1)
+    const anchor = createdAnchors[0]
+    expect(anchor.download).toBe('my-data.json')
+    expect(anchor.href).toBe(FAKE_URL)
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('downloadJSON revokes the object URL', () => {
+    downloadJSON({ foo: 'bar' }, 'data.json')
+
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledWith(FAKE_URL)
 interface WebhookDelivery {
   webhookId: string
   eventType: string
