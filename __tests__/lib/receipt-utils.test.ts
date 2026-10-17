@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { buildReceiptData, generateReceiptCSV } from '@/lib/receipt-utils'
+import { buildReceiptData, generateReceiptCSV, generateReceiptHTML } from '@/lib/receipt-utils'
 import type { StreamData } from '@/types/stream'
 
 // ---------------------------------------------------------------------------
@@ -502,5 +502,113 @@ describe('generateReceiptCSV', () => {
       // The Generated line must contain the same value stored in the receipt
       expect(csv).toContain(receipt.generatedDate)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// generateReceiptHTML — HTML escaping (issue #933)
+// ---------------------------------------------------------------------------
+
+describe('generateReceiptHTML — HTML escaping', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(1500 * 1000))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // escapeHtml is not exported, so it is exercised indirectly through
+  // generateReceiptHTML by placing the payload in a stream field.
+
+  it('escapes & to &amp;', () => {
+    const html = generateReceiptHTML(buildReceiptData(makeStream({ id: 'a&b' })))
+    expect(html).toContain('a&amp;b')
+    expect(html).not.toContain('a&b')
+  })
+
+  it('escapes < to &lt;', () => {
+    const html = generateReceiptHTML(buildReceiptData(makeStream({ id: 'a<b' })))
+    expect(html).toContain('a&lt;b')
+  })
+
+  it('escapes > to &gt;', () => {
+    const html = generateReceiptHTML(buildReceiptData(makeStream({ id: 'a>b' })))
+    expect(html).toContain('a&gt;b')
+  })
+
+  it('escapes " to &quot;', () => {
+    const html = generateReceiptHTML(buildReceiptData(makeStream({ id: 'a"b' })))
+    expect(html).toContain('a&quot;b')
+  })
+
+  it("escapes ' to &#x27;", () => {
+    const html = generateReceiptHTML(buildReceiptData(makeStream({ id: "a'b" })))
+    expect(html).toContain('a&#x27;b')
+  })
+
+  it('leaves safe text untouched', () => {
+    const html = generateReceiptHTML(buildReceiptData(makeStream({ id: 'hello world' })))
+    expect(html).toContain('hello world')
+  })
+
+  it('escapes an XSS payload in the stream id', () => {
+    const payload = '<img src=x onerror=alert(1)>'
+    const html = generateReceiptHTML(buildReceiptData(makeStream({ id: payload })))
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
+    expect(html).not.toContain(payload)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// generateReceiptHTML — content (issue #934)
+// ---------------------------------------------------------------------------
+
+describe('generateReceiptHTML', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(1500 * 1000))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function makeReceipt(streamOverrides?: Partial<StreamData>) {
+    return buildReceiptData(makeStream(streamOverrides), 'creation-tx', ['withdraw-tx-1'], 'cancel-tx')
+  }
+
+  it('includes the stream id, parties and token symbol', () => {
+    const html = generateReceiptHTML(makeReceipt())
+    expect(html).toContain('stream-123')
+    expect(html).toContain('GSENDER123')
+    expect(html).toContain('GRECIPIENT456')
+    expect(html).toContain('USDC')
+  })
+
+  it('includes formatted amounts for a 7-decimal token', () => {
+    const html = generateReceiptHTML(makeReceipt())
+    expect(html).toContain('100') // total deposited
+    expect(html).toContain('0') // withdrawn
+    expect(html).toContain('100') // remaining
+  })
+
+  it('formats a non-round amount with token decimals', () => {
+    const html = generateReceiptHTML(makeReceipt({ depositedAmount: 2_500_000_000n }))
+    expect(html).toContain('250')
+  })
+
+  it('renders an active stream with status-active', () => {
+    const html = generateReceiptHTML(makeReceipt())
+    expect(html).toContain('status-active')
+    expect(html).toContain('Active')
+  })
+
+  it('renders a cancelled stream with status-cancelled', () => {
+    const html = generateReceiptHTML(makeReceipt({ cancelled: true }))
+    expect(html).toContain('status-cancelled')
+    expect(html).toContain('Cancelled')
+    expect(html).not.toContain('status-active')
   })
 })
