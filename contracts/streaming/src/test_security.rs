@@ -264,6 +264,56 @@ fn test_auth_recipient_cannot_withdraw_without_delegate_auth_when_delegate_set()
     ctx.client().withdraw(&id, &withdrawable);
 }
 
+/// Non-recipient cannot remove the delegate; only the recipient may.
+#[test]
+#[should_panic]
+fn test_remove_delegate_requires_recipient_auth() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let id = ctx.create_basic_stream(now);
+
+    let delegate = Address::generate(&ctx.env);
+    ctx.client().set_delegate(&id, &delegate);
+
+    ctx.env.mock_auths(&[MockAuth {
+        address: &ctx.attacker,
+        invoke: &MockAuthInvoke {
+            contract: &ctx.contract_id,
+            fn_name: "remove_delegate",
+            args: (id,).into_val(&ctx.env),
+            sub_invokes: &[],
+        },
+    }]);
+    ctx.client().remove_delegate(&id);
+}
+
+/// Recipient can remove the delegate.
+#[test]
+fn test_remove_delegate_by_recipient_succeeds() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let id = ctx.create_basic_stream(now);
+
+    let delegate = Address::generate(&ctx.env);
+    ctx.client().set_delegate(&id, &delegate);
+    assert_eq!(ctx.client().get_delegate(&id), Some(delegate));
+
+    ctx.env.mock_auths(&[MockAuth {
+        address: &ctx.recipient,
+        invoke: &MockAuthInvoke {
+            contract: &ctx.contract_id,
+            fn_name: "remove_delegate",
+            args: (id,).into_val(&ctx.env),
+            sub_invokes: &[],
+        },
+    }]);
+    ctx.client().remove_delegate(&id);
+
+    assert_eq!(ctx.client().get_delegate(&id), None);
+}
+
 /// Attacker cannot withdraw even when a delegate is set.
 #[test]
 #[should_panic]

@@ -184,6 +184,103 @@ fn test_bump_stream_event_emitted() {
     assert_eq!(stream.id, stream_id);
 }
 
+#[test]
+fn test_bump_stream_emits_event() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Advance the ledger so the emitted timestamp is unambiguous.
+    let bump_time = now + 250;
+    t.set_time(bump_time);
+
+    client.bump_stream(&stream_id);
+
+    // Find the StreamBumpedEvent among the emitted contract events.
+    let bumped = t
+        .env
+        .events()
+        .all()
+        .iter()
+        .find_map(|(_, topics, data)| {
+            if topics.len() != 2 {
+                return None;
+            }
+            let topic0 = Symbol::try_from_val(&t.env, &topics.get(0)?).ok()?;
+            if topic0 != Symbol::new(&t.env, "stream_bumped") {
+                return None;
+            }
+            StreamBumpedEvent::try_from_val(&t.env, &data).ok()
+        })
+        .expect("StreamBumpedEvent should be emitted");
+
+    assert_eq!(bumped.stream_id, stream_id);
+    assert_eq!(bumped.timestamp, bump_time);
+}
+
+#[test]
+fn test_bump_stream_works_while_paused() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    client.initialize(&t.sender);
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    client.pause();
+
+    // Intentional: `bump_stream` does not call `require_not_paused` so that
+    // TTL upkeep can continue while the contract is paused. It only extends
+    // storage lifetimes and does not mutate stream state.
+    let bump_time = now + 100;
+    t.set_time(bump_time);
+    client.bump_stream(&stream_id);
+
+    // The bump still emits its event while paused.
+    let bumped = t
+        .env
+        .events()
+        .all()
+        .iter()
+        .find_map(|(_, topics, data)| {
+            if topics.len() != 2 {
+                return None;
+            }
+            let topic0 = Symbol::try_from_val(&t.env, &topics.get(0)?).ok()?;
+            if topic0 != Symbol::new(&t.env, "stream_bumped") {
+                return None;
+            }
+            StreamBumpedEvent::try_from_val(&t.env, &data).ok()
+        })
+        .expect("StreamBumpedEvent should be emitted while paused");
+
+    assert_eq!(bumped.stream_id, stream_id);
+    assert_eq!(bumped.timestamp, bump_time);
+}
+
 // ─── #71: Pause/unpause mechanism ─────────────────────────────────────────────
 
 #[test]
