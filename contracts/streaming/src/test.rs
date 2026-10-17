@@ -1626,6 +1626,39 @@ fn test_remove_delegate() {
 }
 
 #[test]
+fn test_remove_delegate_rejected_while_paused() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Recipient sets a delegate.
+    let delegate = Address::generate(&t.env);
+    client.set_delegate(&stream_id, &delegate);
+    assert_eq!(client.get_delegate(&stream_id), Some(delegate.clone()));
+
+    // Admin pauses the contract.
+    client.pause();
+
+    // remove_delegate must be rejected with the paused error.
+    let result = client.try_remove_delegate(&stream_id);
+    assert_eq!(result, Err(Ok(StreamError::ContractPaused)));
+
+    // The delegate must be unchanged after the failed call.
+    assert_eq!(client.get_delegate(&stream_id), Some(delegate));
+}
+
+#[test]
 fn test_transfer_clears_delegate() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   getUnlockedAmount,
   getWithdrawableAmount,
@@ -12,6 +12,7 @@ import {
   shortenAddress,
   formatTimeRemaining,
   formatDateTime,
+  formatTimeAgo,
 } from '@/lib/stream-utils'
 import type { StreamData } from '@/types/stream'
 
@@ -358,5 +359,111 @@ describe('formatDateTime', () => {
   it('output is consistent — same input always produces same output', () => {
     const ts = 1700000000
     expect(formatDateTime(ts)).toBe(formatDateTime(ts))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatTimeAgo
+// ---------------------------------------------------------------------------
+
+/**
+ * formatTimeAgo compares a millisecond timestamp against Date.now().
+ * We pin the system clock with fake timers so every assertion is deterministic.
+ */
+describe('formatTimeAgo', () => {
+  const NOW = 1_700_000_000_000 // fixed reference point in ms
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function pinNow() {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  }
+
+  it('returns "just now" for a timestamp equal to now', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW)).toBe('just now')
+  })
+
+  it('returns "just now" for a few seconds ago', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 5_000)).toBe('just now')
+  })
+
+  it('boundary: 59s ago is still "just now"', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 59_000)).toBe('just now')
+  })
+
+  it('boundary: 60s ago is "1m ago"', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 60_000)).toBe('1m ago')
+  })
+
+  it('formats minutes', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 5 * 60_000)).toBe('5m ago')
+  })
+
+  it('formats 59 minutes as minutes', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 59 * 60_000)).toBe('59m ago')
+  })
+
+  it('boundary: 1h ago is "1h ago"', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 3_600_000)).toBe('1h ago')
+  })
+
+  it('formats hours', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 5 * 3_600_000)).toBe('5h ago')
+  })
+
+  it('formats 23 hours as hours', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 23 * 3_600_000)).toBe('23h ago')
+  })
+
+  it('boundary: 24h ago is "1d ago"', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 86_400_000)).toBe('1d ago')
+  })
+
+  it('formats days', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 3 * 86_400_000)).toBe('3d ago')
+  })
+
+  it('formats 6 days as days', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 6 * 86_400_000)).toBe('6d ago')
+  })
+
+  it('boundary: 7 days ago falls through to a locale date string', () => {
+    pinNow()
+    const result = formatTimeAgo(NOW - 7 * 86_400_000)
+    expect(result).not.toMatch(/ago/)
+    expect(result).not.toBe('just now')
+    // Should be a date string for the timestamp 7 days before NOW
+    expect(result).toBe(new Date(NOW - 7 * 86_400_000).toLocaleDateString())
+  })
+
+  it('returns a locale date string for timestamps older than 7 days', () => {
+    pinNow()
+    const ts = NOW - 30 * 86_400_000
+    expect(formatTimeAgo(ts)).toBe(new Date(ts).toLocaleDateString())
+  })
+
+  it('returns "just now" for future timestamps', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW + 60_000)).toBe('just now')
+  })
+
+  it('returns "just now" for far-future timestamps', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW + 86_400_000)).toBe('just now')
   })
 })
