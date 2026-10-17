@@ -1,5 +1,17 @@
-import { describe, it, expect } from 'vitest'
-import { explorerUrl, isValidStellarAddress } from '@/lib/stellar'
+import { describe, it, expect, beforeEach } from 'vitest'
+import {
+  explorerUrl,
+  isValidStellarAddress,
+  getCustomTokens,
+  saveCustomToken,
+  getFavoriteTokens,
+  toggleFavoriteToken,
+  isFavoriteToken,
+} from '@/lib/stellar'
+
+beforeEach(() => {
+  localStorage.clear()
+})
 
 describe('isValidStellarAddress', () => {
   it('accepts a valid ed25519 public key', () => {
@@ -162,5 +174,62 @@ describe('explorerUrl', () => {
       expect(url).not.toContain('/testnet/')
       expect(url).toContain('/public/')
     })
+  })
+})
+
+describe('custom token storage', () => {
+  it('returns an empty array when storage is empty', () => {
+    expect(getCustomTokens('testnet')).toEqual([])
+  })
+
+  it('saves a token and reads it back', () => {
+    saveCustomToken('testnet', { address: 'CABC', symbol: 'TKN', decimals: 7 })
+    expect(getCustomTokens('testnet')).toEqual([
+      { address: 'CABC', symbol: 'TKN', decimals: 7 },
+    ])
+  })
+
+  it('does not store duplicates', () => {
+    saveCustomToken('testnet', { address: 'CABC', symbol: 'TKN', decimals: 7 })
+    saveCustomToken('testnet', { address: 'CABC', symbol: 'TKN', decimals: 7 })
+    expect(getCustomTokens('testnet')).toHaveLength(1)
+  })
+
+  it('handles corrupt JSON gracefully', () => {
+    localStorage.setItem('flowstar:custom-tokens:testnet', '{not valid json')
+    expect(() => getCustomTokens('testnet')).not.toThrow()
+    expect(getCustomTokens('testnet')).toEqual([])
+  })
+
+  it('isolates tokens by network', () => {
+    saveCustomToken('testnet', { address: 'CABC', symbol: 'TKN', decimals: 7 })
+    expect(getCustomTokens('mainnet')).toEqual([])
+  })
+})
+
+describe('favorite tokens', () => {
+  it('starts empty and reports no favorites', () => {
+    expect(getFavoriteTokens()).toEqual([])
+    expect(isFavoriteToken('CABC')).toBe(false)
+  })
+
+  it('toggles a token on', () => {
+    toggleFavoriteToken('CABC')
+    expect(isFavoriteToken('CABC')).toBe(true)
+    expect(getFavoriteTokens()).toContain('CABC')
+  })
+
+  it('toggles a token off', () => {
+    toggleFavoriteToken('CABC')
+    toggleFavoriteToken('CABC')
+    expect(isFavoriteToken('CABC')).toBe(false)
+    expect(getFavoriteTokens()).not.toContain('CABC')
+  })
+
+  it('persists favorites across reads', () => {
+    toggleFavoriteToken('CABC')
+    toggleFavoriteToken('CXYZ')
+    expect(getFavoriteTokens()).toEqual(expect.arrayContaining(['CABC', 'CXYZ']))
+    expect(getFavoriteTokens()).toHaveLength(2)
   })
 })
