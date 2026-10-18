@@ -24,6 +24,7 @@ const mockAddWebhook = vi.fn()
 const mockRemoveWebhook = vi.fn()
 const mockToggleWebhook = vi.fn()
 const mockTestWebhook = vi.fn()
+const mockResendDelivery = vi.fn()
 
 const defaultHookState = {
   webhooks: [] as ReturnType<typeof import('@/hooks/use-webhooks').useWebhooks>['webhooks'],
@@ -32,6 +33,7 @@ const defaultHookState = {
   removeWebhook: mockRemoveWebhook,
   toggleWebhook: mockToggleWebhook,
   testWebhook: mockTestWebhook,
+  resendDelivery: mockResendDelivery,
   fireEvent: vi.fn(),
 }
 
@@ -310,5 +312,90 @@ describe('WebhookSettings – delivery history', () => {
     setup()
     // The first 20 status codes are 200–219; the 21st+ (220–224) should not appear
     expect(screen.queryByText('220')).not.toBeInTheDocument()
+  })
+})
+
+// Issue #919: coverage for the resend-delivery action (handleResend in
+// components/webhooks/webhook-settings.tsx).
+describe('WebhookSettings – resend delivery', () => {
+  const FAILED_DELIVERY = {
+    webhookId: 'hook-1',
+    eventType: 'stream.created' as const,
+    statusCode: 500,
+    deliveredAt: Date.now(),
+    success: false,
+    payload: {
+      schema_version: 1,
+      event: 'stream.created' as const,
+      timestamp: new Date().toISOString(),
+      data: {},
+    },
+  }
+
+  const SUCCEEDED_DELIVERY = {
+    webhookId: 'hook-1',
+    eventType: 'stream.created' as const,
+    statusCode: 200,
+    deliveredAt: Date.now(),
+    success: true,
+    payload: {
+      schema_version: 1,
+      event: 'stream.created' as const,
+      timestamp: new Date().toISOString(),
+      data: {},
+    },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('only shows the resend action for failed deliveries', () => {
+    mockUseWebhooks.mockReturnValue({
+      ...defaultHookState,
+      history: [FAILED_DELIVERY, SUCCEEDED_DELIVERY],
+    })
+    setup()
+    expect(screen.getAllByLabelText('Resend delivery')).toHaveLength(1)
+  })
+
+  it('calls resendDelivery with the delivery when resend is clicked', async () => {
+    mockResendDelivery.mockResolvedValue(true)
+    mockUseWebhooks.mockReturnValue({ ...defaultHookState, history: [FAILED_DELIVERY] })
+    setup()
+    fireEvent.click(screen.getByLabelText('Resend delivery'))
+    await waitFor(() => expect(mockResendDelivery).toHaveBeenCalledWith(FAILED_DELIVERY))
+  })
+
+  it('shows a success toast when the resend succeeds', async () => {
+    const { toast } = await import('sonner')
+    mockResendDelivery.mockResolvedValue(true)
+    mockUseWebhooks.mockReturnValue({ ...defaultHookState, history: [FAILED_DELIVERY] })
+    setup()
+    fireEvent.click(screen.getByLabelText('Resend delivery'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Delivery resent successfully'),
+    )
+  })
+
+  it('shows an error toast when the resend fails', async () => {
+    const { toast } = await import('sonner')
+    mockResendDelivery.mockResolvedValue(false)
+    mockUseWebhooks.mockReturnValue({ ...defaultHookState, history: [FAILED_DELIVERY] })
+    setup()
+    fireEvent.click(screen.getByLabelText('Resend delivery'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Resend failed', expect.any(Object)),
+    )
+  })
+
+  it('disables the resend button while the resend is in flight', async () => {
+    // Never resolves so the button stays disabled
+    mockResendDelivery.mockReturnValue(new Promise(() => {}))
+    mockUseWebhooks.mockReturnValue({ ...defaultHookState, history: [FAILED_DELIVERY] })
+    setup()
+    const resendBtn = screen.getByLabelText('Resend delivery')
+    fireEvent.click(resendBtn)
+    await waitFor(() => expect(resendBtn).toBeDisabled())
   })
 })
