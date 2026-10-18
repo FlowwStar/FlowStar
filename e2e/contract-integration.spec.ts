@@ -1,6 +1,9 @@
 import { test, expect, type Page } from '@playwright/test'
 
 // ─── Shared helper: inject xBull mock so the wallet-gated stream detail page renders ─
+// The create form is wrapped in `RequireWallet`, so without a connected
+// wallet it only renders a connect prompt instead of the real form fields.
+// Mirrors the helper used in e2e/accessibility.spec.ts.
 async function withWallet(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem('walletId', 'xbull')
@@ -47,7 +50,7 @@ test.describe('Contract Integration Tests', () => {
 
     test('should display back button on stream detail page', async ({ page }) => {
       await page.goto('/app/stream/test-id')
-      const backBtn = page.locator('text=Dashboard')
+      const backBtn = page.getByRole('main').getByRole('link', { name: 'Dashboard' })
       await expect(backBtn).toBeVisible()
     })
 
@@ -61,6 +64,7 @@ test.describe('Contract Integration Tests', () => {
 
   test.describe('Create Stream Form Validation', () => {
     test('should show create form with recipient field', async ({ page }) => {
+      await withWallet(page)
       await page.goto('/app/create')
       // Look for input fields typical of a stream creation form
       const inputs = page.locator('input[type="text"], input[type="number"]')
@@ -69,7 +73,7 @@ test.describe('Contract Integration Tests', () => {
 
     test('should validate recipient address format', async ({ page }) => {
       await page.goto('/app/create')
-      const recipientInput = page.locator('input[placeholder*="Recipient"]').or(page.locator('input[placeholder*="recipient"')).first()
+      const recipientInput = page.getByPlaceholder(/recipient/i).first()
 
       if (await recipientInput.isVisible()) {
         await recipientInput.fill('invalid-address')
@@ -82,6 +86,7 @@ test.describe('Contract Integration Tests', () => {
     })
 
     test('should handle token selection', async ({ page }) => {
+      await withWallet(page)
       await page.goto('/app/create')
       const tokenInputs = page.locator('input, button').filter({ hasText: /XLM|USDC|token/ })
       // At least one token selector should be visible
@@ -222,6 +227,7 @@ test.describe('Contract Integration Tests', () => {
     })
 
     test('should have accessible form labels', async ({ page }) => {
+      await withWallet(page)
       await page.goto('/app/create')
       const labels = page.locator('label')
       const count = await labels.count()
