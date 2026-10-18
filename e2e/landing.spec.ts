@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 test.describe('Landing page', () => {
   test('renders hero and navigates to app', async ({ page }) => {
     await page.goto('/')
-    await expect(page.locator('text=FlowStar')).toBeVisible()
+    await expect(page.getByRole('banner').getByText('FlowStar', { exact: true })).toBeVisible()
     await expect(page.locator('text=Open app').first()).toBeVisible()
 
     await page.locator('text=Open app').first().click()
