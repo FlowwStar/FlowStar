@@ -1,5 +1,7 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { streamsToCSV, downloadCSV, downloadJSON } from '@/lib/export'
 import { describe, it, expect } from 'vitest'
-import { streamsToCSV } from '@/lib/export'
+import { streamsToCSV, webhookHistoryToCSV } from '@/lib/export'
 import type { StreamData } from '@/types/stream'
 
 const TOKEN = { address: 'CUSDC', symbol: 'USDC', decimals: 7 }
@@ -80,5 +82,168 @@ describe('streamsToCSV', () => {
     const header = csv.split('\n')[0]
     expect(header).toContain('Rate (per day)')
     expect(header).toContain('Rate (per month)')
+  })
+})
+
+describe('downloadCSV / downloadJSON', () => {
+  const FAKE_URL = 'blob:fake-object-url'
+  let createObjectURL: ReturnType<typeof vi.fn>
+  let revokeObjectURL: ReturnType<typeof vi.fn>
+  let clickSpy: ReturnType<typeof vi.spyOn>
+  let createdAnchors: HTMLAnchorElement[]
+
+  beforeEach(() => {
+    createObjectURL = vi.fn(() => FAKE_URL)
+    revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL,
+      revokeObjectURL,
+    })
+
+    createdAnchors = []
+    const originalCreateElement = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation(
+      (tagName: string, options?: ElementCreationOptions) => {
+        const el = originalCreateElement(tagName, options)
+        if (tagName.toLowerCase() === 'a') {
+          createdAnchors.push(el as HTMLAnchorElement)
+        }
+        return el
+      },
+    )
+    clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  it('downloadCSV creates a Blob with the CSV MIME type and content', () => {
+    const csv = 'a,b\n1,2'
+    downloadCSV(csv, 'streams.csv')
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    const blob = createObjectURL.mock.calls[0][0] as Blob
+    expect(blob).toBeInstanceOf(Blob)
+    expect(blob.type).toBe('text/csv;charset=utf-8;')
+    return blob.text().then((text) => {
+      expect(text).toBe(csv)
+    })
+  })
+
+  it('downloadCSV triggers a download with the given filename', () => {
+    downloadCSV('a,b\n1,2', 'my-streams.csv')
+
+    expect(createdAnchors).toHaveLength(1)
+    const anchor = createdAnchors[0]
+    expect(anchor.download).toBe('my-streams.csv')
+    expect(anchor.href).toBe(FAKE_URL)
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('downloadCSV revokes the object URL', () => {
+    downloadCSV('a,b\n1,2', 'streams.csv')
+
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledWith(FAKE_URL)
+  })
+
+  it('downloadJSON creates a Blob with the JSON MIME type and pretty-printed content', () => {
+    const data = { foo: 'bar', nested: { n: 1 } }
+    downloadJSON(data, 'data.json')
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    const blob = createObjectURL.mock.calls[0][0] as Blob
+    expect(blob).toBeInstanceOf(Blob)
+    expect(blob.type).toBe('application/json;charset=utf-8;')
+    return blob.text().then((text) => {
+      expect(text).toBe(JSON.stringify(data, null, 2))
+    })
+  })
+
+  it('downloadJSON triggers a download with the given filename', () => {
+    downloadJSON({ foo: 'bar' }, 'my-data.json')
+
+    expect(createdAnchors).toHaveLength(1)
+    const anchor = createdAnchors[0]
+    expect(anchor.download).toBe('my-data.json')
+    expect(anchor.href).toBe(FAKE_URL)
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('downloadJSON revokes the object URL', () => {
+    downloadJSON({ foo: 'bar' }, 'data.json')
+
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledWith(FAKE_URL)
+interface WebhookDelivery {
+  webhookId: string
+  eventType: string
+  statusCode: number | null
+  deliveredAt: string
+  success: boolean
+}
+
+function makeDelivery(overrides?: Partial<WebhookDelivery>): WebhookDelivery {
+  return {
+    webhookId: 'wh-1',
+    eventType: 'stream.created',
+    statusCode: 200,
+    deliveredAt: '2024-01-01T00:00:00.000Z',
+    success: true,
+    ...overrides,
+  }
+}
+
+describe('webhookHistoryToCSV', () => {
+  it('includes the expected header row', () => {
+    const csv = webhookHistoryToCSV([makeDelivery()])
+    expect(csv.split('\n')[0]).toBe('Webhook ID,Event Type,Status Code,Delivered At,Success')
+  })
+
+  it('generates one row per delivery', () => {
+    const history = [
+      makeDelivery(),
+      makeDelivery({ webhookId: 'wh-2', eventType: 'stream.cancelled', statusCode: 500 }),
+    ]
+    const csv = webhookHistoryToCSV(history)
+    const lines = csv.split('\n').filter(Boolean)
+    expect(lines).toHaveLength(history.length + 1)
+    expect(lines[1]).toContain('wh-1')
+    expect(lines[1]).toContain('stream.created')
+    expect(lines[1]).toContain('200')
+    expect(lines[2]).toContain('wh-2')
+    expect(lines[2]).toContain('stream.cancelled')
+    expect(lines[2]).toContain('500')
+  })
+
+  it('renders a null status code as an empty field', () => {
+    const csv = webhookHistoryToCSV([makeDelivery({ statusCode: null })])
+    const cols = csv.split('\n')[1].split(',')
+    expect(cols[2]).toBe('')
+  })
+
+  it('renders success as true/false', () => {
+    const csv = webhookHistoryToCSV([
+      makeDelivery({ success: true }),
+      makeDelivery({ webhookId: 'wh-2', success: false }),
+    ])
+    const lines = csv.split('\n')
+    expect(lines[1].split(',')[4]).toBe('true')
+    expect(lines[2].split(',')[4]).toBe('false')
+  })
+
+  it('escapes values containing commas', () => {
+    const csv = webhookHistoryToCSV([makeDelivery({ webhookId: 'id,with,commas' })])
+    expect(csv).toContain('"id,with,commas"')
+  })
+
+  it('escapes values containing double quotes', () => {
+    const csv = webhookHistoryToCSV([makeDelivery({ eventType: 'he said "hi"' })])
+    expect(csv).toContain('"he said ""hi"""')
   })
 })

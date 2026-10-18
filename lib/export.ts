@@ -95,7 +95,7 @@ export function downloadCSV(csv: string, filename: string): void {
 
 /** Download a JSON-serializable value as a `.json` file in the browser. */
 export function downloadJSON(data: unknown, filename: string): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8;' })
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

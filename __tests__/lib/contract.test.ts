@@ -8,10 +8,21 @@ import {
   fetchStream,
   fetchStreamsForAddress,
   fetchArchivedSentStreamIds,
+  getTokenMetadata,
   simulateCreateStreamPreview,
   withdrawFromStream,
 } from '@/lib/contract'
 import type { CreateStreamInput } from '@/types/stream'
+import { getServer } from '@/lib/stellar'
+import { nativeToScVal } from '@stellar/stellar-sdk'
+
+vi.mock('@/lib/stellar', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/stellar')>()
+  return {
+    ...actual,
+    getServer: vi.fn(),
+  }
+})
 
 const sender = 'GTEST-SENDER'
 const recipient = 'GTEST-RECIPIENT'
@@ -97,5 +108,62 @@ describe('contract mock mode', () => {
     await cancelPromise
 
     await expect(fetchArchivedSentStreamIds('testnet', sender)).resolves.toContain(id)
+  })
+})
+
+describe('getTokenMetadata', () => {
+  const tokenAddress = NETWORKS.testnet.knownTokens[0]
+
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET', '')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.clearAllMocks()
+  })
+
+  it('returns mock metadata without network calls when no contract ID is configured', async () => {
+    const metadata = await getTokenMetadata('testnet', tokenAddress)
+
+    expect(metadata).toMatchObject({
+      address: tokenAddress,
+      name: expect.any(String),
+      symbol: expect.any(String),
+      decimals: expect.any(Number),
+    })
+    expect(getServer).not.toHaveBeenCalled()
+  })
+
+  it('maps a successful simulation retval to token metadata', async () => {
+    vi.stubEnv('NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET', 'CTEST-CONTRACT')
+
+    const simulateTransaction = vi.fn().mockResolvedValue({
+      result: { retval: nativeToScVal({ name: 'Test Token', symbol: 'TST', decimals: 7 }) },
+    })
+    const getAccount = vi.fn().mockResolvedValue({ accountId: sender, sequenceNumber: () => '1' })
+    vi.mocked(getServer).mockReturnValue({ getAccount, simulateTransaction } as never)
+
+    const metadata = await getTokenMetadata('testnet', tokenAddress)
+
+    expect(simulateTransaction).toHaveBeenCalledTimes(1)
+    expect(metadata).toMatchObject({
+      address: tokenAddress,
+      name: 'Test Token',
+      symbol: 'TST',
+      decimals: 7,
+    })
+  })
+
+  it('returns a sensible error when simulation fails', async () => {
+    vi.stubEnv('NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET', 'CTEST-CONTRACT')
+
+    const simulateTransaction = vi.fn().mockResolvedValue({
+      error: 'HostError: contract trapped',
+    })
+    const getAccount = vi.fn().mockResolvedValue({ accountId: sender, sequenceNumber: () => '1' })
+    vi.mocked(getServer).mockReturnValue({ getAccount, simulateTransaction } as never)
+
+    await expect(getTokenMetadata('testnet', tokenAddress)).rejects.toThrow(/Simulation failed/i)
   })
 })

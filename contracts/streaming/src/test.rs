@@ -1553,12 +1553,34 @@ fn test_remove_delegate_is_safe_noop_when_never_set() {
     );
     let stream_id = client.create_stream(&t.sender, &params);
 
+    // No delegate was ever set on this stream.
     assert_eq!(client.get_delegate(&stream_id), None);
 
+    // Removing a delegate that was never set must succeed as a no-op.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         client.remove_delegate(&stream_id);
     }));
     assert!(result.is_ok(), "remove_delegate should be a safe no-op");
+
+    // A DelegateRemovedEvent must still be emitted for the stream/recipient.
+    let events = t.env.events().all();
+    let mut found = false;
+    for (contract, topics, data) in events.iter() {
+        if contract != t.contract_id {
+            continue;
+        }
+        let topic: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
+        if topic != Ok(symbol_short!("delegate_removed")) {
+            continue;
+        }
+        let event: DelegateRemovedEvent = data.try_into_val(&t.env).unwrap();
+        assert_eq!(event.stream_id, stream_id);
+        assert_eq!(event.recipient, t.recipient);
+        found = true;
+    }
+    assert!(found, "DelegateRemovedEvent must be emitted");
+
+    // Delegate must remain unset.
     assert_eq!(client.get_delegate(&stream_id), None);
 }
 
