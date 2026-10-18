@@ -71,6 +71,8 @@ export const batchCreateCopy = {
 
   rowValidation: {
     invalidRecipient: "Invalid recipient address",
+    invalidRecipientChecksum:
+      "Invalid recipient address checksum — check for a mistyped character",
     invalidAmount: "Invalid amount",
     invalidStartTime: "Invalid start_time",
     invalidEndTime: "Invalid end_time",

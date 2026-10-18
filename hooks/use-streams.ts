@@ -198,6 +198,17 @@ export function useStreams(options?: UseStreamsOptions): CategorizedStreams {
     fetch()
   }, [fetch])
 
+  // Issue #142: abort whatever request is still in flight when this hook
+  // instance unmounts (or `fetch` is about to be replaced because address/
+  // network changed), rather than only aborting on the *next* fetch call.
+  // Without this, a slow response can land after unmount and still call
+  // setState on a component that's gone.
+  useEffect(() => {
+    return () => {
+      abortCtrlRef.current?.abort()
+    }
+  }, [fetch])
+
   // Re-fetch when a write invalidates the cache
   useInvalidation(fetch)
 
@@ -356,6 +367,15 @@ export function useStream(id: string): {
 
   useEffect(() => {
     fetch()
+  }, [fetch])
+
+  // Issue #142: abort any in-flight request on unmount/id change instead of
+  // only on the next fetch call, so a late response can't update state after
+  // this hook instance is gone.
+  useEffect(() => {
+    return () => {
+      abortCtrlRef.current?.abort()
+    }
   }, [fetch])
 
   useInvalidation(fetch)

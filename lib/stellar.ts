@@ -38,6 +38,42 @@ export function isValidStellarAddress(address: string): boolean {
 }
 
 /**
+ * Matches the shape of a Stellar Ed25519 public key (`G` + 55 base32
+ * characters) without verifying the embedded CRC-16 checksum. Used by
+ * {@link validateStellarAddress} to tell a near-miss (right shape, wrong
+ * checksum — e.g. a single mistyped character) apart from a value that
+ * isn't even trying to be a G-address.
+ */
+const ED25519_SHAPE_RE = /^G[A-Z2-7]{55}$/
+
+/**
+ * Result of {@link validateStellarAddress}.
+ *
+ * - `reason: 'checksum'` — the value has the correct length, prefix, and
+ *   base32 alphabet of a Stellar Ed25519 address, but the CRC-16 checksum
+ *   encoded in its last two bytes doesn't match (a classic single-typo
+ *   near-miss).
+ * - `reason: 'format'` — the value doesn't even match the basic shape of a
+ *   Stellar G-address (wrong prefix, wrong length, or invalid characters).
+ */
+export type StellarAddressValidation =
+  | { valid: true }
+  | { valid: false; reason: 'checksum' | 'format' }
+
+/**
+ * Validates `address` as a Stellar Ed25519 public key and, when invalid,
+ * distinguishes a bad checksum (right shape, mistyped character) from a
+ * value that is the wrong shape entirely. This lets callers show a more
+ * actionable error than a single generic "invalid address" message.
+ */
+export function validateStellarAddress(address: string): StellarAddressValidation {
+  const trimmed = address.trim()
+  if (StrKey.isValidEd25519PublicKey(trimmed)) return { valid: true }
+  if (ED25519_SHAPE_RE.test(trimmed)) return { valid: false, reason: 'checksum' }
+  return { valid: false, reason: 'format' }
+}
+
+/**
  * Static per-network configuration map (RPC endpoints, Horizon URLs, network
  * passphrases, and built-in known tokens). Does **not** include the streaming
  * contract ID — call {@link getNetworkConfig} to get a complete

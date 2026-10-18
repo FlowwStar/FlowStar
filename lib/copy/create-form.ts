@@ -154,6 +154,8 @@ export const createFormCopy = {
     federationLookupFailed: 'Federation lookup failed',
     federationDidNotResolve: 'Federation address did not resolve to a valid Stellar account',
     invalidAddressFormat: 'Invalid Stellar address format',
+    invalidAddressChecksum:
+      'Invalid checksum — double-check this address for a mistyped character',
     acknowledgeRecipientWarning: 'Please acknowledge the warning about this recipient address',
     invalidAmount: 'Enter a valid amount greater than 0',
     amountExceedsBalance: (balance: string, symbol: string) =>
