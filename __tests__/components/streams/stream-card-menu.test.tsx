@@ -30,6 +30,7 @@ vi.mock('sonner', () => ({ toast: { success: toastSuccess } }))
 
 const hidden = vi.hoisted(() => ({
   blocked: new Set<string>(),
+  pinned: new Set<string>(),
   hideStream: vi.fn(),
   unhideStream: vi.fn(),
   blockSender: vi.fn(),
@@ -41,7 +42,7 @@ const hidden = vi.hoisted(() => ({
 vi.mock('@/hooks/use-hidden-streams', () => ({
   useHiddenStreams: () => ({
     isBlocked: (address: string) => hidden.blocked.has(address),
-    isPinned: () => false,
+    isPinned: (id: string) => hidden.pinned.has(id),
     hideStream: hidden.hideStream,
     unhideStream: hidden.unhideStream,
     blockSender: hidden.blockSender,
@@ -81,6 +82,7 @@ function openMenu(id = 'stream-abc') {
 beforeEach(() => {
   vi.clearAllMocks()
   hidden.blocked.clear()
+  hidden.pinned.clear()
 })
 
 describe('StreamCard — hide/block menu visibility', () => {
@@ -162,5 +164,32 @@ describe('StreamCard — block/unblock sender', () => {
     expect(hidden.unhideStream).not.toHaveBeenCalled()
     expect(hidden.hideStream).not.toHaveBeenCalled()
     expect(toastSuccess).toHaveBeenCalledWith('Sender unblocked')
+  })
+})
+
+// Issue #916: coverage for the pin/unpin action (handlePinToggle in
+// components/streams/stream-card.tsx).
+describe('StreamCard — pin/unpin', () => {
+  it('"Pin to top" calls pinStream and shows a pinned toast', () => {
+    render(<StreamCard stream={makeStream()} />)
+    openMenu()
+    expect(screen.getByText('Pin to top')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Pin to top'))
+
+    expect(hidden.pinStream).toHaveBeenCalledWith('stream-abc')
+    expect(hidden.unpinStream).not.toHaveBeenCalled()
+    expect(toastSuccess).toHaveBeenCalledWith('Stream pinned to top')
+  })
+
+  it('shows "Unpin stream" for a pinned card and calls unpinStream', () => {
+    hidden.pinned.add('stream-abc')
+    render(<StreamCard stream={makeStream()} />)
+    openMenu()
+    expect(screen.queryByText('Pin to top')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByText('Unpin stream'))
+
+    expect(hidden.unpinStream).toHaveBeenCalledWith('stream-abc')
+    expect(hidden.pinStream).not.toHaveBeenCalled()
+    expect(toastSuccess).toHaveBeenCalledWith('Stream unpinned')
   })
 })
