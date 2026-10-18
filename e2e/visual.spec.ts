@@ -85,7 +85,9 @@ test.describe("Dashboard visual states", () => {
   test("dashboard connected with streams", async ({ page }) => {
     await preparePage(page, { theme: "light", connect: true });
     await page.goto("/app");
-    await expect(page.locator("text=Dashboard")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Dashboard", level: 1 }),
+    ).toBeVisible();
     await expect(page.locator("text=New stream")).toBeVisible();
     await expect(page).toHaveScreenshot("dashboard-with-streams.png", {
       fullPage: true,
@@ -95,7 +97,9 @@ test.describe("Dashboard visual states", () => {
   test("dashboard tabs: receiving and sent", async ({ page }) => {
     await preparePage(page, { theme: "light", connect: true });
     await page.goto("/app");
-    await expect(page.locator("text=Dashboard")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Dashboard", level: 1 }),
+    ).toBeVisible();
 
     await page.locator('button:has-text("Receiving")').first().click();
     await expect(page.locator("text=Receiving")).toBeVisible();
@@ -131,8 +135,8 @@ test.describe("Create stream form", () => {
     await page.click('button:has-text("Create stream")');
     await expect(
       page
-        .locator("text=Review transaction")
-        .or(page.locator("text=Create stream")),
+        .getByRole("heading", { name: "Transaction Preview" })
+        .or(page.getByRole("button", { name: "Create stream" })),
     ).toBeVisible();
     await expect(page).toHaveScreenshot("create-stream-filled.png", {
       fullPage: true,
@@ -252,7 +256,9 @@ test.describe("Wallet and modal dialogs", () => {
     await preparePage(page, { theme: "light", connect: true });
     await page.goto("/app/stream/1");
     await page.locator('button:has-text("Cancel")').first().click();
-    await expect(page.locator("text=Cancel stream")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Cancel stream" }),
+    ).toBeVisible();
     await expect(page).toHaveScreenshot("cancel-dialog.png", {
       fullPage: true,
     });
