@@ -87,8 +87,9 @@ test.describe('Axe automated scans', () => {
   test('stream-detail page passes axe wcag2a/2aa', async ({ page }) => {
     await withWallet(page)
     await page.goto('/app/stream/test-id')
-    // wait for any async content to settle
-    await page.waitForLoadState('networkidle')
+    // The stream detail page polls, so the network never goes idle — wait for
+    // the loading skeleton to disappear instead of waitForLoadState('networkidle').
+    await page.waitForSelector('div.space-y-6.animate-pulse', { state: 'detached' })
     await checkA11y(page)
   })
 
@@ -116,7 +117,9 @@ test.describe('Cancel-stream dialog — keyboard & focus', () => {
   test.beforeEach(async ({ page }) => {
     await withWallet(page)
     await page.goto('/app/stream/1')
-    await page.waitForLoadState('networkidle')
+    // The stream detail page polls, so the network never goes idle — wait for
+    // the loading skeleton to disappear instead of waitForLoadState('networkidle').
+    await page.waitForSelector('div.space-y-6.animate-pulse', { state: 'detached' })
   })
 
   test('Cancel button opens dialog; dialog has role=dialog and aria-modal', async ({ page }) => {
@@ -339,7 +342,9 @@ test.describe('Fee-estimate dialog — keyboard & focus', () => {
   test.beforeEach(async ({ page }) => {
     await withWallet(page)
     await page.goto('/app/stream/1')
-    await page.waitForLoadState('networkidle')
+    // The stream detail page polls, so the network never goes idle — wait for
+    // the loading skeleton to disappear instead of waitForLoadState('networkidle').
+    await page.waitForSelector('div.space-y-6.animate-pulse', { state: 'detached' })
   })
 
   async function openFeeDialog(page: Page): Promise<boolean> {

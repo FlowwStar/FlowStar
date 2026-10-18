@@ -56,7 +56,7 @@ test.describe('Contract Integration Tests', () => {
 
     test('should validate recipient address format', async ({ page }) => {
       await page.goto('/app/create')
-      const recipientInput = page.locator('input[placeholder*="Recipient"]').or(page.locator('input[placeholder*="recipient"')).first()
+      const recipientInput = page.getByPlaceholder(/recipient/i).first()
 
       if (await recipientInput.isVisible()) {
         await recipientInput.fill('invalid-address')
