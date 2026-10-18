@@ -55,7 +55,14 @@ jobs:
       - run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium firefox webkit
+        # PRs only need chromium for the chromium-desktop project; pushes to
+        # main run the full cross-browser matrix.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            npx playwright install --with-deps chromium
+          else
+            npx playwright install --with-deps chromium firefox webkit
+          fi
 
       - name: Build app in mock mode
         run: npm run build
@@ -68,12 +75,20 @@ jobs:
         # workflow (workflow_dispatch). Until they are committed, run the
         # functional e2e tests and skip screenshot assertions instead of
         # silently regenerating (and so never actually comparing) them.
+        # PRs only run chromium-desktop for fast feedback; pushes to main
+        # keep running the full browser/device project matrix.
         run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            PROJECT_ARGS="--project=chromium-desktop"
+          else
+            PROJECT_ARGS=""
+          fi
+
           if find e2e/__screenshots__ -name '*.png' | grep -q .; then
-            npx playwright test
+            npx playwright test $PROJECT_ARGS
           else
             echo "::warning::No visual baselines committed; skipping screenshot assertions."
-            npx playwright test --ignore-snapshots
+            npx playwright test --ignore-snapshots $PROJECT_ARGS
           fi
         env:
           NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ''

@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 
+// ─── Shared helper: inject xBull mock so the wallet-gated stream detail page renders ─
 // The create form is wrapped in `RequireWallet`, so without a connected
 // wallet it only renders a connect prompt instead of the real form fields.
 // Mirrors the helper used in e2e/accessibility.spec.ts.
@@ -54,9 +55,9 @@ test.describe('Contract Integration Tests', () => {
     })
 
     test('should display share buttons on stream detail', async ({ page }) => {
-      await page.goto('/app/stream/test-id')
-      const shareBtn = page.locator('button:has-text("Share")')
-      // Should be clickable even if stream doesn't exist
+      await withWallet(page)
+      await page.goto('/app/stream/1')
+      const shareBtn = page.getByRole('button', { name: 'Share stream' })
       await expect(shareBtn).toBeVisible()
     })
   })
