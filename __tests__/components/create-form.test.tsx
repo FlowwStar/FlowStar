@@ -32,11 +32,25 @@ vi.mock('@/hooks/use-form-draft', () => ({
 }))
 
 // ─── Stellar / contract lib ───────────────────────────────────────────────────
-vi.mock('@/lib/stellar', () => ({
-  getAllTokens: () => [{ address: 'CNATIVE', symbol: 'XLM', decimals: 7 }],
-  saveCustomToken: vi.fn(),
-  checkAccountInfo: vi.fn().mockResolvedValue({ exists: true, funded: true, transactionCount: 1 }),
-}))
+vi.mock('@/lib/stellar', async () => {
+  const { StrKey } = await import('@stellar/stellar-sdk')
+  const ED25519_SHAPE_RE = /^G[A-Z2-7]{55}$/
+  return {
+    getAllTokens: () => [{ address: 'CNATIVE', symbol: 'XLM', decimals: 7 }],
+    saveCustomToken: vi.fn(),
+    checkAccountInfo: vi
+      .fn()
+      .mockResolvedValue({ exists: true, funded: true, transactionCount: 1 }),
+    // Mirrors the real lib/stellar.ts implementation (issue #143) so tests
+    // exercise the same valid/format/checksum classification.
+    validateStellarAddress: (address: string) => {
+      const trimmed = address.trim()
+      if (StrKey.isValidEd25519PublicKey(trimmed)) return { valid: true }
+      if (ED25519_SHAPE_RE.test(trimmed)) return { valid: false, reason: 'checksum' }
+      return { valid: false, reason: 'format' }
+    },
+  }
+})
 
 vi.mock('@/lib/contract', () => ({
   getTokenMetadata: vi.fn(),
@@ -132,6 +146,27 @@ describe('CreateForm — validation', () => {
 
       // No amount error should be present
       expect(screen.queryByText('Enter a valid amount greater than 0')).not.toBeInTheDocument()
+    })
+
+    it('shows a checksum-specific error for a near-miss recipient (issue #143)', async () => {
+      render(<CreateForm />)
+
+      // Same length/prefix/alphabet as a real G-address, but not
+      // checksum-valid — e.g. a single mistyped character.
+      fireEvent.change(screen.getByPlaceholderText(/GABC/i), {
+        target: { value: 'G' + 'A'.repeat(55) },
+      })
+      fireEvent.change(screen.getByLabelText(/total amount/i), {
+        target: { value: '100' },
+      })
+
+      submitForm()
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Invalid checksum — double-check this address for a mistyped character'),
+        ).toBeInTheDocument()
+      })
     })
   })
 

@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/select'
 import { useContract } from '@/hooks/use-contract'
 import { useWallet } from '@/hooks/use-wallet'
-import { getAllTokens, saveCustomToken, checkAccountInfo } from '@/lib/stellar'
+import { getAllTokens, saveCustomToken, checkAccountInfo, validateStellarAddress } from '@/lib/stellar'
 import { getTokenMetadata, getTokenBalance } from '@/lib/contract'
 import { parseTokenAmount, formatTokenAmount } from '@/lib/stream-utils'
 import { StreamPreview } from '@/components/streams/stream-preview'
@@ -442,14 +442,23 @@ export function CreateForm() {
       newErrors.recipient = copy.errors.federationResolving
     } else if (federationStatus === 'error') {
       newErrors.recipient = federationError ?? copy.errors.federationLookupFailed
-    } else if (
-      // Issue #28: use StrKey for proper Stellar address validation
-      !form.recipient.trim() ||
-      !StrKey.isValidEd25519PublicKey(form.recipient.trim())
-    ) {
+    } else if (!form.recipient.trim()) {
       newErrors.recipient = isFederationAddress(recipientInput.trim())
         ? copy.errors.federationDidNotResolve
         : copy.errors.invalidAddressFormat
+    } else {
+      // Issue #28/#143: use StrKey for proper Stellar address validation,
+      // and surface a checksum-specific message for near-miss typos.
+      const addressCheck = validateStellarAddress(form.recipient.trim())
+      if (!addressCheck.valid) {
+        if (isFederationAddress(recipientInput.trim())) {
+          newErrors.recipient = copy.errors.federationDidNotResolve
+        } else if (addressCheck.reason === 'checksum') {
+          newErrors.recipient = copy.errors.invalidAddressChecksum
+        } else {
+          newErrors.recipient = copy.errors.invalidAddressFormat
+        }
+      }
     }
     // Issue #103: require warning acknowledgment for unfunded accounts
     if (recipientAccountInfo && !recipientAccountInfo.exists && !recipientWarningAcknowledged) {

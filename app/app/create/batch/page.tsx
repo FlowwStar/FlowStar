@@ -20,7 +20,7 @@ import { useNetwork } from '@/components/providers/network-provider'
 import { parseTokenAmount, formatDateTime } from '@/lib/stream-utils'
 import { parseCsvBatch, parseDuration, resolveCliffTime, type CsvBatchRow } from '@/lib/csv-parser'
 import { downloadCSV } from '@/lib/export'
-import { isValidStellarAddress } from '@/lib/stellar'
+import { validateStellarAddress } from '@/lib/stellar'
 import { batchCreateCopy } from '@/lib/copy/batch-create'
 import type { TokenInfo } from '@/types/stream'
 
@@ -113,8 +113,17 @@ export default function BatchCreatePage() {
           : null
 
         const errors: string[] = []
-        if (!recipient || !isValidStellarAddress(recipient)) {
+        if (!recipient) {
           errors.push(batchCreateCopy.rowValidation.invalidRecipient)
+        } else {
+          const addressCheck = validateStellarAddress(recipient)
+          if (!addressCheck.valid) {
+            errors.push(
+              addressCheck.reason === 'checksum'
+                ? batchCreateCopy.rowValidation.invalidRecipientChecksum
+                : batchCreateCopy.rowValidation.invalidRecipient,
+            )
+          }
         }
         if (!amount || parseDecimalAmount(amount, selectedTokenInfo.decimals) === null) {
           errors.push(batchCreateCopy.rowValidation.invalidAmount)

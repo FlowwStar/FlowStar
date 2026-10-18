@@ -234,6 +234,25 @@ describe('BatchCreatePage — page-level composition', () => {
       })
     })
 
+    it('shows a checksum-specific error for a near-miss recipient address (issue #143)', async () => {
+      // Same length/prefix/alphabet as a real G-address, but not
+      // checksum-valid — e.g. a single mistyped character.
+      const nearMissAddress = 'G' + 'A'.repeat(55)
+      const checksumCsv = [
+        'recipient,amount,start_time,end_time',
+        `${nearMissAddress},100,${START_TS},${END_TS}`,
+      ].join('\n')
+
+      render(<BatchCreatePage />)
+      await uploadCsv(checksumCsv)
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Invalid recipient address checksum — check for a mistyped character'),
+        ).toBeInTheDocument()
+      })
+    })
+
     it('shows an upload error for non-CSV files', async () => {
       render(<BatchCreatePage />)
 

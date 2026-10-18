@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { renderHook, waitFor, act } from '@testing-library/react'
 import type { StreamData } from '@/types/stream'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
@@ -80,6 +80,76 @@ describe('useStreams', () => {
     const { result } = renderHook(() => useStreams({ enablePolling: false }))
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(typeof result.current.refetch).toBe('function')
+  })
+})
+
+// Issue #142: polling intervals must be created exactly once per mount and
+// fully cleared on unmount — no orphaned `setInterval` continuing to fire
+// (and make RPC calls) after the component is gone.
+describe('useStreams polling lifecycle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(fetchStreamsForAddress).mockResolvedValue([mockStream])
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('polls on the configured interval while mounted', async () => {
+    const { result } = renderHook(() => useStreams({ enablePolling: true, pollInterval: 1000 }))
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const callsAfterMount = vi.mocked(fetchStreamsForAddress).mock.calls.length
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+
+    // 3 ticks at 1000ms each.
+    expect(vi.mocked(fetchStreamsForAddress).mock.calls.length).toBe(callsAfterMount + 3)
+  })
+
+  it('clears the polling interval on unmount — no orphaned fetches afterward', async () => {
+    const { result, unmount } = renderHook(() =>
+      useStreams({ enablePolling: true, pollInterval: 1000 }),
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    unmount()
+    const callsAtUnmount = vi.mocked(fetchStreamsForAddress).mock.calls.length
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000)
+    })
+
+    // No further polling ticks should have fired after unmount.
+    expect(vi.mocked(fetchStreamsForAddress).mock.calls.length).toBe(callsAtUnmount)
+  })
+
+  it('clears exactly one interval per mount on unmount (no leaked timer handle)', async () => {
+    const clearIntervalSpy = vi.spyOn(global, 'clearInterval')
+
+    const { unmount } = renderHook(() => useStreams({ enablePolling: true, pollInterval: 1000 }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    unmount()
+
+    // The polling-interval cleanup should run exactly once for this mount.
+    expect(clearIntervalSpy).toHaveBeenCalledTimes(1)
+
+    clearIntervalSpy.mockRestore()
   })
 })
 
