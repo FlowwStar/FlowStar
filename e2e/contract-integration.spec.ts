@@ -1,4 +1,17 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
+
+// ─── Shared helper: inject xBull mock so the wallet-gated stream detail page renders ─
+async function withWallet(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('walletId', 'xbull')
+    ;(window as any).xBullSDK = {
+      connect: async () => ({
+        publicKey: 'GA4M5Y74MXREPXU6LGRR7WOC6VLXJBLKJHZBJGDBKOFIP7GBM3MHF3G5',
+      }),
+      signXDR: async () => 'AAAAAgAAAAA...dummy-signature...',
+    }
+  })
+}
 
 test.describe('Contract Integration Tests', () => {
   test.describe('Wallet Connection & Dashboard', () => {
@@ -39,9 +52,9 @@ test.describe('Contract Integration Tests', () => {
     })
 
     test('should display share buttons on stream detail', async ({ page }) => {
-      await page.goto('/app/stream/test-id')
-      const shareBtn = page.locator('button:has-text("Share")')
-      // Should be clickable even if stream doesn't exist
+      await withWallet(page)
+      await page.goto('/app/stream/1')
+      const shareBtn = page.getByRole('button', { name: 'Share stream' })
       await expect(shareBtn).toBeVisible()
     })
   })
