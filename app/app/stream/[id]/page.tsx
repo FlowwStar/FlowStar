@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConnectWalletButton } from '@/components/layout/connect-wallet-button'
+import { SITE_URL } from '@/lib/site'
 import { StreamStatusBadge } from '@/components/streams/stream-status-badge'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { TokenAmount } from '@/components/ui/token-amount'
@@ -795,7 +796,7 @@ function ShareButtons({
   const streamUrl =
     typeof window !== 'undefined'
       ? window.location.href
-      : `https://flowstar.app/app/stream/${streamId}`
+      : `${SITE_URL}/app/stream/${streamId}`
   const shareText = copy.shareButtons.shareText(streamId)
 
   function copyLink() {

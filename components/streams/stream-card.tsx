@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { getFederationNameForAddress } from '@/lib/address-book'
 import { streamCardCopy as copy } from '@/lib/copy/streams'
+import { SITE_URL } from '@/lib/site'
 import type { StreamData } from '@/types/stream'
 
 // Pick update interval based on a quick pre-check of stream state.
@@ -146,7 +147,7 @@ function StreamCardInner({
     const url =
       typeof window !== 'undefined'
         ? `${window.location.origin}/app/stream/${stream.id}`
-        : `https://flowstar.app/app/stream/${stream.id}`
+        : `${SITE_URL}/app/stream/${stream.id}`
     navigator.clipboard.writeText(url)
     setCopiedLink(true)
     setTimeout(() => setCopiedLink(false), 1500)
