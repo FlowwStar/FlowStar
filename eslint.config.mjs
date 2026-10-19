@@ -34,4 +34,11 @@ export default [
       },
     },
   },
+  {
+    files: ['scripts/**/*.mjs'],
+    rules: {
+      'no-console': 'off',
+      'security/detect-non-literal-fs-filename': 'off',
+    },
+  },
 ]

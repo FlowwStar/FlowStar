@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { QrShareDialog } from '@/components/streams/qr-share-dialog'
+import { SITE_URL } from '@/lib/site'
 import type { StreamData } from '@/types/stream'
 
 const { mockToastSuccess, mockWriteText } = vi.hoisted(() => ({
@@ -23,7 +24,7 @@ vi.mock('qrcode.react', () => ({
   ),
 }))
 
-const STREAM_URL = 'https://flowstar.app/stream/stream-123'
+const STREAM_URL = `${SITE_URL}/stream/stream-123`
 
 function makeStream(overrides?: Partial<StreamData>): StreamData {
   return {
