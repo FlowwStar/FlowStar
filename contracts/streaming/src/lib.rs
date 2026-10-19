@@ -336,6 +336,17 @@ pub struct StreamBumpedEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the stream sender updates the metadata for a stream.
+///
+/// Indexers can use this to track metadata changes (description, rate limit, etc.)
+/// without re-querying the contract.
+#[soroban_sdk::contractevent]
+pub struct StreamMetadataUpdatedEvent {
+    pub stream_id: u64,
+    pub sender: Address,
+    pub timestamp: u64,
+}
+
 /// Emitted when the contract admin calls `pause` to stop new stream creation.
 ///
 /// All write operations (create_stream, withdraw, etc.) are blocked while paused.
@@ -1387,6 +1398,13 @@ impl StreamingContract {
             PERSISTENT_TTL_LEDGERS,
             PERSISTENT_TTL_LEDGERS,
         );
+
+        StreamMetadataUpdatedEvent {
+            stream_id,
+            sender: stream.sender.clone(),
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
 
         Ok(())
     }

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security Vulnerability
+    url: https://github.com/Johnero542/FlowStar/security/advisories/new
+    about: Report a security vulnerability in the project
+  - name: Documentation & FAQ
+    url: https://github.com/Johnero542/FlowStar/blob/main/docs/FAQ.md
+    about: Check the FAQ and documentation for answers to common questions

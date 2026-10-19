@@ -2103,6 +2103,22 @@ fn test_cleanup_rejected_when_stream_still_active() {
 }
 
 #[test]
+fn test_cleanup_stream_nonexistent_returns_stream_not_found() {
+    // cleanup_stream must return StreamNotFound when given a nonexistent stream_id.
+    let t = TestEnv::setup();
+    let client = t.client();
+
+    // Attempt cleanup on a stream_id that was never created.
+    let nonexistent_stream_id = 9999u64;
+    let result = client.try_cleanup_stream(&t.sender, &nonexistent_stream_id);
+    assert_eq!(
+        result,
+        Err(Ok(StreamError::StreamNotFound)),
+        "cleanup_stream must return StreamNotFound for nonexistent stream"
+    );
+}
+
+#[test]
 fn test_set_delegate_called_twice_overwrites_previous() {
     // Calling set_delegate() a second time replaces the previously-registered
     // delegate. The first delegate loses authorization.
@@ -2148,4 +2164,36 @@ fn test_set_delegate_called_twice_overwrites_previous() {
 
     // Verify funds went to recipient (via second delegate)
     assert_eq!(t.token().balance(&t.recipient), withdrawable);
+}
+
+#[test]
+fn test_update_stream_metadata_emits_event() {
+    // Verify that update_stream_metadata publishes StreamMetadataUpdatedEvent.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Update metadata and verify the event is published.
+    let metadata = StreamMetadata {
+        name: soroban_sdk::String::from_str(&t.env, "Payroll"),
+        category: soroban_sdk::String::from_str(&t.env, "HR"),
+        memo: soroban_sdk::String::from_str(&t.env, "monthly"),
+    };
+
+    client.update_stream_metadata(&stream_id, &metadata);
+
+    // Verify the metadata was stored.
+    let stored = client.get_stream_metadata(&stream_id);
+    assert_eq!(stored, Some(metadata));
 }

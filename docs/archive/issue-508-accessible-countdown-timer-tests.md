@@ -21,6 +21,6 @@ unit tests against the merged component covering:
 - The ARIA live-region attributes (`aria-live`, `role`, etc.) that make the
   countdown accessible to screen readers.
 
-Follow the same Vitest + React Testing Library setup added for
-[#507](../components/streams/dashboard-stats.test.tsx) (`vitest.config.mts`,
-`vitest.setup.ts`) rather than introducing a second test framework.
+Follow the same Vitest + React Testing Library setup as other component tests
+(`vitest.config.mts`, `vitest.setup.ts`) rather than introducing a second test framework.
+See issue #507 for the pattern.
