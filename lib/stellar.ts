@@ -57,8 +57,7 @@ const ED25519_SHAPE_RE = /^G[A-Z2-7]{55}$/
  *   Stellar G-address (wrong prefix, wrong length, or invalid characters).
  */
 export type StellarAddressValidation =
-  | { valid: true }
-  | { valid: false; reason: 'checksum' | 'format' }
+  { valid: true } | { valid: false; reason: 'checksum' | 'format' }
 
 /**
  * Validates `address` as a Stellar Ed25519 public key and, when invalid,
@@ -178,33 +177,6 @@ export const NETWORK: NetworkName =
 
 const CUSTOM_TOKENS_KEY = 'flowstar:custom-tokens'
 const FAVORITE_TOKENS_KEY = 'flowstar:favorite-tokens'
-
-// ─── Verified Token List ──────────────────────────────────────────────────────
-interface VerifiedTokenEntry {
-  address: string
-  symbol: string
-  name: string
-  decimals: number
-  verified: boolean
-  category: string
-}
-
-let verifiedTokensCache: VerifiedTokenEntry[] | null = null
-
-async function loadVerifiedTokens(): Promise<VerifiedTokenEntry[]> {
-  if (verifiedTokensCache) return verifiedTokensCache
-
-  try {
-    const response = await fetch('/lib/tokens.json')
-    if (!response.ok) throw new Error('Failed to load verified tokens')
-    const data = (await response.json()) as { tokens: VerifiedTokenEntry[] }
-    verifiedTokensCache = data.tokens
-    return data.tokens
-  } catch (error) {
-    void captureError(error, { operation: 'loadVerifiedTokens' })
-    return []
-  }
-}
 
 /**
  * Returns `true` if `address` matches one of the tokens in {@link KNOWN_TOKENS}
