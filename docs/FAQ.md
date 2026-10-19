@@ -306,8 +306,8 @@ or leave a comment on the relevant issue._
 
 This document collects the most common questions that new contributors ask when working on FlowStar.  
 If you can’t find the answer here, feel free to open an issue or check the
-[CONTRIBUTING guide](CONTRIBUTING.md) and the
-[Troubleshooting guide](docs/TROUBLESHOOTING.md).
+[CONTRIBUTING guide](../CONTRIBUTING.md) and the
+[Troubleshooting guide](./TROUBLESHOOTING.md).
 
 ---
 
@@ -321,7 +321,7 @@ If you can’t find the answer here, feel free to open an issue or check the
 | **When to use** | During UI development or when you don’t want to spend testnet tokens. | When you want to validate real contract calls or submit PRs that touch the blockchain. |
 
 > **Tip:** The `mock-mode` flag is toggled in the app’s settings. See the
-> [CONTRIBUTING guide](CONTRIBUTING.md) for details on enabling it.
+> [CONTRIBUTING guide](../CONTRIBUTING.md) for details on enabling it.
 
 ---
 
@@ -347,7 +347,7 @@ If you can’t find the answer here, feel free to open an issue or check the
 
 If you’re unsure whether an issue is ready for you, open a comment or
 contact the maintainers. See the
-[CONTRIBUTING guide](CONTRIBUTING.md) for more details on the workflow.
+[CONTRIBUTING guide](../CONTRIBUTING.md) for more details on the workflow.
 
 ---
 
@@ -360,7 +360,7 @@ contact the maintainers. See the
    `npm run mock`.
 4. **Consult the Troubleshooting guide** – Many common network errors are
    documented in the
-   [Troubleshooting guide](docs/TROUBLESHOOTING.md).
+   [Troubleshooting guide](./TROUBLESHOOTING.md).
 
 ---
 
