@@ -7,6 +7,7 @@ import { WalletProvider } from '@/components/providers/wallet-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { ServiceWorkerRegister } from '@/components/pwa/service-worker-register'
 import { InstallPrompt } from '@/components/pwa/install-prompt'
+import { SITE_URL } from '@/lib/site'
 import './globals.css'
 
 // JSON-LD structured data
@@ -15,7 +16,7 @@ const jsonLd = {
   '@type': 'WebApplication',
   name: 'FlowStar',
   description: 'Stream tokens by the second with cliffs and cancellations on Stellar Soroban',
-  url: 'https://flowstar.app',
+  url: SITE_URL,
   applicationCategory: 'FinanceApplication',
   operatingSystem: 'Web',
   offers: {
@@ -43,7 +44,7 @@ export const metadata: Metadata = {
   description:
     'Stream tokens by the second with cliffs and cancellations on Stellar Soroban. Create vesting schedules, payroll, and grants that unlock continuously — withdraw anytime, cancel anytime.',
   keywords: ['stellar', 'soroban', 'token streaming', 'DeFi', 'payment streams', 'vesting', 'payroll', 'grants'],
-  metadataBase: new URL('https://flowstar.app'),
+  metadataBase: new URL(SITE_URL),
   alternates: {
     canonical: '/',
   },

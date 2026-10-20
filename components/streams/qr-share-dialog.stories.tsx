@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 import { Toaster } from 'sonner'
 import { QrShareDialog } from './qr-share-dialog'
+import { SITE_URL } from '@/lib/site'
 import { Button } from '@/components/ui/button'
 import type { StreamData } from '@/types/stream'
 
@@ -56,7 +57,7 @@ export const OpenWithSampleStream: Story = {
   args: {
     open: true,
     onOpenChange: () => {},
-    streamUrl: 'https://flowstar.app/app/streams/42',
+    streamUrl: `${SITE_URL}/app/streams/42`,
     stream: sampleStream,
     status: 'streaming',
   },

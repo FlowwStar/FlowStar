@@ -3,6 +3,7 @@ import { fetchStream } from "@/lib/contract";
 import { NETWORK } from "@/lib/stellar";
 import { shortenAddress } from "@/lib/stream-utils";
 import { captureError } from "@/lib/sentry";
+import { SITE_URL } from "@/lib/site";
 
 export async function generateMetadata({
   params,
@@ -20,7 +21,7 @@ export async function generateMetadata({
       };
     }
 
-    const ogImageUrl = new URL("/api/og", "https://flowstar.app");
+    const ogImageUrl = new URL("/api/og", SITE_URL);
     ogImageUrl.searchParams.append(
       "amount",
       (
@@ -45,7 +46,7 @@ export async function generateMetadata({
     return {
       title: `Stream #${stream.id}`,
       description,
-      metadataBase: new URL("https://flowstar.app"),
+      metadataBase: new URL(SITE_URL),
       openGraph: {
         type: "website",
         siteName: "FlowStar",

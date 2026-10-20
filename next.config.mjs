@@ -12,6 +12,8 @@ async function withBundleAnalyzer(config) {
     const { default: analyzer } = await import('@next/bundle-analyzer')
     return analyzer({ enabled: true })(config)
   } catch {
+    // This warning explains why optional bundle analysis was skipped.
+    // eslint-disable-next-line no-console
     console.warn('[FlowStar] @next/bundle-analyzer not installed — skipping analysis')
     return config
   }
