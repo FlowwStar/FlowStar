@@ -2167,6 +2167,10 @@ fn test_set_delegate_called_twice_overwrites_previous() {
 }
 
 #[test]
+fn test_cleanup_stream_succeeds_while_paused() {
+    // cleanup_stream has no require_not_paused guard and will succeed even when
+    // the contract is paused, since cleanup only removes storage without
+    // modifying stream state (issue #1051).
 fn test_update_stream_metadata_emits_event() {
     // Verify that update_stream_metadata publishes StreamMetadataUpdatedEvent.
     let t = TestEnv::setup();
@@ -2184,6 +2188,28 @@ fn test_update_stream_metadata_emits_event() {
     );
     let stream_id = client.create_stream(&t.sender, &params);
 
+    // Cancel the stream to make it eligible for cleanup
+    t.set_time(now + 500);
+    client.cancel(&stream_id);
+
+    // Pause the contract
+    client.pause();
+
+    // cleanup_stream should still succeed while paused (no require_not_paused guard)
+    let result = client.try_cleanup_stream(&t.sender, &stream_id);
+    assert_eq!(
+        result,
+        Ok(Ok(())),
+        "cleanup_stream should succeed while paused since it only removes storage"
+    );
+
+    // Verify the stream is actually cleaned up
+    assert!(
+        !client
+            .get_archived_sent_streams(&t.sender, &0, &100)
+            .contains(stream_id),
+        "stream should be removed from archive after cleanup"
+    );
     // Update metadata and verify the event is published.
     let metadata = StreamMetadata {
         name: soroban_sdk::String::from_str(&t.env, "Payroll"),

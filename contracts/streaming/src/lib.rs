@@ -1301,6 +1301,10 @@ impl StreamingContract {
     ///
     /// Either party (sender or recipient) may call this. The stream must be
     /// cancelled or fully drained before cleanup is allowed.
+    ///
+    /// Note: cleanup_stream has no require_not_paused guard and will succeed
+    /// even when the contract is paused, since cleanup only removes storage
+    /// and does not modify stream state (issue #1051).
     pub fn cleanup_stream(env: Env, caller: Address, stream_id: u64) -> Result<(), StreamError> {
         caller.require_auth();
 
