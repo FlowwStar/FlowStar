@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { explorerUrl, isValidStellarAddress } from '@/lib/stellar'
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
+  NETWORKS,
   explorerUrl,
+  getAllTokens,
   isValidStellarAddress,
+  isVerifiedToken,
   getCustomTokens,
   saveCustomToken,
   getFavoriteTokens,
@@ -183,159 +184,37 @@ describe('explorerUrl', () => {
 const KNOWN_TOKEN_ADDRESS = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'
 const UNKNOWN_TOKEN_ADDRESS = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4'
 
-const VERIFIED_TOKENS_FIXTURE = [
-  {
-    address: KNOWN_TOKEN_ADDRESS,
-    symbol: 'USDC',
-    name: 'USD Coin',
-    decimals: 7,
-  },
-]
-
-/**
- * The verified-token list is cached at module scope, so each test must load a
- * fresh copy of the module (after configuring mocks) to avoid cache leakage.
- */
-async function importStellar() {
-  vi.resetModules()
-  return import('@/lib/stellar')
-}
-
-function mockFetchJson(payload: unknown) {
-  const fetchMock = vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: () => Promise.resolve(payload),
-  })
-  vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
-}
-
 describe('verified token helpers', () => {
-  beforeEach(() => {
-    vi.resetModules()
-    vi.unstubAllGlobals()
-    localStorage.clear()
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.restoreAllMocks()
-    localStorage.clear()
-  })
-
-  describe('loadVerifiedTokens', () => {
-    it('loads verified tokens from the remote list', async () => {
-      const fetchMock = mockFetchJson({ tokens: VERIFIED_TOKENS_FIXTURE })
-      const { loadVerifiedTokens } = await importStellar()
-
-      const tokens = await loadVerifiedTokens()
-
-      expect(fetchMock).toHaveBeenCalled()
-      expect(tokens).toHaveLength(VERIFIED_TOKENS_FIXTURE.length)
-      expect(tokens[0]).toMatchObject({
-        address: KNOWN_TOKEN_ADDRESS,
-        symbol: 'USDC',
-      })
-    })
-
-    it('falls back gracefully when the request rejects', async () => {
-      const captureError = vi.fn()
-      vi.doMock('@/lib/sentry', () => ({ captureError }))
-      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
-      const { loadVerifiedTokens } = await importStellar()
-
-      await expect(loadVerifiedTokens()).resolves.toEqual([])
-      expect(captureError).toHaveBeenCalled()
-    })
-
-    it('falls back gracefully when the response is not ok', async () => {
-      const captureError = vi.fn()
-      vi.doMock('@/lib/sentry', () => ({ captureError }))
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue({
-          ok: false,
-          status: 500,
-          json: () => Promise.resolve({}),
-        }),
-      )
-      const { loadVerifiedTokens } = await importStellar()
-
-      await expect(loadVerifiedTokens()).resolves.toEqual([])
-      expect(captureError).toHaveBeenCalled()
-    })
-  })
-
   describe('isVerifiedToken', () => {
-    it('returns true for a known verified token address', async () => {
-      mockFetchJson({ tokens: VERIFIED_TOKENS_FIXTURE })
-      const { loadVerifiedTokens, isVerifiedToken } = await importStellar()
-
-      await loadVerifiedTokens()
-
+    it('returns true for a known token without loading a remote list', () => {
       expect(isVerifiedToken(KNOWN_TOKEN_ADDRESS)).toBe(true)
     })
 
-    it('returns false for an unknown token address', async () => {
-      mockFetchJson({ tokens: VERIFIED_TOKENS_FIXTURE })
-      const { loadVerifiedTokens, isVerifiedToken } = await importStellar()
-
-      await loadVerifiedTokens()
-
+    it('returns false for an unknown token address', () => {
       expect(isVerifiedToken(UNKNOWN_TOKEN_ADDRESS)).toBe(false)
     })
   })
 
   describe('getAllTokens', () => {
-    it('merges built-in, verified and custom tokens without duplicates', async () => {
-      mockFetchJson({ tokens: VERIFIED_TOKENS_FIXTURE })
-      const { loadVerifiedTokens, getAllTokens } = await importStellar()
+    it('combines built-in tokens with the current network custom tokens', () => {
+      const customToken = {
+        address: 'CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+        symbol: 'CSTM',
+        decimals: 7,
+      }
+      saveCustomToken('testnet', customToken)
 
-      await loadVerifiedTokens()
-
-      const customTokens = [
-        {
-          address: 'CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
-          symbol: 'CSTM',
-          name: 'Custom Token',
-          decimals: 7,
-        },
-        // Overlaps with the verified token; must not be duplicated.
-        {
-          address: KNOWN_TOKEN_ADDRESS,
-          symbol: 'USDC',
-          name: 'USD Coin',
-          decimals: 7,
-        },
-      ]
-      localStorage.setItem('customTokens', JSON.stringify(customTokens))
-
-      const tokens = getAllTokens('testnet')
-      const addresses = tokens.map((t) => t.address)
-
-      // No duplicate addresses.
-      expect(new Set(addresses).size).toBe(addresses.length)
-
-      // Verified token is present exactly once.
-      expect(addresses.filter((a) => a === KNOWN_TOKEN_ADDRESS)).toHaveLength(1)
-
-      // Custom-only token is included.
-      expect(addresses).toContain(customTokens[0].address)
+      expect(getAllTokens('testnet')).toEqual([...NETWORKS.testnet.knownTokens, customToken])
+      expect(getAllTokens('mainnet')).toEqual(NETWORKS.mainnet.knownTokens)
     })
 
-    it('returns the network tokens when there are no custom tokens', async () => {
-      mockFetchJson({ tokens: VERIFIED_TOKENS_FIXTURE })
-      const { loadVerifiedTokens, getAllTokens } = await importStellar()
-
-      await loadVerifiedTokens()
-
-      const tokens = getAllTokens('testnet')
-      const addresses = tokens.map((t) => t.address)
-
-      expect(addresses).toContain(KNOWN_TOKEN_ADDRESS)
-      expect(new Set(addresses).size).toBe(addresses.length)
+    it('returns the built-in tokens for each network when storage is empty', () => {
+      expect(getAllTokens('testnet')).toEqual(NETWORKS.testnet.knownTokens)
+      expect(getAllTokens('mainnet')).toEqual(NETWORKS.mainnet.knownTokens)
     })
+  })
+})
+
 describe('custom token storage', () => {
   it('returns an empty array when storage is empty', () => {
     expect(getCustomTokens('testnet')).toEqual([])
@@ -343,9 +222,7 @@ describe('custom token storage', () => {
 
   it('saves a token and reads it back', () => {
     saveCustomToken('testnet', { address: 'CABC', symbol: 'TKN', decimals: 7 })
-    expect(getCustomTokens('testnet')).toEqual([
-      { address: 'CABC', symbol: 'TKN', decimals: 7 },
-    ])
+    expect(getCustomTokens('testnet')).toEqual([{ address: 'CABC', symbol: 'TKN', decimals: 7 }])
   })
 
   it('does not store duplicates', () => {
