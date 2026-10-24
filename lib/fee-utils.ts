@@ -3,9 +3,77 @@ export interface FeeBreakdown {
   bufferFee: number;
   totalEstimated: number;
   estimatedUsd?: number;
+  xlmPriceUsed?: number;
+  priceLastUpdated?: number;
+  priceStale?: boolean;
 }
 
-const XLM_PRICE = 0.12; // Average XLM price in USD for estimation
+export const DEFAULT_FALLBACK_XLM_PRICE = 0.12;
+export const XLM_PRICE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+export const XLM_PRICE_API_TIMEOUT_MS = 10_000; // 10 seconds
+
+export interface LiveXlmPriceResult {
+  price: number;
+  stale: boolean;
+  fetchedAt: number;
+  source: "live" | "cache" | "fallback";
+}
+
+let cachedPriceEntry: { price: number; fetchedAt: number } | null = null;
+
+export async function fetchLiveXlmPrice(): Promise<LiveXlmPriceResult> {
+  const now = Date.now();
+  if (cachedPriceEntry && now - cachedPriceEntry.fetchedAt < XLM_PRICE_CACHE_TTL_MS) {
+    return {
+      price: cachedPriceEntry.price,
+      stale: false,
+      fetchedAt: cachedPriceEntry.fetchedAt,
+      source: "cache",
+    };
+  }
+
+  try {
+    const res = await fetch(
+      "https://api.stellar.expert/explorer/public/asset/XLM/price",
+      {
+        next: { revalidate: 60 },
+        signal: AbortSignal.timeout(XLM_PRICE_API_TIMEOUT_MS),
+      },
+    );
+    if (!res.ok) throw new Error("price fetch failed");
+    const json = await res.json();
+    const price = Number(json.price ?? json.close ?? json.last);
+    if (!Number.isFinite(price) || price <= 0) {
+      throw new Error("invalid price");
+    }
+    cachedPriceEntry = { price, fetchedAt: now };
+    return {
+      price,
+      stale: false,
+      fetchedAt: now,
+      source: "live",
+    };
+  } catch {
+    if (cachedPriceEntry) {
+      return {
+        price: cachedPriceEntry.price,
+        stale: true,
+        fetchedAt: cachedPriceEntry.fetchedAt,
+        source: "cache",
+      };
+    }
+    return {
+      price: DEFAULT_FALLBACK_XLM_PRICE,
+      stale: true,
+      fetchedAt: now,
+      source: "fallback",
+    };
+  }
+}
+
+export function clearFeePriceCacheForTesting(): void {
+  cachedPriceEntry = null;
+}
 
 /**
  * Calculate fee breakdown from transaction simulation
@@ -15,7 +83,7 @@ const XLM_PRICE = 0.12; // Average XLM price in USD for estimation
  */
 export function calculateFeeBreakdown(
   minResourceFee: number,
-  xlmPrice: number = XLM_PRICE,
+  xlmPrice: number = DEFAULT_FALLBACK_XLM_PRICE,
 ): FeeBreakdown {
   // Apply 15% buffer to ensure inclusion
   const bufferMultiplier = 1.15;
@@ -30,6 +98,7 @@ export function calculateFeeBreakdown(
     bufferFee,
     totalEstimated: totalFee,
     estimatedUsd,
+    xlmPriceUsed: xlmPrice,
   };
 }
 

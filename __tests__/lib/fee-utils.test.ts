@@ -1,10 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   calculateFeeBreakdown,
   isHighFee,
   formatFee,
   calculateBatchFees,
   TYPICAL_FEES,
+  fetchLiveXlmPrice,
+  clearFeePriceCacheForTesting,
+  DEFAULT_FALLBACK_XLM_PRICE,
+  XLM_PRICE_CACHE_TTL_MS,
 } from "@/lib/fee-utils";
 
 describe("calculateFeeBreakdown", () => {
@@ -89,6 +93,85 @@ describe("TYPICAL_FEES", () => {
   it("typical >= min for all operations", () => {
     for (const op of Object.values(TYPICAL_FEES)) {
       expect(op.typical).toBeGreaterThanOrEqual(op.min);
+    }
+  });
+});
+
+describe("fetchLiveXlmPrice", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    clearFeePriceCacheForTesting();
+    global.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("fetches live price successfully and returns live source", async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ price: 0.25 }),
+    } as Response);
+
+    const result = await fetchLiveXlmPrice();
+    expect(result.price).toBe(0.25);
+    expect(result.stale).toBe(false);
+    expect(result.source).toBe("live");
+    expect(global.fetch).toHaveBeenCalledWith(
+      "https://api.stellar.expert/explorer/public/asset/XLM/price",
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      })
+    );
+  });
+
+  it("serves subsequent calls within TTL from cache", async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ price: 0.3 }),
+    } as Response);
+
+    const first = await fetchLiveXlmPrice();
+    expect(first.source).toBe("live");
+
+    const second = await fetchLiveXlmPrice();
+    expect(second.source).toBe("cache");
+    expect(second.price).toBe(0.3);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to default price and marks stale on API error without cache", async () => {
+    vi.mocked(global.fetch).mockRejectedValue(new Error("Network failure"));
+
+    const result = await fetchLiveXlmPrice();
+    expect(result.price).toBe(DEFAULT_FALLBACK_XLM_PRICE);
+    expect(result.stale).toBe(true);
+    expect(result.source).toBe("fallback");
+  });
+
+  it("falls back to cached price with stale flag on subsequent API error after TTL", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ price: 0.45 }),
+    } as Response);
+
+    const initial = await fetchLiveXlmPrice();
+    expect(initial.price).toBe(0.45);
+
+    // Mock Date.now to simulate TTL expiry
+    const originalNow = Date.now;
+    try {
+      Date.now = () => originalNow() + XLM_PRICE_CACHE_TTL_MS + 1000;
+      vi.mocked(global.fetch).mockRejectedValueOnce(new Error("Timeout"));
+
+      const staleResult = await fetchLiveXlmPrice();
+      expect(staleResult.price).toBe(0.45);
+      expect(staleResult.stale).toBe(true);
+      expect(staleResult.source).toBe("cache");
+    } finally {
+      Date.now = originalNow;
     }
   });
 });

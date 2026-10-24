@@ -78,9 +78,22 @@ export function FeeEstimateDialog({
                 <span className="ml-2 text-lg text-muted-foreground">XLM</span>
               </p>
               {fees.estimatedUsd && (
-                <p className="text-xs text-muted-foreground">
-                  ≈ ${fees.estimatedUsd.toFixed(4)}
-                </p>
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-xs text-muted-foreground">
+                    ≈ ${fees.estimatedUsd.toFixed(4)}
+                  </p>
+                  {fees.priceLastUpdated && (
+                    <p className="text-[11px] text-muted-foreground/80">
+                      Price updated{" "}
+                      {Math.max(
+                        0,
+                        Math.floor((Date.now() - fees.priceLastUpdated) / 60000),
+                      )}{" "}
+                      min ago
+                      {fees.priceStale ? " (fallback)" : ""}
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -116,6 +129,7 @@ export function FeeEstimateDialog({
                 • A 15% safety buffer is added to reduce the chance of rejection
               </li>
               <li>• Actual fee may vary based on network conditions</li>
+              <li>• Disclaimer: Fee estimates and USD conversions are approximate.</li>
             </ul>
           </div>
         </div>
