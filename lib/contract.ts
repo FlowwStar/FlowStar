@@ -201,7 +201,7 @@ async function query(
   const contract = new Contract(contractAddress)
   // Use a dummy account for simulation reads
   const dummyKeypair = {
-    accountId: () => 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN',
+    accountId: () => 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H',
     sequence: () => BigInt(0),
     incrementSequenceNumber: () => {},
   }
@@ -653,16 +653,28 @@ export async function cancelStream(
   )
 }
 
-export async function getTokenMetadata(
+export interface Sep41ProbeResult {
+  valid: boolean
+  name?: string
+  symbol?: string
+  decimals?: number
+  error?: string
+}
+
+/**
+ * Probe a custom token contract to verify it implements required SEP-41 token methods:
+ * name(), symbol(), and decimals().
+ */
+export async function probeSep41TokenContract(
   tokenAddress: string,
   network: NetworkName = 'testnet',
-): Promise<TokenInfo | null> {
+): Promise<Sep41ProbeResult> {
   try {
     const config = getNetworkConfig(network)
     const server = getServer(network)
     const contract = new Contract(tokenAddress)
     const dummyAccount = await withRetry(() =>
-      server.getAccount('GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN'),
+      server.getAccount('GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H'),
     )
 
     const buildSimTx = (method: string) => {
@@ -676,24 +688,69 @@ export async function getTokenMetadata(
       return withRetry(() => server.simulateTransaction(tx))
     }
 
-    const [symSim, decSim] = await Promise.all([buildSimTx('symbol'), buildSimTx('decimals')])
+    const [nameSim, symSim, decSim] = await Promise.all([
+      buildSimTx('name').catch(() => null),
+      buildSimTx('symbol').catch(() => null),
+      buildSimTx('decimals').catch(() => null),
+    ])
 
-    if (StellarRpc.Api.isSimulationError(symSim) || StellarRpc.Api.isSimulationError(decSim)) {
-      return null
+    if (!nameSim || !symSim || !decSim) {
+      return {
+        valid: false,
+        error: 'Contract does not respond to required SEP-41 methods (name, symbol, decimals)',
+      }
     }
 
+    if (
+      StellarRpc.Api.isSimulationError(nameSim) ||
+      StellarRpc.Api.isSimulationError(symSim) ||
+      StellarRpc.Api.isSimulationError(decSim)
+    ) {
+      return {
+        valid: false,
+        error: 'This contract does not appear to implement valid SEP-41 token interface methods',
+      }
+    }
+
+    const nameResult = (nameSim as StellarRpc.Api.SimulateTransactionSuccessResponse).result?.retval
     const symResult = (symSim as StellarRpc.Api.SimulateTransactionSuccessResponse).result?.retval
     const decResult = (decSim as StellarRpc.Api.SimulateTransactionSuccessResponse).result?.retval
 
-    if (!symResult || !decResult) return null
+    if (!symResult || !decResult) {
+      return {
+        valid: false,
+        error: 'Invalid return values from token contract',
+      }
+    }
 
+    const name = nameResult ? (scValToNative(nameResult) as string) : undefined
     const symbol = scValToNative(symResult) as string
     const decimals = Number(scValToNative(decResult))
 
-    return { address: tokenAddress, symbol, decimals }
-  } catch {
+    return {
+      valid: true,
+      name,
+      symbol,
+      decimals,
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Network error'
+    return {
+      valid: false,
+      error: `Failed to query contract: ${msg}`,
+    }
+  }
+}
+
+export async function getTokenMetadata(
+  tokenAddress: string,
+  network: NetworkName = 'testnet',
+): Promise<TokenInfo | null> {
+  const probe = await probeSep41TokenContract(tokenAddress, network)
+  if (!probe.valid || !probe.symbol || probe.decimals === undefined) {
     return null
   }
+  return { address: tokenAddress, symbol: probe.symbol, decimals: probe.decimals }
 }
 
 export async function getTokenBalance(
@@ -710,7 +767,7 @@ export async function getTokenBalance(
     const server = getServer(network)
     const contract = new Contract(tokenAddress)
     const account = await withRetry(() =>
-      server.getAccount('GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN'),
+      server.getAccount('GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H'),
     )
     const tx = new TransactionBuilder(account, {
       fee: '100',

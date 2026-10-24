@@ -26,8 +26,8 @@ import {
 } from "@/components/ui/select";
 import { useContract } from "@/hooks/use-contract";
 import { useWallet } from "@/hooks/use-wallet";
-import { getAllTokens, saveCustomToken, checkAccountInfo } from "@/lib/stellar";
-import { getTokenMetadata, getTokenBalance } from "@/lib/contract";
+import { getAllTokens, saveCustomToken, checkAccountInfo, isVerifiedToken } from "@/lib/stellar";
+import { getTokenMetadata, getTokenBalance, probeSep41TokenContract } from "@/lib/contract";
 import { parseTokenAmount, formatTokenAmount } from "@/lib/stream-utils";
 import { StreamPreview } from "@/components/streams/stream-preview";
 import { CreateConfirmation } from "@/components/streams/create-confirmation";
@@ -329,19 +329,24 @@ export function CreateForm() {
     setCustomError(null);
     setCustomToken(null);
     try {
-      const meta = await getTokenMetadata(customAddress);
-      if (!meta) {
+      const probe = await probeSep41TokenContract(customAddress, network);
+      if (!probe.valid) {
         setCustomError(
-          "Could not fetch token metadata. Verify this is a valid SEP-41 token contract.",
+          probe.error ?? "Could not verify token. Ensure the contract implements the SEP-41 token interface.",
         );
         return;
       }
+      const meta = {
+        address: customAddress,
+        symbol: probe.symbol ?? "CUSTOM",
+        decimals: probe.decimals ?? 7,
+      };
       setCustomToken(meta);
       saveCustomToken(network, meta);
       setTokens(getAllTokens(network).map((t) => ({ ...t })));
       set("tokenAddress", meta.address);
     } catch {
-      setCustomError("Failed to query token contract");
+      setCustomError("Failed to query token contract. Please check your connection.");
     } finally {
       setCustomLoading(false);
     }
@@ -664,10 +669,23 @@ export function CreateForm() {
                   <p className="text-xs text-destructive">{customError}</p>
                 )}
                 {customToken && (
-                  <p className="text-xs text-primary">
-                    Found: {customToken.symbol} ({customToken.decimals}{" "}
-                    decimals)
-                  </p>
+                  <div className="space-y-2">
+                    <p className="text-xs text-primary">
+                      Found: {customToken.symbol} ({customToken.decimals}{" "}
+                      decimals)
+                    </p>
+                    {!isVerifiedToken(customToken.address) && (
+                      <div
+                        data-testid="unverified-token-warning"
+                        className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-400"
+                      >
+                        <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                        <p>
+                          <strong>Unverified custom token:</strong> This contract implements SEP-41 methods but is not on the verified token list. Ensure you trust the contract before streaming funds.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
