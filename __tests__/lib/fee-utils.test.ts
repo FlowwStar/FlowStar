@@ -76,6 +76,21 @@ describe("calculateBatchFees", () => {
     expect(result.totalEstimated).toBeGreaterThan(0);
     expect(result.minFee + result.bufferFee).toBe(result.totalEstimated);
   });
+
+  it("omits estimatedUsd when xlmPrice is not provided", () => {
+    const result = calculateBatchFees(3, 40_000);
+    expect(result.estimatedUsd).toBeUndefined();
+  });
+
+  it("calculates estimatedUsd when xlmPrice is provided", () => {
+    const operationCount = 5;
+    const feePerOperation = 50_000;
+    const xlmPrice = 0.5;
+    const result = calculateBatchFees(operationCount, feePerOperation, xlmPrice);
+    const expectedTotal = Math.ceil(operationCount * feePerOperation * 1.15);
+    const expectedUsd = (expectedTotal / 1e7) * xlmPrice;
+    expect(result.estimatedUsd).toBeCloseTo(expectedUsd, 5);
+  });
 });
 
 describe("TYPICAL_FEES", () => {
