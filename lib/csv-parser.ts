@@ -234,6 +234,7 @@ export function parseCsvBatch(
   customColumnMapping?: Record<string, number>,
 ): CsvParseResult {
   const lines = csvText
+    .replace(/^\uFEFF/, "")
     .replace(/\r\n/g, "\n")
     .split("\n")
     .map((line) => line.trim())

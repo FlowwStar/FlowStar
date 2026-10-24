@@ -182,6 +182,20 @@ describe("parseCsvBatch", () => {
     });
   });
 
+  describe("UTF-8 BOM handling", () => {
+    it("parses CSV with a leading UTF-8 BOM identically to one without", () => {
+      const csvWithoutBom = `${HEADER}\n${makeRow()}`;
+      const csvWithBom = `\uFEFF${csvWithoutBom}`;
+      const resultWithout = parseCsvBatch(csvWithoutBom);
+      const resultWith = parseCsvBatch(csvWithBom);
+
+      expect(resultWith.errors).toHaveLength(0);
+      expect(resultWith.rows).toHaveLength(1);
+      expect(resultWith.rows[0].recipient).toBe("GABC");
+      expect(resultWith).toEqual(resultWithout);
+    });
+  });
+
   describe("quoted fields", () => {
     it("handles quoted values containing commas", () => {
       const csv = [HEADER, '"GABC,rest",1000,1000,2000'].join("\n");
@@ -317,6 +331,7 @@ describe("parseDuration", () => {
     expect(parseDuration("1.5d")).toBeNull();
     expect(parseDuration("-5d")).toBeNull();
   });
+
 });
 
 // ─── parseCsvLine (via parseCsvBatch with customColumnMapping) ────────────────
