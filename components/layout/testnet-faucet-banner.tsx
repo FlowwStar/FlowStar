@@ -17,6 +17,8 @@ interface TestnetFaucetBannerProps {
  * with 0 XLM balance. Provides a one-click button to fund their
  * account via Friendbot.
  */
+export const FRIENDBOT_FETCH_TIMEOUT_MS = 10000;
+
 export function TestnetFaucetBanner({ onClose }: TestnetFaucetBannerProps) {
   const { address, isConnected } = useWallet();
   const { network } = useNetwork();
@@ -71,7 +73,9 @@ export function TestnetFaucetBanner({ onClose }: TestnetFaucetBannerProps) {
     try {
       // Call Friendbot
       const friendbotUrl = `https://friendbot.stellar.org?addr=${encodeURIComponent(address)}`;
-      const response = await fetch(friendbotUrl);
+      const response = await fetch(friendbotUrl, {
+        signal: AbortSignal.timeout(FRIENDBOT_FETCH_TIMEOUT_MS),
+      });
 
       if (!response.ok) {
         const errorData = await response.text();
