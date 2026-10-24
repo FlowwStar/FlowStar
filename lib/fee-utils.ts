@@ -62,14 +62,6 @@ export function isHighFee(fee: number, averageFee: number): boolean {
 }
 
 /**
- * Format fee amount for display
- */
-export function formatFee(stroops: number, decimals: number = 7): string {
-  const xlm = stroops / 1e7;
-  return xlm.toFixed(Math.min(decimals, 7));
-}
-
-/**
  * Calculate batch operation total fees
  */
 export function calculateBatchFees(
