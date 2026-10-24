@@ -189,12 +189,16 @@ export interface AccountInfo {
   error?: string
 }
 
+export const HORIZON_REQUEST_TIMEOUT_MS = 30_000;
+
 export async function checkAccountInfo(address: string, network: NetworkName): Promise<AccountInfo> {
   const config = getNetworkConfig(network)
   const horizonUrl = config.horizonUrl
 
   try {
-    const response = await fetch(`${horizonUrl}/accounts/${address}`)
+    const response = await fetch(`${horizonUrl}/accounts/${address}`, {
+      signal: AbortSignal.timeout(HORIZON_REQUEST_TIMEOUT_MS),
+    })
     if (!response.ok) {
       if (response.status === 404) {
         return { exists: false, funded: false, transactionCount: 0 }
@@ -223,7 +227,9 @@ export async function getXlmBalance(address: string, network: NetworkName): Prom
   const horizonUrl = config.horizonUrl
 
   try {
-    const response = await fetch(`${horizonUrl}/accounts/${address}`)
+    const response = await fetch(`${horizonUrl}/accounts/${address}`, {
+      signal: AbortSignal.timeout(HORIZON_REQUEST_TIMEOUT_MS),
+    })
     if (!response.ok) {
       return null
     }
