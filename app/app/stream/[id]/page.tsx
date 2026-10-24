@@ -594,7 +594,7 @@ function AutoWithdrawSection({
                 <div className="space-y-1 max-h-32 overflow-y-auto">
                   {withdrawalHistory.map((entry, idx) => (
                     <div
-                      key={idx}
+                      key={`${entry.timestamp}-${idx}`}
                       className="text-xs text-muted-foreground font-mono p-1.5 bg-secondary rounded"
                     >
                       <p>{new Date(entry.timestamp).toLocaleTimeString()}</p>
