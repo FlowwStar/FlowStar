@@ -14,10 +14,15 @@ const PRICE_CACHE: Record<string, { price: number; fetchedAt: number }> = {};
 const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 const STALENESS_WARNING_MS = 2 * 60 * 1000; // warn if price is >2 min old on display
 
+export const XLM_PRICE_FETCH_TIMEOUT_MS = 10_000;
+
 async function fetchXlmUsdPrice(): Promise<number> {
   const res = await fetch(
     "https://api.stellar.expert/explorer/public/asset/XLM/price",
-    { next: { revalidate: 60 } },
+    {
+      next: { revalidate: 60 },
+      signal: AbortSignal.timeout(XLM_PRICE_FETCH_TIMEOUT_MS),
+    },
   );
   if (!res.ok) throw new Error("price fetch failed");
   const json = await res.json();
@@ -150,4 +155,10 @@ export function usePortfolioValue(streams: StreamData[]): PortfolioValue {
   }
 
   return { totalUsd, loading, stale };
+}
+
+export function clearPriceCacheForTesting(): void {
+  for (const key of Object.keys(PRICE_CACHE)) {
+    delete PRICE_CACHE[key];
+  }
 }

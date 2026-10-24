@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { useTokenPrice, usePortfolioValue, formatUsd } from '@/hooks/use-token-price'
+import { useTokenPrice, usePortfolioValue, formatUsd, XLM_PRICE_FETCH_TIMEOUT_MS, clearPriceCacheForTesting } from '@/hooks/use-token-price'
 import type { StreamData } from '@/types/stream'
 
 const originalFetch = global.fetch
@@ -21,6 +21,7 @@ describe('formatUsd', () => {
 
 describe('useTokenPrice', () => {
   beforeEach(() => {
+    clearPriceCacheForTesting()
     global.fetch = vi.fn()
   })
 
@@ -54,6 +55,27 @@ describe('useTokenPrice', () => {
       expect(result.current.usdPrice).toBe(0.42)
       expect(result.current.loading).toBe(false)
     })
+  })
+
+  it('surfaces unavailable price and passes AbortSignal when fetch times out', async () => {
+    vi.mocked(global.fetch).mockRejectedValue(
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+    )
+    const { result } = renderHook(() => useTokenPrice('XLM'))
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false)
+      expect(result.current.usdPrice).toBeNull()
+    })
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.stellar.expert/explorer/public/asset/XLM/price',
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      })
+    )
+  })
+
+  it('exports XLM_PRICE_FETCH_TIMEOUT_MS with expected timeout value', () => {
+    expect(XLM_PRICE_FETCH_TIMEOUT_MS).toBe(10_000)
   })
 })
 
