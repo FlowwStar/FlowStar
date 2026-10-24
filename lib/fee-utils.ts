@@ -75,7 +75,8 @@ export function formatFee(stroops: number, decimals: number = 7): string {
 export function calculateBatchFees(
   operationCount: number,
   feePerOperation: number,
+  xlmPrice?: number,
 ): FeeBreakdown {
   const totalFee = feePerOperation * operationCount;
-  return calculateFeeBreakdown(totalFee);
+  return calculateFeeBreakdown(totalFee, xlmPrice);
 }
