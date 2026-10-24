@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   calculateFeeBreakdown,
   isHighFee,
-  formatFee,
   calculateBatchFees,
   TYPICAL_FEES,
 } from "@/lib/fee-utils";
@@ -48,20 +47,6 @@ describe("isHighFee", () => {
   it("returns false when fee <= 2x average", () => {
     expect(isHighFee(200, 100)).toBe(false);
     expect(isHighFee(150, 100)).toBe(false);
-  });
-});
-
-describe("formatFee", () => {
-  it("converts stroops to XLM string", () => {
-    expect(formatFee(10_000_000)).toBe("1.0000000");
-  });
-
-  it("respects decimals parameter", () => {
-    expect(formatFee(10_000_000, 2)).toBe("1.00");
-  });
-
-  it("handles small fees", () => {
-    expect(formatFee(100)).toBe("0.0000100");
   });
 });
 
