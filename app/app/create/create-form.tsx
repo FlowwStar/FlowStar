@@ -490,10 +490,17 @@ export function CreateForm() {
 
     setForm((prev) => {
       const amount = prev.amount;
-      const cliffAmount =
-        hasCliff && template.cliffPercent > 0 && amount
-          ? String(Math.floor((Number(amount) * template.cliffPercent) / 100))
-          : "";
+      let cliffAmount = "";
+      if (hasCliff && template.cliffPercent > 0 && amount) {
+        try {
+          const decimals = selectedToken?.decimals ?? 7;
+          const parsed = parseTokenAmount(amount, decimals);
+          const computed = (parsed * BigInt(template.cliffPercent)) / 100n;
+          cliffAmount = formatTokenAmount(computed, decimals, decimals).replace(/,/g, "");
+        } catch {
+          cliffAmount = "";
+        }
+      }
       return {
         ...prev,
         startDate: newStart,
