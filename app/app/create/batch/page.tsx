@@ -77,6 +77,7 @@ export default function BatchCreatePage() {
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [parseErrors, setParseErrors] = useState<string[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [completedCount, setCompletedCount] = useState(0);
   const [queuedCount, setQueuedCount] = useState(0);
@@ -215,6 +216,41 @@ export default function BatchCreatePage() {
     [loadCsv],
   );
 
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
+  const handleDragEnter = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    async (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setIsDragging(false);
+
+      const file = event.dataTransfer.files?.[0];
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith(".csv")) {
+        setUploadError("Please upload a .csv file.");
+        return;
+      }
+      await loadCsv(file);
+    },
+    [loadCsv],
+  );
+
   const handleExecute = useCallback(async () => {
     setExecuting(true);
     setExecutionErrors([]);
@@ -309,12 +345,40 @@ export default function BatchCreatePage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="csvFile">CSV file</Label>
-                <Input
-                  id="csvFile"
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileChange}
-                />
+                <div
+                  data-testid="csv-dropzone"
+                  onDragOver={handleDragOver}
+                  onDragEnter={handleDragEnter}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  onClick={() => document.getElementById("csvFile")?.click()}
+                  className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 text-center transition-colors cursor-pointer ${
+                    isDragging
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-muted-foreground/25 hover:border-muted-foreground/50 bg-muted/20"
+                  }`}
+                >
+                  <Upload
+                    className={`h-8 w-8 mb-2 ${
+                      isDragging ? "text-primary animate-bounce" : "text-muted-foreground"
+                    }`}
+                  />
+                  <p className="text-sm font-medium">
+                    {isDragging
+                      ? "Drop your CSV file here"
+                      : "Drag & drop your CSV here, or click to browse"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Supports: .csv (max 500 rows)
+                  </p>
+                  <Input
+                    id="csvFile"
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+                </div>
                 <p className="text-xs text-muted-foreground">
                   Format:
                   recipient,amount,start_time,end_time,cliff_time,cliff_amount.
