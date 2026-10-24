@@ -32,9 +32,9 @@ function parseError(e: unknown) {
     lower.includes('no available')
   ) {
     return {
-      title: 'Stellar testnet RPC is temporarily unavailable',
+      title: 'Stellar RPC is temporarily unavailable',
       message:
-        'The app could not reach the Stellar testnet RPC server. This is usually temporary — please try again in a few moments.'
+        'The app could not reach the Stellar RPC server. This is usually temporary — please try again in a few moments.'
     }
   }
 
