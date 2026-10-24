@@ -26,7 +26,7 @@ export function calculateFeeBreakdown(
   xlmPrice?: number,
 ): FeeBreakdown {
   // Apply 15% buffer to ensure inclusion
-  const bufferMultiplier = 1.15;
+  const bufferMultiplier = FEE_BUFFER_MULTIPLIER;
   const totalFee = Math.ceil(minResourceFee * bufferMultiplier);
   const bufferFee = totalFee - minResourceFee;
 
@@ -45,6 +45,11 @@ export function calculateFeeBreakdown(
 /**
  * Estimate typical fees for common operations
  */
+/**
+ * Default safety buffer multiplier (15%) applied to resource fees to ensure inclusion.
+ */
+export const FEE_BUFFER_MULTIPLIER = 1.15;
+
 export const TYPICAL_FEES = {
   createStream: { min: 50000, typical: 80000, unit: "stroops" },
   withdraw: { min: 30000, typical: 50000, unit: "stroops" },

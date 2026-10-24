@@ -5,12 +5,19 @@ import {
   formatFee,
   calculateBatchFees,
   TYPICAL_FEES,
+  FEE_BUFFER_MULTIPLIER,
 } from "@/lib/fee-utils";
+
+describe("FEE_BUFFER_MULTIPLIER", () => {
+  it("exports expected 15% safety buffer multiplier", () => {
+    expect(FEE_BUFFER_MULTIPLIER).toBe(1.15);
+  });
+});
 
 describe("calculateFeeBreakdown", () => {
   it("applies 15% buffer to minResourceFee", () => {
     const result = calculateFeeBreakdown(100_000);
-    expect(result.totalEstimated).toBe(Math.ceil(100_000 * 1.15));
+    expect(result.totalEstimated).toBe(Math.ceil(100_000 * FEE_BUFFER_MULTIPLIER));
   });
 
   it("minFee plus bufferFee equals total", () => {
@@ -26,7 +33,7 @@ describe("calculateFeeBreakdown", () => {
   it("calculates estimatedUsd with custom xlmPrice", () => {
     const result = calculateFeeBreakdown(10_000_000, 0.5); // 1 XLM at $0.50
     expect(result.estimatedUsd).toBeCloseTo(
-      (0.5 * Math.ceil(10_000_000 * 1.15)) / 1e7,
+      (0.5 * Math.ceil(10_000_000 * FEE_BUFFER_MULTIPLIER)) / 1e7,
       5,
     );
   });
