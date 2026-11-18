@@ -874,6 +874,37 @@ fn test_self_stream_withdraw() {
     assert_eq!(result, Err(Ok(StreamError::SelfStream)));
 }
 
+/// Regression test for #1088: `transfer_stream` must reject transferring a
+/// stream to its own sender, mirroring the `SelfStream` guard in
+/// `create_stream`. Otherwise a recipient could produce the self-stream state
+/// that creation forbids.
+#[test]
+fn test_transfer_stream_to_sender_rejected() {
+    let ctx = Ctx::new();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+    let id = ctx.create_basic_stream(now);
+
+    let recipient_before = ctx.client().get_stream(&id).recipient;
+    let active_before = ctx.client().get_active_streams(&ctx.recipient);
+    let archived_before = ctx.client().get_archived_streams(&ctx.recipient);
+
+    let result = ctx.client().try_transfer_stream(&id, &ctx.sender);
+    assert_eq!(result, Err(Ok(StreamError::SelfStream)));
+
+    // Stream state must be untouched.
+    assert_eq!(ctx.client().get_stream(&id).recipient, recipient_before);
+    assert_eq!(
+        ctx.client().get_active_streams(&ctx.recipient),
+        active_before
+    );
+    assert_eq!(
+        ctx.client().get_archived_streams(&ctx.recipient),
+        archived_before
+    );
+    assert!(ctx.client().get_active_streams(&ctx.sender).is_empty());
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // 8. CREATE PARAM VALIDATION
 // ═══════════════════════════════════════════════════════════════════

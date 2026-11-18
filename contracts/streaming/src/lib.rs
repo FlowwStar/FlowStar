@@ -788,6 +788,18 @@ impl StreamingContract {
         if new_recipient == old_recipient {
             return Err(StreamError::SameRecipient);
         }
+        if new_recipient == stream.sender {
+            return Err(StreamError::SelfStream);
+        }
+
+        // A fully drained stream has already been moved to the archive indexes
+        // by `withdraw`. Transferring it would re-add the ID to an active
+        // `ReceivedBy` index and leave the old recipient's archive entry
+        // behind, so reject the transfer instead.
+        let now = env.ledger().timestamp();
+        if stream.withdrawn_amount >= stream.deposited_amount && now >= stream.end_time {
+            return Err(StreamError::StreamEnded);
+        }
 
         stream.recipient = new_recipient.clone();
 
@@ -965,7 +977,10 @@ impl StreamingContract {
         let now = env.ledger().timestamp();
         let withdrawable = Self::withdrawable_amount(&stream, now)?;
 
-        if amount <= 0 || amount > withdrawable {
+        if amount <= 0 {
+            return Err(StreamError::InvalidAmount);
+        }
+        if amount > withdrawable {
             return Err(StreamError::InsufficientFunds);
         }
 
@@ -1035,6 +1050,13 @@ impl StreamingContract {
         }
 
         let now = env.ledger().timestamp();
+
+        // A fully drained stream was already archived by `withdraw`; cancelling
+        // it would push the ID into the archive indexes a second time.
+        if stream.withdrawn_amount >= stream.deposited_amount && now >= stream.end_time {
+            return Err(StreamError::StreamEnded);
+        }
+
         let unlocked = Self::unlocked_amount(&stream, now)?;
         let recipient_owes = unlocked - stream.withdrawn_amount;
         let sender_gets_back = stream.deposited_amount - unlocked;
@@ -1566,12 +1588,18 @@ impl StreamingContract {
     }
 
     /// Append a stream ID to an address index list.
+    ///
+    /// Idempotent: if the ID is already present the list is left unchanged, so
+    /// repeated archive moves can never produce duplicate entries.
     fn push_to_index(env: &Env, key: DataKey, id: u64) {
         let mut list: Vec<u64> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or(Vec::new(env));
+        if list.iter().any(|existing_id| existing_id == id) {
+            return;
+        }
         list.push_back(id);
         env.storage().persistent().set(&key, &list);
         env.storage()
