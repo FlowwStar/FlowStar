@@ -30,4 +30,4 @@ export default withSentryConfig(analyzedConfig, {
   autoInstrumentServerFunctions: true,
   // Tree-shake unused Sentry features to keep bundle small.
   widenClientFileUpload: false,
-})
+});

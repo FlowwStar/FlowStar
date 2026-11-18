@@ -43,7 +43,6 @@ pnpm-lock.yaml
 *.swp
 *.swo
 .idea/
-.vscode/
 .DS_Store
 Thumbs.db
 
@@ -55,7 +54,6 @@ dist/
 
 # Broader env file catch
 *.local
-.env
 
 # Storybook static output
 storybook-static/
@@ -65,3 +63,4 @@ storybook-static/
 
 # CI test reports
 junit.xml
+config.bat

@@ -41,4 +41,4 @@ export default [
       'security/detect-non-literal-fs-filename': 'off',
     },
   },
-]
+];
