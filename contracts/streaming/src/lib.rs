@@ -788,6 +788,8 @@ impl StreamingContract {
         if new_recipient == old_recipient {
             return Err(StreamError::SameRecipient);
         }
+        if new_recipient == env.current_contract_address() {
+            return Err(StreamError::InvalidRecipient);
         if new_recipient == stream.sender {
             return Err(StreamError::SelfStream);
         }
@@ -868,7 +870,7 @@ impl StreamingContract {
         stream.deposited_amount = stream
             .deposited_amount
             .checked_add(additional_amount)
-            .expect("deposited_amount overflow");
+            .ok_or(StreamError::ArithmeticOverflow)?;
 
         // ── Re-anchor the vesting schedule ──────────────────────────────────
         //
@@ -890,7 +892,7 @@ impl StreamingContract {
             let remaining = stream
                 .deposited_amount
                 .checked_sub(already_unlocked)
-                .expect("deposited < unlocked — invariant broken");
+                .ok_or(StreamError::ArithmeticOverflow)?;
 
             let new_rate = if remaining_seconds > 0 {
                 remaining / remaining_seconds
@@ -913,7 +915,7 @@ impl StreamingContract {
             stream.linear_amount = stream
                 .linear_amount
                 .checked_add(additional_amount)
-                .expect("linear_amount overflow");
+                .ok_or(StreamError::ArithmeticOverflow)?;
             let new_rate = if stream.duration > 0 {
                 stream.linear_amount / stream.duration
             } else {
@@ -987,7 +989,7 @@ impl StreamingContract {
         stream.withdrawn_amount = stream
             .withdrawn_amount
             .checked_add(amount)
-            .expect("withdrawn_amount overflow");
+            .ok_or(StreamError::ArithmeticOverflow)?;
         let fully_drained =
             stream.withdrawn_amount >= stream.deposited_amount && now >= stream.end_time;
 
@@ -1167,7 +1169,7 @@ impl StreamingContract {
         stream.deposited_amount = stream
             .deposited_amount
             .checked_sub(amount)
-            .expect("deposited_amount underflow");
+            .ok_or(StreamError::ArithmeticOverflow)?;
 
         // ── Re-anchor the vesting schedule ──────────────────────────────────
         //
@@ -1180,7 +1182,7 @@ impl StreamingContract {
             let remaining = stream
                 .deposited_amount
                 .checked_sub(unlocked)
-                .expect("deposited < unlocked — invariant broken");
+                .ok_or(StreamError::ArithmeticOverflow)?;
 
             let new_rate = if remaining_seconds > 0 {
                 remaining / remaining_seconds
@@ -1203,7 +1205,7 @@ impl StreamingContract {
             stream.linear_amount = stream
                 .linear_amount
                 .checked_sub(amount)
-                .expect("linear_amount underflow");
+                .ok_or(StreamError::ArithmeticOverflow)?;
             let new_rate = if stream.duration > 0 {
                 stream.linear_amount / stream.duration
             } else {
