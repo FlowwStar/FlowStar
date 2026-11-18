@@ -351,6 +351,54 @@ fn test_withdraw_too_much() {
 }
 
 #[test]
+fn test_withdraw_zero() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    t.set_time(now + 500);
+
+    // Zero is an invalid amount, not an insufficient-funds condition.
+    let result = client.try_withdraw(&stream_id, &0i128);
+    assert_eq!(result, Err(Ok(StreamError::InvalidAmount)));
+}
+
+#[test]
+fn test_withdraw_negative_amount() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    t.set_time(now + 500);
+
+    // Negative is an invalid amount, not an insufficient-funds condition.
+    let result = client.try_withdraw(&stream_id, &-1i128);
+    assert_eq!(result, Err(Ok(StreamError::InvalidAmount)));
+}
+
+#[test]
 fn test_withdraw_cliff_before_time() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -787,6 +835,152 @@ fn test_transfer_stream_near_end() {
 
     let archived_id = client.get_archived_received_streams(&new_recipient, &0, &100);
     assert_eq!(archived_id, vec![&t.env, 1]);
+}
+
+#[test]
+fn test_transfer_stream_archived_stream_not_reactivated() {
+    // Regression test for #1086: a fully drained (archived) stream must not
+    // reappear in an active received index after a transfer.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Drain the stream after end_time so withdraw archives it.
+    t.set_time(now + 2000);
+    client.withdraw(&stream_id, &total);
+
+    // Old recipient: active index empty, archive contains the stream.
+    assert_eq!(client.get_received_streams(&t.recipient, &0, &100).len(), 0);
+    assert!(client
+        .get_archived_received_streams(&t.recipient, &0, &100)
+        .contains(stream_id));
+
+    // Transfer the drained stream to a new recipient.
+    let new_recipient = Address::generate(&t.env);
+    let result = client.try_transfer_stream(&stream_id, &new_recipient);
+
+    // Either the transfer is rejected as ended, or it moves the ID between
+    // archive indexes — but it must never land in an active index.
+    if let Err(Ok(err)) = result {
+        assert_eq!(err, StreamError::StreamEnded);
+        // State unchanged: recipient still the old one.
+        assert_eq!(client.get_stream(&stream_id).recipient, t.recipient);
+        assert_eq!(client.get_received_streams(&new_recipient, &0, &100).len(), 0);
+        assert_eq!(
+            client
+                .get_archived_received_streams(&new_recipient, &0, &100)
+                .len(),
+            0
+        );
+    } else {
+        assert_eq!(result, Ok(Ok(())));
+        // No active index entry for either recipient.
+        assert_eq!(client.get_received_streams(&t.recipient, &0, &100).len(), 0);
+        assert_eq!(client.get_received_streams(&new_recipient, &0, &100).len(), 0);
+        // Archive entry moved to the new recipient, removed from the old one.
+        assert!(!client
+            .get_archived_received_streams(&t.recipient, &0, &100)
+            .contains(stream_id));
+        assert!(client
+            .get_archived_received_streams(&new_recipient, &0, &100)
+            .contains(stream_id));
+    }
+}
+
+#[test]
+fn test_cancel_fully_drained_stream_no_duplicate_archive() {
+    // Regression test for #1087: cancelling a fully withdrawn stream must not
+    // duplicate its ID in the archive indexes.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Drain the stream after end_time so withdraw archives it.
+    t.set_time(now + 2000);
+    client.withdraw(&stream_id, &total);
+
+    // Attempt to cancel the drained stream.
+    let result = client.try_cancel(&stream_id);
+
+    // Either cancel is rejected, or the archive push is idempotent.
+    if let Err(Ok(err)) = result {
+        assert_eq!(err, StreamError::StreamEnded);
+    }
+
+    // The ID must appear exactly once in each archive index.
+    let archived_sent = client.get_archived_sent_streams(&t.sender, &0, &100);
+    let mut sent_count = 0u32;
+    for id in archived_sent.iter() {
+        if id == stream_id {
+            sent_count += 1;
+        }
+    }
+    assert_eq!(sent_count, 1, "archive-sent must contain the ID exactly once");
+
+    let archived_received = client.get_archived_received_streams(&t.recipient, &0, &100);
+    let mut received_count = 0u32;
+    for id in archived_received.iter() {
+        if id == stream_id {
+            received_count += 1;
+        }
+    }
+    assert_eq!(
+        received_count, 1,
+        "archive-received must contain the ID exactly once"
+    );
+}
+
+#[test]
+fn test_transfer_stream_to_sender_rejected() {
+    // Regression test for #1088: transferring a stream back to its sender must
+    // be rejected with SelfStream, mirroring create_stream.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let result = client.try_transfer_stream(&stream_id, &t.sender);
+    assert_eq!(result, Err(Ok(StreamError::SelfStream)));
+
+    // State and indexes unchanged.
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.recipient, t.recipient);
+    assert!(client
+        .get_received_streams(&t.recipient, &0, &100)
+        .contains(stream_id));
+    assert_eq!(client.get_received_streams(&t.sender, &0, &100).len(), 0);
 }
 
 #[test]
