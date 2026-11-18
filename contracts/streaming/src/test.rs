@@ -790,6 +790,33 @@ fn test_transfer_stream_near_end() {
 }
 
 #[test]
+fn test_transfer_stream_to_contract_rejected() {
+    // Transferring to the contract's own address would lock the unlocked
+    // funds forever, since the contract cannot authorise a withdrawal.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let result = client.try_transfer_stream(&stream_id, &t.contract_id);
+    assert_eq!(result, Err(Ok(StreamError::InvalidRecipient)));
+
+    // Recipient must be unchanged after the rejected transfer.
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.recipient, t.recipient);
+}
+
+#[test]
 fn test_transfer_stream_sender_index_unaffected() {
     let t = TestEnv::setup();
     let now = 1_000_000u64;
@@ -1328,6 +1355,43 @@ fn test_top_up_then_withdraw() {
     client.withdraw(&stream_id, &withdrawable);
     assert_eq!(t.token().balance(&t.recipient), total + additional);
     assert_eq!(t.token().balance(&t.contract_id), 0);
+}
+
+#[test]
+fn test_top_up_overflow_returns_arithmetic_overflow() {
+    // deposited_amount + additional_amount overflowing i128 must surface as
+    // StreamError::ArithmeticOverflow instead of an opaque host panic.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    // Mint a near-i128::MAX balance to the sender.
+    let huge = i128::MAX - 1_000_0000000i128;
+    StellarAssetClient::new(&t.env, &t.token_id).mint(&t.sender, &huge);
+
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Additional amount large enough that deposited_amount + additional overflows.
+    let additional = i128::MAX - total + 1;
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &additional,
+        &(t.env.ledger().sequence() + 500),
+    );
+
+    let result = client.try_top_up(&stream_id, &additional);
+    assert_eq!(result, Err(Ok(StreamError::ArithmeticOverflow)));
 }
 
 #[test]
