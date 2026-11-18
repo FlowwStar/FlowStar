@@ -375,12 +375,17 @@ pub fn withdraw(stream_id: u64, amount: i128) -> Result<(), StreamError>
 
 **Preconditions:**
 - Stream must exist
-- Recipient must have at least `amount` withdrawable
+- `amount > 0`; returns `StreamError::InvalidAmount` (1) otherwise
+- Recipient must have at least `amount` withdrawable; returns `StreamError::InsufficientFunds` (7) otherwise
 - Stream must not be cancelled
 
 **Returns:**
 - `Ok(())` on success
 - `Err(StreamError)` on failure
+
+**Errors:**
+- `InvalidAmount` (1) — `amount` is zero or negative
+- `InsufficientFunds` (7) — `amount` exceeds the currently withdrawable balance
 
 **Example - JavaScript:**
 ```typescript
@@ -413,10 +418,15 @@ pub fn cancel(stream_id: u64) -> Result<(), StreamError>
 **Preconditions:**
 - Stream must exist
 - Stream must not already be cancelled
+- Stream must not be fully drained (i.e. not `withdrawn_amount >= deposited_amount` after `end_time`); such streams are already archived and cancelling them is rejected
 
 **Returns:**
 - `Ok(())` on success
 - `Err(StreamError)` on failure
+
+**Errors:**
+- `AlreadyCancelled` (6) — stream was already cancelled
+- `StreamEnded` (13) — stream is fully drained and already archived
 
 **Example - JavaScript:**
 ```typescript
@@ -448,11 +458,18 @@ pub fn transfer_stream(stream_id: u64, new_recipient: Address) -> Result<(), Str
 **Preconditions:**
 - Stream must exist
 - `new_recipient` must be different from current recipient
+- `new_recipient` must not be the stream's sender; returns `StreamError::SelfStream` (4) otherwise
 - Stream must not be cancelled
+- Stream must not be fully drained/archived; transferring an archived stream is rejected with `StreamError::StreamEnded` (13)
 
 **Returns:**
 - `Ok(())` on success
 - `Err(StreamError)` on failure
+
+**Errors:**
+- `SelfStream` (4) — `new_recipient` equals the stream's sender
+- `StreamEnded` (13) — stream is fully drained and already archived
+- `AlreadyCancelled` (6) — stream was already cancelled
 
 **Example - JavaScript:**
 ```typescript
@@ -1049,6 +1066,10 @@ const signedXdr = await wallet.sign(tx);
 | 8 | InvalidToken | Token contract is not valid SEP-41 | Verify token address |
 | 9 | TransferFailed | Token transfer failed (likely insufficient allowance) | Approve contract for amount |
 | 10 | InsufficientWithdrawable | No funds available to withdraw | Wait for cliff or unlock period |
+| 11 | BatchSizeExceeded | More than 20 streams in a batch | Split into smaller batches |
+| 12 | BatchEmpty | Batch contains no streams | Provide at least one stream |
+| 13 | StreamEnded | Stream is fully drained/archived; operation not allowed | Use archive queries instead |
+| 14 | SelfStream | Recipient equals sender | Choose a different recipient |
 
 ---
 
