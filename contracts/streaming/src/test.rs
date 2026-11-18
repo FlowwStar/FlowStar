@@ -478,6 +478,7 @@ fn test_cancel_midway() {
 
     let stream = client.get_stream(&stream_id);
     assert!(stream.cancelled);
+    assert_eq!(stream.cancelled_at, now + 500);
 
     let recipient_balance = t.token().balance(&t.recipient);
     let sender_balance_after = t.token().balance(&t.sender);
@@ -489,6 +490,117 @@ fn test_cancel_midway() {
         recipient_balance + sender_balance_after - sender_balance_before,
         total
     );
+
+    // withdrawn_amount must equal the total the recipient actually received.
+    assert_eq!(stream.withdrawn_amount, recipient_balance);
+}
+
+#[test]
+fn test_cancel_before_cliff_records_cancelled_at() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    let params = CreateStreamParams {
+        recipient: t.recipient.clone(),
+        token: t.token_id.clone(),
+        total_amount: 1_000_0000000,
+        start_time: now,
+        end_time: now + 1000,
+        cliff_time: now + 500,
+        cliff_amount: 0,
+    };
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Cancel before the cliff — nothing has unlocked yet.
+    t.set_time(now + 100);
+    let sender_before = t.token().balance(&t.sender);
+    client.cancel(&stream_id);
+
+    let stream = client.get_stream(&stream_id);
+    assert!(stream.cancelled);
+    assert_eq!(stream.cancelled_at, now + 100);
+    // Nothing unlocked before the cliff, so the recipient payout is zero.
+    assert_eq!(stream.withdrawn_amount, 0);
+    assert_eq!(t.token().balance(&t.recipient), 0);
+    // Sender gets the full deposit back.
+    assert_eq!(t.token().balance(&t.sender) - sender_before, total);
+    assert_eq!(t.token().balance(&t.contract_id), 0);
+}
+
+#[test]
+fn test_cancel_after_end_records_cancelled_at() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Cancel after the stream has fully vested.
+    t.set_time(now + 2000);
+    client.cancel(&stream_id);
+
+    let stream = client.get_stream(&stream_id);
+    assert!(stream.cancelled);
+    assert_eq!(stream.cancelled_at, now + 2000);
+    // Recipient is owed the full deposit; sender gets nothing back.
+    assert_eq!(stream.withdrawn_amount, total);
+    assert_eq!(t.token().balance(&t.recipient), total);
+    assert_eq!(t.token().balance(&t.contract_id), 0);
+}
+
+#[test]
+fn test_cancel_mid_stream_withdrawn_amount_includes_payout() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Withdraw partway, then cancel further along.
+    t.set_time(now + 250);
+    let first = client.get_withdrawable(&stream_id);
+    assert!(first > 0);
+    client.withdraw(&stream_id, &first);
+
+    t.set_time(now + 500);
+    client.cancel(&stream_id);
+
+    let stream = client.get_stream(&stream_id);
+    assert!(stream.cancelled);
+    assert_eq!(stream.cancelled_at, now + 500);
+    // withdrawn_amount tracks everything the recipient received, including
+    // the payout made during cancel.
+    assert_eq!(stream.withdrawn_amount, t.token().balance(&t.recipient));
+    assert!(stream.withdrawn_amount > first);
+    assert!(stream.withdrawn_amount < total);
 }
 
 #[test]
@@ -2411,6 +2523,46 @@ fn test_cleanup_stream_succeeds_while_paused() {
     // cleanup_stream has no require_not_paused guard and will succeed even when
     // the contract is paused, since cleanup only removes storage without
     // modifying stream state (issue #1051).
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Cancel the stream to make it eligible for cleanup
+    t.set_time(now + 500);
+    client.cancel(&stream_id);
+
+    // Pause the contract
+    client.pause();
+
+    // cleanup_stream should still succeed while paused (no require_not_paused guard)
+    let result = client.try_cleanup_stream(&t.sender, &stream_id);
+    assert_eq!(
+        result,
+        Ok(Ok(())),
+        "cleanup_stream should succeed while paused since it only removes storage"
+    );
+
+    // Verify the stream is actually cleaned up
+    assert!(
+        !client
+            .get_archived_sent_streams(&t.sender, &0, &100)
+            .contains(stream_id),
+        "stream should be removed from archive after cleanup"
+    );
+}
+
+#[test]
 fn test_update_stream_metadata_emits_event() {
     // Verify that update_stream_metadata publishes StreamMetadataUpdatedEvent.
     let t = TestEnv::setup();
@@ -2462,4 +2614,100 @@ fn test_update_stream_metadata_emits_event() {
     // Verify the metadata was stored.
     let stored = client.get_stream_metadata(&stream_id);
     assert_eq!(stored, Some(metadata));
+}
+
+// ─── TTL extension ────────────────────────────────────────────────────────────
+
+#[test]
+fn test_extend_stream_ttl_keeps_metadata_and_delegate_alive() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Write the optional entries so their TTLs start ticking.
+    let metadata = StreamMetadata {
+        name: soroban_sdk::String::from_str(&t.env, "Payroll"),
+        category: soroban_sdk::String::from_str(&t.env, "HR"),
+        memo: soroban_sdk::String::from_str(&t.env, "monthly"),
+    };
+    client.update_stream_metadata(&stream_id, &metadata);
+    let delegate = Address::generate(&t.env);
+    client.set_delegate(&stream_id, &delegate);
+
+    // Perform several withdrawals, each advancing the ledger.
+    for step in 1..=3u64 {
+        t.set_time(now + step * 100);
+        let withdrawable = client.get_withdrawable(&stream_id);
+        if withdrawable > 0 {
+            client.withdraw(&stream_id, &withdrawable);
+        }
+        client.extend_stream_ttl(&stream_id);
+    }
+
+    // Advance the ledger far past the original metadata/delegate TTL.
+    t.env.ledger().with_mut(|l| {
+        l.sequence_number += 1_000_000;
+        l.min_persistent_entry_ttl = 1;
+        l.max_entry_ttl = 10_000_000;
+    });
+
+    // Extend again so the entries are refreshed at the new ledger position.
+    client.extend_stream_ttl(&stream_id);
+
+    // Metadata and delegate must still be readable.
+    assert_eq!(client.get_stream_metadata(&stream_id), Some(metadata));
+    assert_eq!(client.get_delegate(&stream_id), Some(delegate));
+}
+
+#[test]
+fn test_bump_stream_keeps_index_entries_alive() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Bump the idle stream, then advance the ledger past the index TTL.
+    client.bump_stream(&stream_id);
+
+    t.env.ledger().with_mut(|l| {
+        l.sequence_number += 1_000_000;
+        l.min_persistent_entry_ttl = 1;
+        l.max_entry_ttl = 10_000_000;
+    });
+
+    // Bump again at the new ledger position so the index entries are refreshed.
+    client.bump_stream(&stream_id);
+
+    // The stream must still be discoverable through both indexes.
+    let sent = client.get_sent_streams(&t.sender, &0, &100);
+    assert!(
+        sent.contains(stream_id),
+        "stream must remain in the sender index after bump_stream"
+    );
+    let received = client.get_received_streams(&t.recipient, &0, &100);
+    assert!(
+        received.contains(stream_id),
+        "stream must remain in the recipient index after bump_stream"
+    );
 }
