@@ -530,6 +530,8 @@ pub fn bump_stream(stream_id: u64) -> Result<(), StreamError>
 
 **Behavior:**
 - Extends the `Stream(id)` persistent storage entry TTL to ~30 days (`PERSISTENT_TTL_LEDGERS`)
+- Also extends the `SentBy(sender)` and `ReceivedBy(recipient)` index entries so the stream stays visible in `get_sent_streams` / `get_received_streams` for as long as its data is live
+- If the stream is archived, the corresponding archive index keys (`ArchivedSentBy(sender)` / `ArchivedReceivedBy(recipient)`) are extended as well
 - Emits a `StreamBumpedEvent`
 - Does **not** modify any stream data
 

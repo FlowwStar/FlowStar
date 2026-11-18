@@ -137,6 +137,8 @@ pub struct Stream {
     pub amount_per_second: i128,
     /// Whether the stream has been cancelled.
     pub cancelled: bool,
+    /// UNIX timestamp at which the stream was cancelled (0 when not cancelled).
+    pub cancelled_at: u64,
     /// Total amount to be streamed linearly after cliff (total - cliff).
     pub linear_amount: i128,
     /// Total duration of the stream in seconds (end_time - start_time).
@@ -469,11 +471,54 @@ impl StreamingContract {
 
     /// Post-upgrade data migration hook. Call this after an upgrade to
     /// migrate storage layouts.
+    ///
+    /// # Migration plan: `Stream.cancelled_at`
+    ///
+    /// Streams created before `cancelled_at` was added were serialized without
+    /// that field. Soroban's `#[contracttype]` decoding of a missing trailing
+    /// field is not guaranteed, so this hook rewrites every existing stream
+    /// with the new layout:
+    ///
+    /// 1. Walk stream IDs `1..=NextId` (IDs are assigned sequentially).
+    /// 2. For each stream that still decodes, default `cancelled_at` to `0`
+    ///    (not cancelled) and rewrite the entry, bumping its TTL.
+    /// 3. Streams that fail to decode are left untouched (they will surface as
+    ///    `StreamNotFound` until re-created); the migration is idempotent and
+    ///    can be re-run safely.
+    ///
+    /// See `docs/adr/` for the full ADR covering this storage change.
     pub fn migrate(env: Env) -> Result<(), StreamError> {
         Self::require_admin(&env)?;
 
         // By default, unfreeze after wasm upgrade.
         env.storage().instance().set(&DataKey::Paused, &false);
+
+        // Rewrite existing streams so they carry the `cancelled_at` field.
+        let next_id: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::NextId)
+            .unwrap_or(0u64);
+        let mut id: u64 = 1;
+        while id <= next_id {
+            if let Some(mut stream) = env
+                .storage()
+                .persistent()
+                .get::<_, Stream>(&DataKey::Stream(id))
+            {
+                // Pre-existing streams were never cancelled through the new
+                // code path, so default to 0 unless already set.
+                if !stream.cancelled {
+                    stream.cancelled_at = 0;
+                }
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::Stream(id), &stream);
+                Self::extend_stream_ttl(&env, id);
+            }
+            id += 1;
+        }
+
         Ok(())
     }
 
@@ -601,6 +646,7 @@ impl StreamingContract {
             cliff_amount: params.cliff_amount,
             amount_per_second,
             cancelled: false,
+            cancelled_at: 0,
             linear_amount,
             duration: duration_i128,
         };
@@ -737,6 +783,7 @@ impl StreamingContract {
                 cliff_amount: input.cliff_amount,
                 amount_per_second,
                 cancelled: false,
+                cancelled_at: 0,
                 linear_amount,
                 duration: duration_i128,
             };
@@ -1036,10 +1083,22 @@ impl StreamingContract {
 
         let now = env.ledger().timestamp();
         let unlocked = Self::unlocked_amount(&stream, now)?;
-        let recipient_owes = unlocked - stream.withdrawn_amount;
-        let sender_gets_back = stream.deposited_amount - unlocked;
+        let recipient_owes = unlocked
+            .checked_sub(stream.withdrawn_amount)
+            .ok_or(StreamError::ArithmeticOverflow)?;
+        let sender_gets_back = stream
+            .deposited_amount
+            .checked_sub(unlocked)
+            .ok_or(StreamError::ArithmeticOverflow)?;
 
         stream.cancelled = true;
+        stream.cancelled_at = now;
+        // Record the cancel payout so `withdrawn_amount` equals the total the
+        // recipient has received from this stream.
+        stream.withdrawn_amount = stream
+            .withdrawn_amount
+            .checked_add(recipient_owes)
+            .ok_or(StreamError::ArithmeticOverflow)?;
 
         env.storage()
             .persistent()
@@ -1369,9 +1428,51 @@ impl StreamingContract {
 
     /// Extend the TTL of a stream's persistent storage without modifying data.
     /// Anyone can call this to keep a long-running stream alive.
+    ///
+    /// In addition to the `Stream(id)` entry, this extends the associated
+    /// `StreamMetadata(id)` and `Delegate(id)` entries (when present) and the
+    /// sender/recipient index entries (`SentBy`/`ReceivedBy`, or the archive
+    /// variants for archived streams) so a long-idle stream does not silently
+    /// drop out of `get_sent_streams` / `get_received_streams`.
     pub fn bump_stream(env: Env, stream_id: u64) -> Result<(), StreamError> {
-        Self::load_stream(&env, stream_id)?;
+        let stream = Self::load_stream(&env, stream_id)?;
         Self::extend_stream_ttl(&env, stream_id);
+
+        // Extend the address index entries that reference this stream.
+        let sent_key = DataKey::SentBy(stream.sender.clone());
+        if env.storage().persistent().has(&sent_key) {
+            env.storage().persistent().extend_ttl(
+                &sent_key,
+                PERSISTENT_TTL_LEDGERS,
+                PERSISTENT_TTL_LEDGERS,
+            );
+        }
+        let received_key = DataKey::ReceivedBy(stream.recipient.clone());
+        if env.storage().persistent().has(&received_key) {
+            env.storage().persistent().extend_ttl(
+                &received_key,
+                PERSISTENT_TTL_LEDGERS,
+                PERSISTENT_TTL_LEDGERS,
+            );
+        }
+
+        // Archived streams live in the archive indexes instead.
+        let archive_sent_key = DataKey::ArchiveSentBy(stream.sender.clone());
+        if env.storage().persistent().has(&archive_sent_key) {
+            env.storage().persistent().extend_ttl(
+                &archive_sent_key,
+                PERSISTENT_TTL_LEDGERS,
+                PERSISTENT_TTL_LEDGERS,
+            );
+        }
+        let archive_received_key = DataKey::ArchiveReceivedBy(stream.recipient.clone());
+        if env.storage().persistent().has(&archive_received_key) {
+            env.storage().persistent().extend_ttl(
+                &archive_received_key,
+                PERSISTENT_TTL_LEDGERS,
+                PERSISTENT_TTL_LEDGERS,
+            );
+        }
 
         StreamBumpedEvent {
             stream_id,
@@ -1610,6 +1711,26 @@ impl StreamingContract {
             PERSISTENT_TTL_LEDGERS,
             PERSISTENT_TTL_LEDGERS,
         );
+
+        // Keep associated entries alive alongside the stream. `extend_ttl`
+        // panics on a missing key, so guard with `has()` first.
+        let metadata_key = DataKey::StreamMetadata(id);
+        if env.storage().persistent().has(&metadata_key) {
+            env.storage().persistent().extend_ttl(
+                &metadata_key,
+                PERSISTENT_TTL_LEDGERS,
+                PERSISTENT_TTL_LEDGERS,
+            );
+        }
+
+        let delegate_key = DataKey::Delegate(id);
+        if env.storage().persistent().has(&delegate_key) {
+            env.storage().persistent().extend_ttl(
+                &delegate_key,
+                PERSISTENT_TTL_LEDGERS,
+                PERSISTENT_TTL_LEDGERS,
+            );
+        }
     }
 
     fn paginate(env: &Env, list: &Vec<u64>, offset: u32, limit: u32) -> Vec<u64> {
