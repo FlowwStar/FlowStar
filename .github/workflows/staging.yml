@@ -1,5 +1,8 @@
 name: Staging
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [staging]
@@ -11,6 +14,9 @@ on:
 
 jobs:
   deploy-staging:
+    permissions:
+      contents: read
+      pull-requests: write # Required to comment the preview URL on PRs
     runs-on: ubuntu-latest
     environment: staging
     env:

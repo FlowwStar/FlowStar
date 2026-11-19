@@ -1,5 +1,8 @@
 name: Security Scan
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     branches: [main]
@@ -9,6 +12,7 @@ jobs:
     name: Rust / Soroban Audit
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write # Required to comment on issues
       pull-requests: write
     defaults:
