@@ -49,18 +49,26 @@ stellar keys fund deployer --network testnet
 
 ```bash
 # Deploy to testnet and update .env.local automatically
-./scripts/deploy.sh --update-env
+./scripts/deploy.sh --admin <your-admin-address> --update-env
 
 # Deploy to mainnet with a specific identity
-./scripts/deploy.sh --network mainnet --source prod-deployer --update-env
+./scripts/deploy.sh --admin <your-admin-address> --network mainnet --source prod-deployer --update-env
 ```
+
+`--admin <address>` is **required**: it is the one-time admin passed to
+`initialize`. The admin address must authorize the transaction (in practice,
+use the address of the `--source` identity). A deployment is not safe until
+`initialize` has succeeded — otherwise anyone can call it first and take
+control. If initialization fails, the script exits non-zero and prints the
+deployed contract ID so you can initialize it manually before use.
 
 The script will:
 
 1. Build the contract WASM (`stellar contract build`)
 2. Deploy to the specified network
-3. Print the new contract ID
-4. Optionally write it to `.env.local`
+3. Immediately call `initialize --admin <address>` on the new contract
+4. Print the new contract ID
+5. Optionally write it to `.env.local`
 
 ### Manual
 
@@ -75,9 +83,19 @@ stellar contract deploy \
   --wasm contracts/target/wasm32v1-none/release/flowstar_streaming.wasm \
   --source deployer \
   --network testnet
+
+# Initialize immediately using the returned contract ID
+stellar contract invoke \
+  --id <contract-id> \
+  --source deployer \
+  --network testnet \
+  -- \
+  initialize \
+  --admin <your-admin-address>
 ```
 
-Copy the output contract ID for the next step.
+Copy the output contract ID for the next step, and initialize the contract
+right away — `initialize` is one-time and cannot be called again.
 
 ---
 

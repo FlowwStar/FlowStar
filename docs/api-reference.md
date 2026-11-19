@@ -439,6 +439,87 @@ const result = await invoke('cancel', [
 
 ---
 
+### partial_cancel
+
+Partially cancels a stream: refunds part of the still-locked (unvested)
+balance to the sender while leaving the stream **active**. It is the
+non-terminal counterpart to `cancel`, which refunds the entire locked balance
+and ends the stream.
+
+**Signature:**
+```rust
+pub fn partial_cancel(stream_id: u64, amount: i128) -> Result<(), StreamError>
+```
+
+**Parameters:**
+- `stream_id: u64` - Stream ID to partially cancel
+- `amount: i128` - Amount of locked tokens to refund (in token's smallest unit)
+
+**Authorization Required:**
+- The stream sender must authorize the transaction via `require_auth()`; a
+  missing or invalid signature aborts the transaction before a `StreamError`
+  is returned
+- The contract must not be paused
+
+**Preconditions:**
+- Stream must exist
+- Stream must not already be cancelled, and `end_time` must not have been reached
+- `amount > 0` and `amount <= locked balance`, where locked balance is
+  `deposited_amount - unlocked_amount(now)`
+- The remaining balance must yield a non-zero per-second rate for the rest of
+  the stream
+
+**Returns:**
+- `Ok(())` on success
+- `Err(StreamError)` on failure
+
+**Errors:**
+- `StreamNotFound` (5) — stream does not exist
+- `ContractPaused` (16) — all write operations are paused
+- `StreamCancelled` (6) — stream was already fully cancelled
+- `StreamEnded` (9) — the current ledger time is at or past `end_time`
+- `InvalidAmount` (1) — `amount` is zero, negative, or exceeds the locked balance
+- `RateIsZero` (19) — the reduced balance would stream at zero per second
+- `ArithmeticOverflow` (13) — an intermediate `i128` calculation overflowed;
+  the stream is left unchanged
+
+**Re-anchoring behavior:**
+- Funds already unlocked as of the call are frozen in place; only the locked
+  remainder is reduced, and the original `end_time` is preserved. The stream
+  stays active (`cancelled = false`) and its TTL is extended.
+- When `now >= cliff_time`: `start_time` and `cliff_time` move to `now`,
+  `cliff_amount` becomes the unlocked amount, `linear_amount` becomes
+  `new_deposited_amount - unlocked`, `duration` becomes `end_time - now`, and
+  `amount_per_second` is recalculated as `linear_amount / duration`.
+- Before the cliff, nothing has unlocked yet: only `linear_amount` and
+  `amount_per_second` are reduced, and `start_time`/`cliff_time` are unchanged.
+- The refunded `amount` is transferred from the contract to the sender.
+
+**Event:**
+Emits `PartialCancelEvent`:
+
+| Field                  | Type      | Description                                      |
+| ---------------------- | --------- | ------------------------------------------------ |
+| `stream_id`            | `u64`     | Stream that was partially cancelled              |
+| `sender`               | `Address` | Sender who received the refund                   |
+| `recipient`            | `Address` | Recipient of the (still active) stream           |
+| `amount_refunded`      | `i128`    | Locked amount returned to the sender             |
+| `new_deposited_amount` | `i128`    | Stream deposit total after the refund            |
+| `timestamp`            | `u64`     | Ledger timestamp of the re-anchoring             |
+
+**Example - JavaScript:**
+```typescript
+const streamId = 1n;
+const refundAmount = 25000000n; // 2.5 USDC (7 decimals)
+
+const result = await invoke('partial_cancel', [
+  nativeToScVal(streamId, { type: 'u64' }),
+  nativeToScVal(refundAmount, { type: 'i128' }),
+]);
+```
+
+---
+
 ### transfer_stream
 
 Transfers stream ownership to a new recipient.
