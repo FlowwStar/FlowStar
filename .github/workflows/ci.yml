@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   typecheck:
     name: TypeScript Typecheck
@@ -19,7 +23,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm install --legacy-peer-deps
+      - run: npm ci
 
       - run: npm run typecheck
 
