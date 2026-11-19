@@ -1,1149 +1,368 @@
-# FlowStar Smart Contract API Reference
+# FlowStar Streaming Contract — API Reference
 
-Complete reference for integrating FlowStar's token streaming smart contract into your dApp.
-
-## Table of Contents
-
-1. [Admin Functions](#admin-functions)
-2. [Core Functions](#core-functions)
-3. [Query Functions](#query-functions)
-4. [Metadata Functions](#metadata-functions)
-5. [Delegation Functions](#delegation-functions)
-6. [Contract Info Functions](#contract-info-functions)
-7. [Authorization](#authorization)
-8. [Error Codes](#error-codes)
-9. [Gas Estimates](#gas-estimates)
-10. [Type Definitions](#type-definitions)
+Contract source: `contracts/streaming/src/lib.rs`
 
 ---
 
 ## Admin Functions
 
-### initialize
+### `initialize(admin: Address) → Result<(), StreamError>`
 
-Initializes the contract with an admin address. Must be called exactly once after deployment; subsequent calls panic.
+One-time contract initialization. Sets the admin address and clears the pause flag.
 
-**Signature:**
-```rust
-pub fn initialize(env: Env, admin: Address)
+- Errors: `AlreadyInitialized` if called more than once.
+
+---
+
+### `pause() → Result<(), StreamError>`
+
+Prevent new stream creation and all write operations. Admin only.
+
+- Emits: `PauseEvent { timestamp }`
+
+---
+
+### `unpause() → Result<(), StreamError>`
+
+Resume normal operations. Admin only.
+
+- Emits: `UnpauseEvent { timestamp }`
+
+---
+
+### `is_paused(env: Env) → bool` *(Issue #1102)*
+
+Read-only check of the pause state. Returns `true` when the contract is paused, `false` otherwise. Never panics — defaults to `false` before `initialize` is called.
+
+Frontends should call this before asking a user to sign any write transaction so they can display a "contract is paused" banner instead of letting the transaction fail with `ContractPaused`.
+
 ```
-
-**Parameters:**
-- `admin: Address` - The account that will have administrative control over the contract (upgrade, pause, migrate)
-
-**Authorization Required:**
-- `admin` must authorize the transaction
-
-**Preconditions:**
-- Contract must not already be initialized (no `Admin` key in instance storage)
-
-**Returns:**
-- `()` on success
-- Panics with `"already initialized"` if called a second time
-
-**Behavior:**
-- Sets `Admin` in instance storage to `admin`
-- Sets `Paused` flag to `false`
-- Bumps instance storage TTL to ~1 day
-
-**Example - CLI:**
-```bash
-soroban contract invoke \
-  --id CXXXXX \
-  -- \
-  initialize \
-  --admin GXXXXXX
+// stellar-cli example
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source-account <KEY> \
+  --network testnet \
+  -- is_paused
 ```
 
 ---
 
-### pause
+### `get_admin(env: Env) → Result<Address, StreamError>` *(Issue #1101)*
 
-Halts all write operations contract-wide. While paused, calls to `create_stream`, `create_streams_batch`, `withdraw`, `cancel`, `transfer_stream`, and `top_up` will panic with `"contract is paused"`.
+Returns the current admin address stored in instance storage.
 
-**Signature:**
-```rust
-pub fn pause(env: Env)
+- Errors: `NotInitialized` when `initialize` has never been called.
+
+Frontends and scripts can use this to verify who controls upgrades and pausing without reading raw ledger entries via RPC.
+
 ```
-
-**Parameters:**
-- None (admin identity is read from instance storage)
-
-**Authorization Required:**
-- The stored admin address must authorize the transaction
-
-**Preconditions:**
-- Contract must be initialized
-
-**Returns:**
-- `()` on success
-
-**Behavior:**
-- Sets `Paused` flag to `true` in instance storage
-- Bumps instance storage TTL
-- Emits a `PauseEvent` with the current ledger timestamp
-
-**Example - CLI:**
-```bash
-soroban contract invoke \
-  --id CXXXXX \
-  --source GADMIN \
-  -- \
-  pause
+stellar contract invoke \
+  --id <CONTRACT_ID> \
+  --source-account <KEY> \
+  --network testnet \
+  -- get_admin
 ```
 
 ---
 
-### unpause
+### `upgrade(admin: Address, new_wasm_hash: BytesN<32>) → Result<(), StreamError>` *(Issue #1099)*
 
-Resumes all write operations after a pause.
+Replace the contract WASM. Admin only.
 
-**Signature:**
-```rust
-pub fn unpause(env: Env)
+Emits `ContractUpgradedEvent` **before** the WASM is swapped, so the event is always indexed against the current contract version.
+
+- Errors: `NotInitialized`, `Unauthorized`.
+- Emits: `ContractUpgradedEvent { new_wasm_hash, timestamp }`
+
+---
+
+### `migrate() → Result<(), StreamError>`
+
+Post-upgrade data migration hook. Call once after each upgrade to rewrite stream storage layouts. Idempotent and safe to call multiple times.
+
+---
+
+### `propose_admin(new_admin: Address) → Result<(), StreamError>` *(Issue #1103)*
+
+Propose a new admin address. The current admin must authorize the call. The proposal is stored as `PendingAdmin` in instance storage and **does not** take effect until the proposed address calls `accept_admin`.
+
+A second `propose_admin` call before acceptance overwrites the first proposal silently — only the latest proposal is active at any time.
+
+- Errors: `NotInitialized`, `Unauthorized`.
+- Emits: `AdminProposedEvent { current_admin, proposed_admin, timestamp }`
+
+---
+
+### `accept_admin() → Result<(), StreamError>` *(Issue #1103)*
+
+Accept a pending admin proposal. The caller must be the address stored in `PendingAdmin`. On success the pending proposal is cleared and the caller becomes the new admin.
+
+- Errors: `NoPendingAdmin` if no proposal exists; `NotInitialized`.
+- Emits: `AdminTransferredEvent { old_admin, new_admin, timestamp }`
+
+#### Two-step admin transfer — why it matters
+
+A direct one-call transfer risks sending the admin role to a mistyped address (or a key the recipient cannot sign with), permanently locking the contract. The two-step pattern — propose then accept — ensures the new admin can demonstrate they control the key before the transfer completes.
+
 ```
+# Step 1 — current admin proposes
+stellar contract invoke --id <CONTRACT_ID> --source-account <ADMIN_KEY> \
+  --network testnet -- propose_admin --new_admin <NEW_ADMIN_ADDRESS>
 
-**Parameters:**
-- None
-
-**Authorization Required:**
-- The stored admin address must authorize the transaction
-
-**Preconditions:**
-- Contract must be initialized
-
-**Returns:**
-- `()` on success
-
-**Behavior:**
-- Sets `Paused` flag to `false` in instance storage
-- Bumps instance storage TTL
-- Emits an `UnpauseEvent` with the current ledger timestamp
-
-**Example - CLI:**
-```bash
-soroban contract invoke \
-  --id CXXXXX \
-  --source GADMIN \
-  -- \
-  unpause
+# Step 2 — proposed admin accepts (signs with NEW key)
+stellar contract invoke --id <CONTRACT_ID> --source-account <NEW_ADMIN_KEY> \
+  --network testnet -- accept_admin
 ```
 
 ---
 
-### upgrade
+## Core Stream Functions
 
-Replaces the contract's Wasm bytecode with a new version. Only the admin can call this.
+### `create_stream(sender: Address, params: CreateStreamParams) → Result<u64, StreamError>`
 
-**Signature:**
-```rust
-pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>)
-```
+Fund a new stream. Requires a prior `approve` on the token contract for `total_amount`.
 
-**Parameters:**
-- `admin: Address` - Must match the stored admin address (validated on-chain)
-- `new_wasm_hash: BytesN<32>` - Hash of the new Wasm blob, which must already be uploaded to the network via `soroban contract upload`
+Returns the new stream ID.
 
-**Authorization Required:**
-- `admin` must authorize the transaction
+**`CreateStreamParams` fields:**
 
-**Preconditions:**
-- `admin` must equal the stored admin address; panics with `"unauthorized"` otherwise
-- New Wasm hash must exist on the network
+| Field | Type | Description |
+|---|---|---|
+| `recipient` | `Address` | Stream recipient |
+| `token` | `Address` | SEP-41 token contract |
+| `total_amount` | `i128` | Total tokens deposited |
+| `start_time` | `u64` | UNIX timestamp — stream start |
+| `end_time` | `u64` | UNIX timestamp — stream end |
+| `cliff_time` | `u64` | Nothing unlocks before this |
+| `cliff_amount` | `i128` | Lump-sum unlocked at cliff |
 
-**Returns:**
-- `()` on success
-
-**Behavior:**
-- Calls `env.deployer().update_current_contract_wasm(new_wasm_hash)` to perform the in-place upgrade
-- Storage layout is not migrated automatically; call `migrate` after upgrading if the new version requires it
-
-**Example - CLI:**
-```bash
-# 1. Upload new wasm first
-soroban contract upload \
-  --wasm target/wasm32-unknown-unknown/release/streaming.wasm \
-  --source GADMIN
-
-# 2. Upgrade using the returned hash
-soroban contract invoke \
-  --id CXXXXX \
-  --source GADMIN \
-  -- \
-  upgrade \
-  --admin GADMIN \
-  --new_wasm_hash <32-byte-hex-hash>
-```
+- Emits: `StreamCreatedEvent`
 
 ---
 
-### migrate
+### `create_streams_batch(sender: Address, streams: Vec<CreateStreamParams>) → Result<Vec<u64>, StreamError>`
 
-Post-upgrade data migration hook. Call this once after `upgrade` when the new contract version requires storage layout changes.
+Create up to 20 streams in one atomic transaction. All streams are validated before any funds move; a single invalid entry rejects the whole batch.
 
-**Signature:**
-```rust
-pub fn migrate(env: Env)
-```
-
-**Parameters:**
-- None
-
-**Authorization Required:**
-- The stored admin address must authorize the transaction
-
-**Preconditions:**
-- Contract must be initialized
-
-**Returns:**
-- `()` on success
-
-**Behavior:**
-- Sets `Paused` to `false` (unfreezes the contract after an upgrade)
-- Any version-specific storage migrations are implemented here in future contract versions
-
-**Example - CLI:**
-```bash
-soroban contract invoke \
-  --id CXXXXX \
-  --source GADMIN \
-  -- \
-  migrate
-```
+- Errors: `BatchEmpty`, `BatchSizeExceeded` (> 20).
+- Emits: one `StreamCreatedEvent` per stream.
 
 ---
 
-## Core Functions
+### `withdraw(stream_id: u64, amount: i128) → Result<(), StreamError>`
 
-### create_stream
+Recipient (or delegate) withdraws unlocked tokens.
 
-Creates a new payment stream with optional cliff vesting.
-
-**Signature:**
-```rust
-pub fn create_stream(sender: Address, params: StreamParams) -> u64
-```
-
-**Parameters:**
-- `sender: Address` - The account funding and owning the stream (must authorize)
-- `params: StreamParams` - Stream configuration object containing:
-  - `recipient: Address` - Account receiving the funds
-  - `token: Address` - Token contract address (SEP-41)
-  - `total_amount: i128` - Total amount to stream (in token's smallest unit)
-  - `start_time: u64` - Stream start time (UNIX seconds)
-  - `end_time: u64` - Stream end time (UNIX seconds)
-  - `cliff_time: u64` - Time before which no funds unlock (except cliff_amount)
-  - `cliff_amount: i128` - Amount unlocked immediately at cliff (smallest unit)
-
-**Returns:**
-- `u64` - Unique stream ID
-
-**Authorization Required:**
-- `sender` must authorize the transaction
-- `sender` must have approved the streaming contract to transfer `total_amount` tokens
-
-**Preconditions:**
-- `start_time < end_time`
-- `cliff_time >= start_time`
-- `cliff_amount <= total_amount`
-- `total_amount > 0`
-- Token contract must be valid SEP-41
-
-**Example - CLI:**
-```bash
-soroban contract invoke \
-  --id CXXXXX \
-  -- \
-  create_stream \
-  --sender GXXXXXX \
-  --recipient GXXXXXX \
-  --token CXXXXXX \
-  --total_amount 1000000000 \
-  --start_time 1700000000 \
-  --end_time 1702592000 \
-  --cliff_time 1700000000 \
-  --cliff_amount 100000000
-```
-
-**Example - JavaScript (Stellar SDK):**
-```typescript
-import { Address, Contract, nativeToScVal } from '@stellar/stellar-sdk';
-
-const contract = new Contract(STREAM_CONTRACT_ID);
-const params = {
-  recipient: new Address(recipientAddress).toScVal(),
-  token: new Address(tokenAddress).toScVal(),
-  total_amount: nativeToScVal(1000000000n, { type: 'i128' }),
-  start_time: nativeToScVal(Math.floor(Date.now() / 1000), { type: 'u64' }),
-  end_time: nativeToScVal(Math.floor(Date.now() / 1000) + 86400 * 30, { type: 'u64' }),
-  cliff_time: nativeToScVal(Math.floor(Date.now() / 1000), { type: 'u64' }),
-  cliff_amount: nativeToScVal(100000000n, { type: 'i128' }),
-};
-
-const result = await invoke(
-  'create_stream',
-  [new Address(senderAddress).toScVal(), nativeToScVal(params, { type: 'map' })],
-);
-```
+- Emits: `WithdrawEvent`
 
 ---
 
-### create_streams_batch
+### `cancel(stream_id: u64) → Result<(), StreamError>`
 
-Creates multiple token streams in a single atomic transaction. All streams are validated before any funds are transferred — if any stream fails validation the entire batch is rejected with no side-effects.
+Sender cancels a stream. Recipient receives unlocked portion; sender receives remainder.
 
-**Signature:**
-```rust
-pub fn create_streams_batch(
-    env: Env,
-    sender: Address,
-    streams: Vec<CreateStreamInput>,
-) -> Result<Vec<u64>, StreamError>
-```
-
-**Parameters:**
-- `sender: Address` - The account funding all streams in the batch (must authorize)
-- `streams: Vec<CreateStreamInput>` - Between 1 and 20 stream definitions. Each `CreateStreamInput` contains:
-  - `recipient: Address` - Account receiving the funds
-  - `token: Address` - Token contract address (SEP-41)
-  - `total_amount: i128` - Total amount for this stream (smallest unit)
-  - `start_time: u64` - Stream start time (UNIX seconds)
-  - `end_time: u64` - Stream end time (UNIX seconds)
-  - `cliff_time: u64` - Cliff time (UNIX seconds)
-  - `cliff_amount: i128` - Amount unlocked at cliff (smallest unit)
-
-**Authorization Required:**
-- `sender` must authorize the transaction
-- `sender` must have approved the contract to spend the **sum** of all `total_amount` values for each token used across the batch (separate approvals per distinct token)
-
-**Preconditions:**
-- `streams` must not be empty; returns `StreamError::BatchEmpty` otherwise
-- `streams.len() <= 20`; returns `StreamError::BatchSizeExceeded` otherwise
-- Each stream entry must satisfy the same per-stream validation rules as `create_stream`
-
-**Returns:**
-- `Ok(Vec<u64>)` - Stream IDs in the same order as the input `streams` vector
-- `Err(StreamError)` - First validation error encountered (no streams are created)
-
-**Errors:**
-- `BatchEmpty` (12) — `streams` vector is empty
-- `BatchSizeExceeded` (11) — more than 20 streams in the batch
-- `InvalidAmount` (1), `InvalidTimeRange` (2), `InvalidCliff` (3), `SelfStream` (4) — per-stream validation failures
-
-**Example - JavaScript:**
-```typescript
-const streams = [
-  {
-    recipient: new Address('GRECIPIENT1...').toScVal(),
-    token: new Address(tokenAddress).toScVal(),
-    total_amount: nativeToScVal(1000_0000000n, { type: 'i128' }),
-    start_time: nativeToScVal(now, { type: 'u64' }),
-    end_time: nativeToScVal(now + 86400 * 30, { type: 'u64' }),
-    cliff_time: nativeToScVal(now, { type: 'u64' }),
-    cliff_amount: nativeToScVal(0n, { type: 'i128' }),
-  },
-  {
-    recipient: new Address('GRECIPIENT2...').toScVal(),
-    // ...same fields...
-  },
-];
-
-const streamIds = await invoke('create_streams_batch', [
-  new Address(senderAddress).toScVal(),
-  nativeToScVal(streams, { type: 'vec' }),
-]);
-// Returns [1n, 2n, ...]
-```
+- Emits: `CancelEvent`
 
 ---
 
-### withdraw
+### `partial_cancel(stream_id: u64, amount: i128) → Result<(), StreamError>`
 
-Withdraws available funds from a stream to the recipient's account.
+Sender reduces a stream's locked balance without terminating it.
 
-**Signature:**
-```rust
-pub fn withdraw(stream_id: u64, amount: i128) -> Result<(), StreamError>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to withdraw from
-- `amount: i128` - Amount to withdraw (in token's smallest unit)
-
-**Authorization Required:**
-- The stream recipient must authorize the transaction
-
-**Preconditions:**
-- Stream must exist
-- `amount > 0`; returns `StreamError::InvalidAmount` (1) otherwise
-- Recipient must have at least `amount` withdrawable; returns `StreamError::InsufficientFunds` (7) otherwise
-- Stream must not be cancelled
-
-**Returns:**
-- `Ok(())` on success
-- `Err(StreamError)` on failure
-
-**Errors:**
-- `InvalidAmount` (1) — `amount` is zero or negative
-- `InsufficientFunds` (7) — `amount` exceeds the currently withdrawable balance
-
-**Example - JavaScript:**
-```typescript
-const streamId = 1n;
-const withdrawAmount = 100000000n; // 10 USDC (7 decimals)
-
-const result = await invoke('withdraw', [
-  nativeToScVal(streamId, { type: 'u64' }),
-  nativeToScVal(withdrawAmount, { type: 'i128' }),
-]);
-```
+- Emits: `PartialCancelEvent`
 
 ---
 
-### cancel
+### `transfer_stream(stream_id: u64, new_recipient: Address) → Result<(), StreamError>`
 
-Cancels a stream and returns remaining funds to the sender.
+Recipient transfers stream rights to a new address. Any delegate is cleared.
 
-**Signature:**
-```rust
-pub fn cancel(stream_id: u64) -> Result<(), StreamError>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to cancel
-
-**Authorization Required:**
-- The stream sender must authorize the transaction
-
-**Preconditions:**
-- Stream must exist
-- Stream must not already be cancelled
-- Stream must not be fully drained (i.e. not `withdrawn_amount >= deposited_amount` after `end_time`); such streams are already archived and cancelling them is rejected
-
-**Returns:**
-- `Ok(())` on success
-- `Err(StreamError)` on failure
-
-**Errors:**
-- `AlreadyCancelled` (6) — stream was already cancelled
-- `StreamEnded` (13) — stream is fully drained and already archived
-
-**Example - JavaScript:**
-```typescript
-const streamId = 1n;
-
-const result = await invoke('cancel', [
-  nativeToScVal(streamId, { type: 'u64' }),
-]);
-```
+- Emits: `StreamTransferEvent`
 
 ---
 
-### transfer_stream
+### `top_up(stream_id: u64, additional_amount: i128) → Result<(), StreamError>`
 
-Transfers stream ownership to a new recipient.
+Sender adds additional funds to an active stream. Rate is recalculated over remaining time.
 
-**Signature:**
-```rust
-pub fn transfer_stream(stream_id: u64, new_recipient: Address) -> Result<(), StreamError>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to transfer
-- `new_recipient: Address` - New recipient address
-
-**Authorization Required:**
-- The current stream recipient must authorize the transaction
-
-**Preconditions:**
-- Stream must exist
-- `new_recipient` must be different from current recipient
-- `new_recipient` must not be the stream's sender; returns `StreamError::SelfStream` (4) otherwise
-- Stream must not be cancelled
-- Stream must not be fully drained/archived; transferring an archived stream is rejected with `StreamError::StreamEnded` (13)
-
-**Returns:**
-- `Ok(())` on success
-- `Err(StreamError)` on failure
-
-**Errors:**
-- `SelfStream` (4) — `new_recipient` equals the stream's sender
-- `StreamEnded` (13) — stream is fully drained and already archived
-- `AlreadyCancelled` (6) — stream was already cancelled
-
-**Example - JavaScript:**
-```typescript
-const streamId = 1n;
-const newRecipient = 'GXXXXX...';
-
-const result = await invoke('transfer_stream', [
-  nativeToScVal(streamId, { type: 'u64' }),
-  new Address(newRecipient).toScVal(),
-]);
-```
-
----
-
-### top_up
-
-Adds additional funds to an existing stream.
-
-**Signature:**
-```rust
-pub fn top_up(stream_id: u64, additional_amount: i128) -> Result<(), StreamError>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to top up
-- `additional_amount: i128` - Additional amount to add (smallest unit)
-
-**Authorization Required:**
-- The stream sender must authorize the transaction
-- Sender must have approved the contract for `additional_amount` tokens
-
-**Preconditions:**
-- Stream must exist
-- Stream must not be cancelled
-- `additional_amount > 0`
-
-**Returns:**
-- `Ok(())` on success
-- `Err(StreamError)` on failure
-
-**Example - JavaScript:**
-```typescript
-const streamId = 1n;
-const additionalAmount = 50000000n; // Add 5 USDC
-
-const result = await invoke('top_up', [
-  nativeToScVal(streamId, { type: 'u64' }),
-  nativeToScVal(additionalAmount, { type: 'i128' }),
-]);
-```
-
----
-
-### bump_stream
-
-Extends the stream's time-to-live in storage. Anyone may call this — no authorization required. Useful for keeping a long-running stream accessible without modifying its data.
-
-**Signature:**
-```rust
-pub fn bump_stream(stream_id: u64) -> Result<(), StreamError>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to bump
-
-**Authorization Required:**
-- None — any caller may extend a stream's TTL
-
-**Preconditions:**
-- Stream must exist
-
-**Returns:**
-- `Ok(())` on success
-- `Err(StreamError)` on failure
-
-**Behavior:**
-- Extends the `Stream(id)` persistent storage entry TTL to ~30 days (`PERSISTENT_TTL_LEDGERS`)
-- Also extends the `SentBy(sender)` and `ReceivedBy(recipient)` index entries so the stream stays visible in `get_sent_streams` / `get_received_streams` for as long as its data is live
-- If the stream is archived, the corresponding archive index keys (`ArchivedSentBy(sender)` / `ArchivedReceivedBy(recipient)`) are extended as well
-- Emits a `StreamBumpedEvent`
-- Does **not** modify any stream data
-
-**Example - JavaScript:**
-```typescript
-const streamId = 1n;
-
-const result = await invoke('bump_stream', [
-  nativeToScVal(streamId, { type: 'u64' }),
-]);
-```
-
----
-
-### cleanup_stream
-
-Permanently removes all on-chain data for a completed or cancelled stream, reclaiming storage. Either the sender or recipient may call this.
-
-**Signature:**
-```rust
-pub fn cleanup_stream(env: Env, caller: Address, stream_id: u64)
-```
-
-**Parameters:**
-- `caller: Address` - The account initiating cleanup (must be sender or recipient)
-- `stream_id: u64` - Stream ID to remove
-
-**Authorization Required:**
-- `caller` must authorize the transaction
-
-**Preconditions:**
-- Stream must exist
-- `caller` must be either `stream.sender` or `stream.recipient`; panics with `"only sender or recipient may clean up a stream"` otherwise
-- Stream must be cancelled **or** fully drained after `end_time`; panics with `"stream must be cancelled or fully completed before cleanup"` otherwise
-
-**Returns:**
-- `()` on success
-
-**Behavior:**
-- Removes the stream from all active and archive index lists for both sender and recipient
-- Deletes the `Stream(id)` persistent storage entry
-- Deletes the `StreamMetadata(id)` entry if present
-- Deletes the `Delegate(id)` entry if present
-
-**Example - JavaScript:**
-```typescript
-await invoke('cleanup_stream', [
-  new Address(senderAddress).toScVal(),
-  nativeToScVal(streamId, { type: 'u64' }),
-]);
-```
+- Emits: `TopUpEvent`
 
 ---
 
 ## Query Functions
 
-### get_stream
+### `get_stream(stream_id: u64) → Result<Stream, StreamError>`
 
-Fetches a stream by ID.
-
-**Signature:**
-```rust
-pub fn get_stream(stream_id: u64) -> Result<Stream, StreamError>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to retrieve
-
-**Returns:**
-- Stream object with all fields
-- `Err(StreamError::NotFound)` if stream doesn't exist
-
-**Example:**
-```typescript
-const streamId = 1n;
-const stream = await query('get_stream', [nativeToScVal(streamId, { type: 'u64' })]);
-```
+Read full stream details by ID.
 
 ---
 
-### get_withdrawable
+### `get_withdrawable(stream_id: u64) → Result<i128, StreamError>`
 
-Returns the amount available for withdrawal from a stream at current time.
-
-**Signature:**
-```rust
-pub fn get_withdrawable(stream_id: u64) -> i128
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID
-
-**Returns:**
-- `i128` - Withdrawable amount (in token's smallest unit)
-
-**Example:**
-```typescript
-const streamId = 1n;
-const withdrawable = await query('get_withdrawable', [
-  nativeToScVal(streamId, { type: 'u64' }),
-]);
-```
+Current withdrawable amount for a stream at the current ledger time.
 
 ---
 
-### get_sent_streams
+### `get_sent_streams(address: Address, offset: u32, limit: u32) → Vec<u64>`
 
-Lists stream IDs sent by an address (paginated).
-
-**Signature:**
-```rust
-pub fn get_sent_streams(sender: Address, offset: u32, limit: u32) -> Vec<u64>
-```
-
-**Parameters:**
-- `sender: Address` - Sender address
-- `offset: u32` - Pagination offset
-- `limit: u32` - Maximum results (recommended: 100)
-
-**Returns:**
-- Vector of stream IDs
-
-**Example:**
-```typescript
-const senderAddress = 'GXXXXX...';
-const offset = 0;
-const limit = 100;
-
-const streamIds = await query('get_sent_streams', [
-  new Address(senderAddress).toScVal(),
-  nativeToScVal(offset, { type: 'u32' }),
-  nativeToScVal(limit, { type: 'u32' }),
-]);
-```
+Paginated active stream IDs sent by an address.
 
 ---
 
-### get_received_streams
+### `get_received_streams(address: Address, offset: u32, limit: u32) → Vec<u64>`
 
-Lists stream IDs received by an address (paginated).
-
-**Signature:**
-```rust
-pub fn get_received_streams(recipient: Address, offset: u32, limit: u32) -> Vec<u64>
-```
-
-**Parameters:**
-- `recipient: Address` - Recipient address
-- `offset: u32` - Pagination offset
-- `limit: u32` - Maximum results (recommended: 100)
-
-**Returns:**
-- Vector of stream IDs
+Paginated active stream IDs received by an address.
 
 ---
 
-### get_sent_stream_count
+### `get_sent_stream_count(address: Address) → u32`
 
-Returns total number of streams sent by an address.
-
-**Signature:**
-```rust
-pub fn get_sent_stream_count(sender: Address) -> u32
-```
-
-**Parameters:**
-- `sender: Address` - Sender address
-
-**Returns:**
-- `u32` - Total count
+Total count of active streams sent by an address.
 
 ---
 
-### get_received_stream_count
+### `get_received_stream_count(address: Address) → u32`
 
-Returns total number of streams received by an address.
-
-**Signature:**
-```rust
-pub fn get_received_stream_count(recipient: Address) -> u32
-```
-
-**Parameters:**
-- `recipient: Address` - Recipient address
-
-**Returns:**
-- `u32` - Total count
+Total count of active streams received by an address.
 
 ---
 
-### get_archived_sent_streams
+### `get_archived_sent_streams(address: Address, offset: u32, limit: u32) → Vec<u64>`
 
-Returns paginated stream IDs for completed or cancelled streams where `address` is the sender. Streams move to the archive index when they are cancelled or fully drained.
-
-**Signature:**
-```rust
-pub fn get_archived_sent_streams(
-    env: Env,
-    address: Address,
-    offset: u32,
-    limit: u32,
-) -> Vec<u64>
-```
-
-**Parameters:**
-- `address: Address` - Sender address to look up
-- `offset: u32` - Zero-based pagination offset
-- `limit: u32` - Maximum number of IDs to return
-
-**Returns:**
-- `Vec<u64>` - Archived stream IDs (may be empty if none exist or offset is out of range)
-
-**Example - JavaScript:**
-```typescript
-const archivedIds = await query('get_archived_sent_streams', [
-  new Address(senderAddress).toScVal(),
-  nativeToScVal(0, { type: 'u32' }),
-  nativeToScVal(100, { type: 'u32' }),
-]);
-```
+Paginated archived (cancelled/completed) stream IDs sent by an address.
 
 ---
 
-### get_archived_received_streams
+### `get_archived_received_streams(address: Address, offset: u32, limit: u32) → Vec<u64>`
 
-Returns paginated stream IDs for completed or cancelled streams where `address` is the recipient.
-
-**Signature:**
-```rust
-pub fn get_archived_received_streams(
-    env: Env,
-    address: Address,
-    offset: u32,
-    limit: u32,
-) -> Vec<u64>
-```
-
-**Parameters:**
-- `address: Address` - Recipient address to look up
-- `offset: u32` - Zero-based pagination offset
-- `limit: u32` - Maximum number of IDs to return
-
-**Returns:**
-- `Vec<u64>` - Archived stream IDs (may be empty if none exist or offset is out of range)
-
-**Example - JavaScript:**
-```typescript
-const archivedIds = await query('get_archived_received_streams', [
-  new Address(recipientAddress).toScVal(),
-  nativeToScVal(0, { type: 'u32' }),
-  nativeToScVal(100, { type: 'u32' }),
-]);
-```
+Paginated archived stream IDs received by an address.
 
 ---
 
-## Metadata Functions
+### `get_stream_metadata(stream_id: u64) → Option<StreamMetadata>`
 
-### update_stream_metadata
-
-Attaches or replaces human-readable metadata on a stream. Only the sender can update.
-
-**Signature:**
-```rust
-pub fn update_stream_metadata(
-    env: Env,
-    stream_id: u64,
-    metadata: StreamMetadata,
-) -> Result<(), StreamError>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to update
-- `metadata: StreamMetadata` - Metadata to store, containing:
-  - `name: String` - Short display name for the stream
-  - `category: String` - Freeform category label (e.g. `"payroll"`, `"vesting"`)
-  - `memo: String` - Longer freeform note
-
-**Authorization Required:**
-- `stream.sender` must authorize the transaction
-
-**Preconditions:**
-- Stream must exist
-
-**Returns:**
-- `Ok(())` on success
-- `Err(StreamError::StreamNotFound)` if the stream does not exist
-
-**Behavior:**
-- Stores the `StreamMetadata` struct in persistent storage under `StreamMetadata(stream_id)`
-- Bumps the metadata entry TTL to ~30 days
-
-**Example - JavaScript:**
-```typescript
-await invoke('update_stream_metadata', [
-  nativeToScVal(streamId, { type: 'u64' }),
-  nativeToScVal(
-    { name: 'Alice Salary', category: 'payroll', memo: 'Q3 2026' },
-    { type: 'map' },
-  ),
-]);
-```
+Read optional metadata (name, category, memo) for a stream.
 
 ---
 
-### get_stream_metadata
+### `version() → u32`
 
-Returns the metadata for a stream, if any has been set.
-
-**Signature:**
-```rust
-pub fn get_stream_metadata(env: Env, stream_id: u64) -> Option<StreamMetadata>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to query
-
-**Returns:**
-- `Some(StreamMetadata)` if metadata exists for this stream
-- `None` if no metadata has been set
-
-**Example - JavaScript:**
-```typescript
-const metadata = await query('get_stream_metadata', [
-  nativeToScVal(streamId, { type: 'u64' }),
-]);
-// { name: 'Alice Salary', category: 'payroll', memo: 'Q3 2026' } or null
-```
+Get the contract version number.
 
 ---
 
-## Delegation Functions
+### `name() → String`
 
-### set_delegate
-
-Registers a delegate address that can authorize `withdraw` calls on behalf of the stream's recipient. Useful for automating withdrawals via a bot or smart contract without granting full account control.
-
-**Signature:**
-```rust
-pub fn set_delegate(
-    env: Env,
-    stream_id: u64,
-    delegate: Address,
-) -> Result<(), StreamError>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to configure
-- `delegate: Address` - Address that will be permitted to call `withdraw`
-
-**Authorization Required:**
-- `stream.recipient` must authorize the transaction
-
-**Preconditions:**
-- Stream must exist
-
-**Returns:**
-- `Ok(())` on success
-- `Err(StreamError::StreamNotFound)` if the stream does not exist
-
-**Behavior:**
-- Stores `delegate` in persistent storage under `Delegate(stream_id)`
-- Bumps the delegate entry TTL to ~30 days
-- The delegate is cleared automatically if the stream is transferred via `transfer_stream`
-
-**Example - JavaScript:**
-```typescript
-await invoke('set_delegate', [
-  nativeToScVal(streamId, { type: 'u64' }),
-  new Address(delegateAddress).toScVal(),
-]);
-```
+Get the contract name string.
 
 ---
 
-### remove_delegate
+## Metadata & Delegation
 
-Removes the registered delegate for a stream. After this call, only the recipient can authorize withdrawals.
+### `update_stream_metadata(stream_id: u64, metadata: StreamMetadata) → Result<(), StreamError>`
 
-**Signature:**
-```rust
-pub fn remove_delegate(env: Env, stream_id: u64) -> Result<(), StreamError>
-```
+Sender sets optional metadata fields (name, category, memo). Paused-aware.
 
-**Parameters:**
-- `stream_id: u64` - Stream ID to update
-
-**Authorization Required:**
-- `stream.recipient` must authorize the transaction
-
-**Preconditions:**
-- Stream must exist
-
-**Returns:**
-- `Ok(())` on success
-- `Err(StreamError::StreamNotFound)` if the stream does not exist
-
-**Behavior:**
-- Deletes the `Delegate(stream_id)` entry from persistent storage (no-op if no delegate was set)
-
-**Example - JavaScript:**
-```typescript
-await invoke('remove_delegate', [
-  nativeToScVal(streamId, { type: 'u64' }),
-]);
-```
+- Emits: `StreamMetadataUpdatedEvent`
 
 ---
 
-### get_delegate
+### `set_delegate(stream_id: u64, delegate: Address) → Result<(), StreamError>`
 
-Returns the delegate address for a stream, if one has been set.
+Recipient designates a delegate who can withdraw on their behalf.
 
-**Signature:**
-```rust
-pub fn get_delegate(env: Env, stream_id: u64) -> Option<Address>
-```
-
-**Parameters:**
-- `stream_id: u64` - Stream ID to query
-
-**Returns:**
-- `Some(Address)` if a delegate is registered
-- `None` if no delegate has been set
-
-**Example - JavaScript:**
-```typescript
-const delegate = await query('get_delegate', [
-  nativeToScVal(streamId, { type: 'u64' }),
-]);
-// 'GDELEGATE...' or null
-```
+- Emits: `DelegateSetEvent`
 
 ---
 
-## Contract Info Functions
+### `remove_delegate(stream_id: u64) → Result<(), StreamError>`
 
-### version
+Recipient revokes delegation.
 
-Returns the contract's version number as a `u32`. Useful for on-chain version checks after an upgrade.
-
-**Signature:**
-```rust
-pub fn version(_env: Env) -> u32
-```
-
-**Parameters:**
-- None
-
-**Returns:**
-- `u32` - Current contract version (currently `1`)
-
-**Example - JavaScript:**
-```typescript
-const v = await query('version', []);
-// 1
-```
+- Emits: `DelegateRemovedEvent`
 
 ---
 
-### name
+### `get_delegate(stream_id: u64) → Option<Address>`
 
-Returns the human-readable contract name as a Soroban `String`.
+Read the delegate address for a stream, if set.
 
-**Signature:**
-```rust
-pub fn name(env: Env) -> soroban_sdk::String
+---
+
+### `cleanup_stream(caller: Address, stream_id: u64) → Result<(), StreamError>`
+
+Either party removes a fully-drained or cancelled stream from storage. Allowed even when paused.
+
+- Emits: `StreamCleanedUpEvent`
+
+---
+
+### `bump_stream(stream_id: u64) → Result<(), StreamError>`
+
+Extend the TTL of a stream's ledger data (~30 more days). Anyone can call.
+
+- Emits: `StreamBumpedEvent`
+
+---
+
+## Error Reference
+
+| Code | Name | Meaning |
+|---|---|---|
+| 1 | `InvalidAmount` | Zero, negative, or insufficient amount |
+| 2 | `InvalidTimeRange` | `end_time ≤ start_time` or duration > 10 years |
+| 3 | `InvalidCliff` | Cliff outside `[start_time, end_time]` or bad cliff amount |
+| 4 | `SelfStream` | Sender and recipient are the same address |
+| 5 | `StreamNotFound` | ID does not exist or TTL has expired |
+| 6 | `StreamCancelled` | Stream already cancelled |
+| 7 | `Unauthorized` | Caller not permitted for this operation |
+| 8 | `InsufficientFunds` | Withdrawal exceeds withdrawable balance |
+| 9 | `StreamEnded` | Stream has already reached `end_time` |
+| 10 | `SameRecipient` | Transfer target equals current recipient |
+| 11 | `BatchSizeExceeded` | Batch > 20 streams |
+| 12 | `BatchEmpty` | Batch has zero streams |
+| 13 | `ArithmeticOverflow` | Intermediate vesting calculation overflowed i128 |
+| 14 | `AlreadyInitialized` | `initialize` called more than once |
+| 15 | `NotInitialized` | Contract not yet initialized |
+| 16 | `ContractPaused` | Write rejected because contract is paused |
+| 17 | `DurationExceedsMaximum` | Stream duration > 10 years |
+| 18 | `InvalidRecipient` | Recipient is the contract address itself |
+| 19 | `RateIsZero` | Amount too small — per-second rate would be zero |
+| 20 | `StreamNotEligibleForCleanup` | Stream still active |
+| 21 | `PastStartTime` | `start_time` is before the current ledger timestamp |
+| 22 | `NoPendingAdmin` | `accept_admin` called with no pending proposal |
+
+---
+
+## Vesting Math
+
+```
+unlocked = cliff_amount + (elapsed × linear_amount / duration)
 ```
 
-**Parameters:**
-- None
+Capped at `deposited_amount`. Nothing unlocks before `cliff_time`.
 
-**Returns:**
-- `String` - Contract name (currently `"FlowStar Streaming"`)
-
-**Example - JavaScript:**
-```typescript
-const contractName = await query('name', []);
-// 'FlowStar Streaming'
-```
+`elapsed = now - start_time` (seconds).
 
 ---
 
-## Authorization
+## Events Reference
 
-All write operations require transaction authorization from a specific account:
-
-```typescript
-import { TransactionBuilder, Address } from '@stellar/stellar-sdk';
-
-// The signer's account must match the required authorizer for the operation
-const tx = new TransactionBuilder(account, {
-  fee: '1000000',
-  networkPassphrase: 'Test SDF Network ; September 2015',
-})
-  .addOperation(contract.call('create_stream', ...args))
-  .setTimeout(300)
-  .build();
-
-// Sign with the authorized account
-const signedXdr = await wallet.sign(tx);
-```
-
----
-
-## Error Codes
-
-| Code | Name | Description | Recovery |
-|------|------|-------------|----------|
-| 1 | NotFound | Stream does not exist | Verify stream ID exists |
-| 2 | Unauthorized | Caller is not authorized for this operation | Use correct wallet address |
-| 3 | InvalidAmount | Amount is negative or zero | Use positive amount > 0 |
-| 4 | InvalidTime | Start/end times are invalid | Ensure start_time < end_time |
-| 5 | InvalidCliff | Cliff configuration is invalid | Ensure cliff_time >= start_time |
-| 6 | AlreadyCancelled | Stream is already cancelled | Cannot modify cancelled streams |
-| 7 | InsufficientFunds | Insufficient balance to execute operation | Add more funds or reduce amount |
-| 8 | InvalidToken | Token contract is not valid SEP-41 | Verify token address |
-| 9 | TransferFailed | Token transfer failed (likely insufficient allowance) | Approve contract for amount |
-| 10 | InsufficientWithdrawable | No funds available to withdraw | Wait for cliff or unlock period |
-| 11 | BatchSizeExceeded | More than 20 streams in a batch | Split into smaller batches |
-| 12 | BatchEmpty | Batch contains no streams | Provide at least one stream |
-| 13 | StreamEnded | Stream is fully drained/archived; operation not allowed | Use archive queries instead |
-| 14 | SelfStream | Recipient equals sender | Choose a different recipient |
-
----
-
-## Gas Estimates
-
-Approximate gas costs on Stellar's Soroban (in stroops = 0.0000001 XLM):
-
-| Operation | Min Fee | Estimated Fee (15% buffer) | Notes |
-|-----------|---------|---------------------------|-------|
-| create_stream | 500,000 | 575,000 | + token approval (~500k) |
-| withdraw | 200,000 | 230,000 | Varies by stream state |
-| cancel | 150,000 | 172,500 | Varies by amount returned |
-| transfer_stream | 100,000 | 115,000 | Quick operation |
-| top_up | 200,000 | 230,000 | Similar to withdraw |
-| bump_stream | 100,000 | 115,000 | Minimal cost |
-| get_stream | 50,000 | N/A | Read-only, no fee |
-| get_withdrawable | 50,000 | N/A | Read-only, no fee |
-
----
-
-## Type Definitions
-
-```typescript
-interface Stream {
-  id: u64;
-  sender: Address;
-  recipient: Address;
-  token: Address;
-  deposited_amount: i128;
-  withdrawn_amount: i128;
-  start_time: u64;
-  end_time: u64;
-  cliff_time: u64;
-  cliff_amount: i128;
-  amount_per_second: i128;
-  cancelled: boolean;
-  linear_amount: i128;
-  duration: i128;
-}
-
-interface StreamParams {
-  recipient: Address;
-  token: Address;
-  total_amount: i128;
-  start_time: u64;
-  end_time: u64;
-  cliff_time: u64;
-  cliff_amount: i128;
-}
-
-// Used by create_streams_batch; same fields as StreamParams but a distinct type
-interface CreateStreamInput {
-  recipient: Address;
-  token: Address;
-  total_amount: i128;
-  start_time: u64;
-  end_time: u64;
-  cliff_time: u64;
-  cliff_amount: i128;
-}
-
-interface StreamMetadata {
-  name: string;
-  category: string;
-  memo: string;
-}
-```
-
----
-
-## See Also
-
-- [Integration Guide](./integration-guide.md)
-- [CLI Examples](./cli-examples.md)
-- [Soroban Documentation](https://soroban.stellar.org/)
+| Event | Emitted by | Key fields |
+|---|---|---|
+| `StreamCreatedEvent` | `create_stream`, `create_streams_batch` | `stream_id`, `sender`, `recipient`, `deposited_amount` |
+| `WithdrawEvent` | `withdraw` | `stream_id`, `amount`, `remaining_withdrawable` |
+| `CancelEvent` | `cancel` | `stream_id`, `recipient_amount`, `sender_refund` |
+| `PartialCancelEvent` | `partial_cancel` | `stream_id`, `amount_refunded`, `new_deposited_amount` |
+| `StreamTransferEvent` | `transfer_stream` | `stream_id`, `old_recipient`, `new_recipient` |
+| `TopUpEvent` | `top_up` | `stream_id`, `additional_amount`, `new_amount_per_second` |
+| `StreamBumpedEvent` | `bump_stream` | `stream_id` |
+| `StreamMetadataUpdatedEvent` | `update_stream_metadata` | `stream_id`, `sender` |
+| `PauseEvent` | `pause` | `timestamp` |
+| `UnpauseEvent` | `unpause` | `timestamp` |
+| `ContractUpgradedEvent` | `upgrade` | `new_wasm_hash`, `timestamp` *(#1099)* |
+| `AdminProposedEvent` | `propose_admin` | `current_admin`, `proposed_admin`, `timestamp` *(#1103)* |
+| `AdminTransferredEvent` | `accept_admin` | `old_admin`, `new_admin`, `timestamp` *(#1103)* |
+| `DelegateSetEvent` | `set_delegate` | `stream_id`, `delegate` |
+| `DelegateRemovedEvent` | `remove_delegate` | `stream_id` |
+| `StreamCleanedUpEvent` | `cleanup_stream` | `stream_id`, `caller` |
