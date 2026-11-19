@@ -79,9 +79,10 @@ pub fn pause(env: Env)
 - `()` on success
 
 **Behavior:**
+- **Idempotent:** if the contract is already paused, returns immediately without writing storage or emitting an event. This prevents duplicate `PauseEvent`s that would confuse indexers counting active pause windows.
 - Sets `Paused` flag to `true` in instance storage
 - Bumps instance storage TTL
-- Emits a `PauseEvent` with the current ledger timestamp
+- Emits a `PauseEvent` with the current ledger timestamp (only on a real state change)
 
 **Example - CLI:**
 ```bash
@@ -116,9 +117,10 @@ pub fn unpause(env: Env)
 - `()` on success
 
 **Behavior:**
+- **Idempotent:** if the contract is already active (not paused), returns immediately without writing storage or emitting an event.
 - Sets `Paused` flag to `false` in instance storage
 - Bumps instance storage TTL
-- Emits an `UnpauseEvent` with the current ledger timestamp
+- Emits an `UnpauseEvent` with the current ledger timestamp (only on a real state change)
 
 **Example - CLI:**
 ```bash
@@ -200,7 +202,12 @@ pub fn migrate(env: Env)
 
 **Behavior:**
 - Sets `Paused` to `false` (unfreezes the contract after an upgrade)
-- Any version-specific storage migrations are implemented here in future contract versions
+- Extends instance storage TTL to `~1 day` so admin, next-id counter, and pause flag remain accessible immediately after the upgrade
+- Rewrites existing streams with any new storage layout fields (idempotent — safe to call multiple times)
+- Emits a `MigratedEvent { version, timestamp }` so off-chain indexers know the upgrade completed and the contract version that is now running
+
+**Events:**
+- `MigratedEvent` — `version` is the current `CONTRACT_VERSION`; `timestamp` is the current ledger timestamp
 
 **Example - CLI:**
 ```bash
@@ -666,16 +673,16 @@ pub fn get_sent_streams(sender: Address, offset: u32, limit: u32) -> Vec<u64>
 **Parameters:**
 - `sender: Address` - Sender address
 - `offset: u32` - Pagination offset
-- `limit: u32` - Maximum results (recommended: 100)
+- `limit: u32` - Maximum results per page. Silently clamped to `MAX_PAGE_SIZE` (100); pass values ≤ 100 or use successive pages to retrieve more.
 
 **Returns:**
-- Vector of stream IDs
+- Vector of stream IDs (at most 100 per call)
 
 **Example:**
 ```typescript
 const senderAddress = 'GXXXXX...';
 const offset = 0;
-const limit = 100;
+const limit = 100; // hard maximum per page
 
 const streamIds = await query('get_sent_streams', [
   new Address(senderAddress).toScVal(),
@@ -698,10 +705,10 @@ pub fn get_received_streams(recipient: Address, offset: u32, limit: u32) -> Vec<
 **Parameters:**
 - `recipient: Address` - Recipient address
 - `offset: u32` - Pagination offset
-- `limit: u32` - Maximum results (recommended: 100)
+- `limit: u32` - Maximum results per page. Silently clamped to `MAX_PAGE_SIZE` (100).
 
 **Returns:**
-- Vector of stream IDs
+- Vector of stream IDs (at most 100 per call)
 
 ---
 
@@ -756,10 +763,10 @@ pub fn get_archived_sent_streams(
 **Parameters:**
 - `address: Address` - Sender address to look up
 - `offset: u32` - Zero-based pagination offset
-- `limit: u32` - Maximum number of IDs to return
+- `limit: u32` - Maximum number of IDs to return (clamped to `MAX_PAGE_SIZE` = 100)
 
 **Returns:**
-- `Vec<u64>` - Archived stream IDs (may be empty if none exist or offset is out of range)
+- `Vec<u64>` - Archived stream IDs (may be empty if none exist or offset is out of range; at most 100 per call)
 
 **Example - JavaScript:**
 ```typescript
@@ -789,10 +796,10 @@ pub fn get_archived_received_streams(
 **Parameters:**
 - `address: Address` - Recipient address to look up
 - `offset: u32` - Zero-based pagination offset
-- `limit: u32` - Maximum number of IDs to return
+- `limit: u32` - Maximum number of IDs to return (clamped to `MAX_PAGE_SIZE` = 100)
 
 **Returns:**
-- `Vec<u64>` - Archived stream IDs (may be empty if none exist or offset is out of range)
+- `Vec<u64>` - Archived stream IDs (may be empty if none exist or offset is out of range; at most 100 per call)
 
 **Example - JavaScript:**
 ```typescript
@@ -1028,6 +1035,32 @@ pub fn name(env: Env) -> soroban_sdk::String
 ```typescript
 const contractName = await query('name', []);
 // 'FlowStar Streaming'
+```
+
+---
+
+### is_paused
+
+Returns `true` if the contract's write operations are currently paused.
+
+**Signature:**
+```rust
+pub fn is_paused(env: Env) -> bool
+```
+
+**Parameters:**
+- None
+
+**Authorization Required:**
+- None — read-only, any caller
+
+**Returns:**
+- `bool` — `true` while paused, `false` otherwise
+
+**Example - JavaScript:**
+```typescript
+const paused = await query('is_paused', []);
+// false
 ```
 
 ---
