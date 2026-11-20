@@ -16,8 +16,14 @@ vi.mock('@/components/providers/network-provider', () => ({
   useNetwork: vi.fn(() => ({ network: 'testnet' })),
 }))
 
+vi.mock('@/lib/streams-cache', () => ({
+  readCachedStreams: vi.fn(() => null),
+  writeCachedStreams: vi.fn(),
+}))
+
 import { fetchStreamsForAddress } from '@/lib/contract'
 import { useWallet } from '@/hooks/use-wallet'
+import { readCachedStreams } from '@/lib/streams-cache'
 import { useStreams, invalidateStreams } from '@/hooks/use-streams'
 
 const mockStream: StreamData = {
@@ -40,6 +46,8 @@ const mockStream: StreamData = {
 describe('useStreams', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(useWallet).mockReturnValue({ address: 'GABC123' } as any)
+    vi.mocked(readCachedStreams).mockReturnValue(null)
     vi.mocked(fetchStreamsForAddress).mockResolvedValue([mockStream])
   })
 
@@ -89,6 +97,7 @@ describe('useStreams', () => {
 describe('useStreams polling lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(useWallet).mockReturnValue({ address: 'GABC123' } as any)
     vi.mocked(fetchStreamsForAddress).mockResolvedValue([mockStream])
     vi.useFakeTimers()
   })
@@ -102,13 +111,15 @@ describe('useStreams polling lifecycle', () => {
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
+      for (let i = 0; i < 10; i += 1) await Promise.resolve()
     })
-    await waitFor(() => expect(result.current.loading).toBe(false))
 
+    expect(result.current.loading).toBe(false)
     const callsAfterMount = vi.mocked(fetchStreamsForAddress).mock.calls.length
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000)
+      for (let i = 0; i < 10; i += 1) await Promise.resolve()
     })
 
     // 3 ticks at 1000ms each.
@@ -122,14 +133,17 @@ describe('useStreams polling lifecycle', () => {
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
+      for (let i = 0; i < 10; i += 1) await Promise.resolve()
     })
-    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(result.current.loading).toBe(false)
 
     unmount()
     const callsAtUnmount = vi.mocked(fetchStreamsForAddress).mock.calls.length
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10000)
+      for (let i = 0; i < 10; i += 1) await Promise.resolve()
     })
 
     // No further polling ticks should have fired after unmount.
@@ -142,6 +156,7 @@ describe('useStreams polling lifecycle', () => {
     const { unmount } = renderHook(() => useStreams({ enablePolling: true, pollInterval: 1000 }))
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0)
+      for (let i = 0; i < 10; i += 1) await Promise.resolve()
     })
 
     unmount()
@@ -154,6 +169,10 @@ describe('useStreams polling lifecycle', () => {
 })
 
 describe('invalidateStreams', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(useWallet).mockReturnValue({ address: 'GABC123' } as any)
+  })
   it('triggers refetch in subscribed hooks', async () => {
     vi.mocked(fetchStreamsForAddress).mockResolvedValue([mockStream])
 
@@ -219,6 +238,7 @@ describe('invalidateStreams', () => {
 describe('useStream (single stream)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(useWallet).mockReturnValue({ address: 'GABC123' } as any)
   })
 
   it('transitions from loading to loaded state', async () => {

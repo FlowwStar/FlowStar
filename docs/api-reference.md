@@ -19,6 +19,37 @@ One-time contract initialization. Sets the admin address and clears the pause fl
 Prevent new stream creation and all write operations. Admin only.
 
 - Emits: `PauseEvent { timestamp }`
+**Signature:**
+```rust
+pub fn pause(env: Env)
+```
+
+**Parameters:**
+- None (admin identity is read from instance storage)
+
+**Authorization Required:**
+- The stored admin address must authorize the transaction
+
+**Preconditions:**
+- Contract must be initialized
+
+**Returns:**
+- `()` on success
+
+**Behavior:**
+- **Idempotent:** if the contract is already paused, returns immediately without writing storage or emitting an event. This prevents duplicate `PauseEvent`s that would confuse indexers counting active pause windows.
+- Sets `Paused` flag to `true` in instance storage
+- Bumps instance storage TTL
+- Emits a `PauseEvent` with the current ledger timestamp (only on a real state change)
+
+**Example - CLI:**
+```bash
+soroban contract invoke \
+  --id CXXXXX \
+  --source GADMIN \
+  -- \
+  pause
+```
 
 ---
 
@@ -27,6 +58,32 @@ Prevent new stream creation and all write operations. Admin only.
 Resume normal operations. Admin only.
 
 - Emits: `UnpauseEvent { timestamp }`
+**Parameters:**
+- None
+
+**Authorization Required:**
+- The stored admin address must authorize the transaction
+
+**Preconditions:**
+- Contract must be initialized
+
+**Returns:**
+- `()` on success
+
+**Behavior:**
+- **Idempotent:** if the contract is already active (not paused), returns immediately without writing storage or emitting an event.
+- Sets `Paused` flag to `false` in instance storage
+- Bumps instance storage TTL
+- Emits an `UnpauseEvent` with the current ledger timestamp (only on a real state change)
+
+**Example - CLI:**
+```bash
+soroban contract invoke \
+  --id CXXXXX \
+  --source GADMIN \
+  -- \
+  unpause
+```
 
 ---
 
@@ -43,6 +100,46 @@ stellar contract invoke \
   --source-account <KEY> \
   --network testnet \
   -- is_paused
+
+---
+
+### migrate
+
+Post-upgrade data migration hook. Call this once after `upgrade` when the new contract version requires storage layout changes.
+
+**Signature:**
+```rust
+pub fn migrate(env: Env)
+```
+
+**Parameters:**
+- None
+
+**Authorization Required:**
+- The stored admin address must authorize the transaction
+
+**Preconditions:**
+- Contract must be initialized
+
+**Returns:**
+- `()` on success
+
+**Behavior:**
+- Sets `Paused` to `false` (unfreezes the contract after an upgrade)
+- Extends instance storage TTL to `~1 day` so admin, next-id counter, and pause flag remain accessible immediately after the upgrade
+- Rewrites existing streams with any new storage layout fields (idempotent — safe to call multiple times)
+- Emits a `MigratedEvent { version, timestamp }` so off-chain indexers know the upgrade completed and the contract version that is now running
+
+**Events:**
+- `MigratedEvent` — `version` is the current `CONTRACT_VERSION`; `timestamp` is the current ledger timestamp
+
+**Example - CLI:**
+```bash
+soroban contract invoke \
+  --id CXXXXX \
+  --source GADMIN \
+  -- \
+  migrate
 ```
 
 ---
@@ -94,6 +191,95 @@ A second `propose_admin` call before acceptance overwrites the first proposal si
 ---
 
 ### `accept_admin() → Result<(), StreamError>` *(Issue #1103)*
+### partial_cancel
+
+Partially cancels a stream: refunds part of the still-locked (unvested)
+balance to the sender while leaving the stream **active**. It is the
+non-terminal counterpart to `cancel`, which refunds the entire locked balance
+and ends the stream.
+
+**Signature:**
+```rust
+pub fn partial_cancel(stream_id: u64, amount: i128) -> Result<(), StreamError>
+```
+
+**Parameters:**
+- `stream_id: u64` - Stream ID to partially cancel
+- `amount: i128` - Amount of locked tokens to refund (in token's smallest unit)
+
+**Authorization Required:**
+- The stream sender must authorize the transaction via `require_auth()`; a
+  missing or invalid signature aborts the transaction before a `StreamError`
+  is returned
+- The contract must not be paused
+
+**Preconditions:**
+- Stream must exist
+- Stream must not already be cancelled, and `end_time` must not have been reached
+- `amount > 0` and `amount <= locked balance`, where locked balance is
+  `deposited_amount - unlocked_amount(now)`
+- The remaining balance must yield a non-zero per-second rate for the rest of
+  the stream
+
+**Returns:**
+- `Ok(())` on success
+- `Err(StreamError)` on failure
+
+**Errors:**
+- `StreamNotFound` (5) — stream does not exist
+- `ContractPaused` (16) — all write operations are paused
+- `StreamCancelled` (6) — stream was already fully cancelled
+- `StreamEnded` (9) — the current ledger time is at or past `end_time`
+- `InvalidAmount` (1) — `amount` is zero, negative, or exceeds the locked balance
+- `RateIsZero` (19) — the reduced balance would stream at zero per second
+- `ArithmeticOverflow` (13) — an intermediate `i128` calculation overflowed;
+  the stream is left unchanged
+
+**Re-anchoring behavior:**
+- Funds already unlocked as of the call are frozen in place; only the locked
+  remainder is reduced, and the original `end_time` is preserved. The stream
+  stays active (`cancelled = false`) and its TTL is extended.
+- When `now >= cliff_time`: `start_time` and `cliff_time` move to `now`,
+  `cliff_amount` becomes the unlocked amount, `linear_amount` becomes
+  `new_deposited_amount - unlocked`, `duration` becomes `end_time - now`, and
+  `amount_per_second` is recalculated as `linear_amount / duration`.
+- Before the cliff, nothing has unlocked yet: only `linear_amount` and
+  `amount_per_second` are reduced, and `start_time`/`cliff_time` are unchanged.
+- The refunded `amount` is transferred from the contract to the sender.
+
+**Event:**
+Emits `PartialCancelEvent`:
+
+| Field                  | Type      | Description                                      |
+| ---------------------- | --------- | ------------------------------------------------ |
+| `stream_id`            | `u64`     | Stream that was partially cancelled              |
+| `sender`               | `Address` | Sender who received the refund                   |
+| `recipient`            | `Address` | Recipient of the (still active) stream           |
+| `amount_refunded`      | `i128`    | Locked amount returned to the sender             |
+| `new_deposited_amount` | `i128`    | Stream deposit total after the refund            |
+| `timestamp`            | `u64`     | Ledger timestamp of the re-anchoring             |
+
+**Example - JavaScript:**
+```typescript
+const streamId = 1n;
+const refundAmount = 25000000n; // 2.5 USDC (7 decimals)
+
+const result = await invoke('partial_cancel', [
+  nativeToScVal(streamId, { type: 'u64' }),
+  nativeToScVal(refundAmount, { type: 'i128' }),
+]);
+```
+
+---
+
+### transfer_stream
+
+Transfers stream ownership to a new recipient.
+
+**Signature:**
+```rust
+pub fn transfer_stream(stream_id: u64, new_recipient: Address) -> Result<(), StreamError>
+```
 
 Accept a pending admin proposal. The caller must be the address stored in `PendingAdmin`. On success the pending proposal is cleared and the caller becomes the new admin.
 
@@ -170,6 +356,31 @@ Sender cancels a stream. Recipient receives unlocked portion; sender receives re
 Sender reduces a stream's locked balance without terminating it.
 
 - Emits: `PartialCancelEvent`
+**Signature:**
+```rust
+pub fn get_sent_streams(sender: Address, offset: u32, limit: u32) -> Vec<u64>
+```
+
+**Parameters:**
+- `sender: Address` - Sender address
+- `offset: u32` - Pagination offset
+- `limit: u32` - Maximum results per page. Silently clamped to `MAX_PAGE_SIZE` (100); pass values ≤ 100 or use successive pages to retrieve more.
+
+**Returns:**
+- Vector of stream IDs (at most 100 per call)
+
+**Example:**
+```typescript
+const senderAddress = 'GXXXXX...';
+const offset = 0;
+const limit = 100; // hard maximum per page
+
+const streamIds = await query('get_sent_streams', [
+  new Address(senderAddress).toScVal(),
+  nativeToScVal(offset, { type: 'u32' }),
+  nativeToScVal(limit, { type: 'u32' }),
+]);
+```
 
 ---
 
@@ -178,6 +389,13 @@ Sender reduces a stream's locked balance without terminating it.
 Recipient transfers stream rights to a new address. Any delegate is cleared.
 
 - Emits: `StreamTransferEvent`
+**Parameters:**
+- `recipient: Address` - Recipient address
+- `offset: u32` - Pagination offset
+- `limit: u32` - Maximum results per page. Silently clamped to `MAX_PAGE_SIZE` (100).
+
+**Returns:**
+- Vector of stream IDs (at most 100 per call)
 
 ---
 
@@ -200,12 +418,68 @@ Read full stream details by ID.
 ### `get_withdrawable(stream_id: u64) → Result<i128, StreamError>`
 
 Current withdrawable amount for a stream at the current ledger time.
+Returns paginated stream IDs for completed or cancelled streams where `address` is the sender. Streams move to the archive index when they are cancelled or fully drained.
+
+**Signature:**
+```rust
+pub fn get_archived_sent_streams(
+    env: Env,
+    address: Address,
+    offset: u32,
+    limit: u32,
+) -> Vec<u64>
+```
+
+**Parameters:**
+- `address: Address` - Sender address to look up
+- `offset: u32` - Zero-based pagination offset
+- `limit: u32` - Maximum number of IDs to return (clamped to `MAX_PAGE_SIZE` = 100)
+
+**Returns:**
+- `Vec<u64>` - Archived stream IDs (may be empty if none exist or offset is out of range; at most 100 per call)
+
+**Example - JavaScript:**
+```typescript
+const archivedIds = await query('get_archived_sent_streams', [
+  new Address(senderAddress).toScVal(),
+  nativeToScVal(0, { type: 'u32' }),
+  nativeToScVal(100, { type: 'u32' }),
+]);
+```
 
 ---
 
 ### `get_sent_streams(address: Address, offset: u32, limit: u32) → Vec<u64>`
 
 Paginated active stream IDs sent by an address.
+Returns paginated stream IDs for completed or cancelled streams where `address` is the recipient.
+
+**Signature:**
+```rust
+pub fn get_archived_received_streams(
+    env: Env,
+    address: Address,
+    offset: u32,
+    limit: u32,
+) -> Vec<u64>
+```
+
+**Parameters:**
+- `address: Address` - Recipient address to look up
+- `offset: u32` - Zero-based pagination offset
+- `limit: u32` - Maximum number of IDs to return (clamped to `MAX_PAGE_SIZE` = 100)
+
+**Returns:**
+- `Vec<u64>` - Archived stream IDs (may be empty if none exist or offset is out of range; at most 100 per call)
+
+**Example - JavaScript:**
+```typescript
+const archivedIds = await query('get_archived_received_streams', [
+  new Address(recipientAddress).toScVal(),
+  nativeToScVal(0, { type: 'u32' }),
+  nativeToScVal(100, { type: 'u32' }),
+]);
+```
 
 ---
 
@@ -298,6 +572,33 @@ Either party removes a fully-drained or cancelled stream from storage. Allowed e
 ---
 
 ### `bump_stream(stream_id: u64) → Result<(), StreamError>`
+### is_paused
+
+Returns `true` if the contract's write operations are currently paused.
+
+**Signature:**
+```rust
+pub fn is_paused(env: Env) -> bool
+```
+
+**Parameters:**
+- None
+
+**Authorization Required:**
+- None — read-only, any caller
+
+**Returns:**
+- `bool` — `true` while paused, `false` otherwise
+
+**Example - JavaScript:**
+```typescript
+const paused = await query('is_paused', []);
+// false
+```
+
+---
+
+## Authorization
 
 Extend the TTL of a stream's ledger data (~30 more days). Anyone can call.
 

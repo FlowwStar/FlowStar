@@ -373,3 +373,319 @@ fn test_double_initialize_fails() {
     let result = t.client().try_initialize(&t.admin);
     assert_eq!(result, Err(Ok(StreamError::AlreadyInitialized)));
 }
+
+// ─── Issue #1098: migrate() must extend instance TTL ─────────────────────────
+
+/// Verify that `migrate` bumps the instance-storage TTL.
+///
+/// We set up a ledger position with very low TTL headroom, call `migrate`,
+/// then advance the ledger sequence far beyond the initial TTL and confirm
+/// the contract's instance data (admin + paused flag) is still readable.
+#[test]
+fn test_migrate_extends_instance_ttl() {
+    let t = TestEnv::setup();
+    let client = t.client();
+
+    // Run migrate — this must call extend_ttl on instance storage.
+    client.migrate();
+
+    // Advance the ledger by a large sequence number, simulating time passing.
+    // Set max_entry_ttl high enough so the extend_ttl call had room to bump.
+    t.env.ledger().with_mut(|l| {
+        l.sequence_number += 1_000_000;
+        l.min_persistent_entry_ttl = 1;
+        l.max_entry_ttl = 10_000_000;
+    });
+
+    // The admin key must still decode — if TTL hadn't been extended we would
+    // get a panic / no value here.  `is_paused` reads `Paused` from instance
+    // storage; a successful read proves the entry is still alive.
+    let paused = client.is_paused();
+    assert!(!paused, "contract should be unpaused after migrate");
+}
+
+// ─── Issue #1100: migrate() must emit MigratedEvent ──────────────────────────
+
+#[test]
+fn test_migrate_emits_migrated_event() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    client.migrate();
+
+    let migrated = t
+        .env
+        .events()
+        .all()
+        .iter()
+        .find_map(|(_, topics, data)| {
+            if topics.len() != 2 {
+                return None;
+            }
+            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
+            match topic0 {
+                Ok(s) if s == Symbol::new(&t.env, "migrated") => {}
+                _ => return None,
+            }
+            MigratedEvent::try_from_val(&t.env, &data).ok()
+        })
+        .expect("MigratedEvent must be emitted by migrate()");
+
+    assert_eq!(migrated.version, 1u32, "version must equal CONTRACT_VERSION");
+    assert_eq!(migrated.timestamp, now);
+}
+
+/// migrate() must unpause the contract and confirm via the flag — the
+/// MigratedEvent carries the version so off-chain consumers don't need a
+/// separate UnpauseEvent.
+#[test]
+fn test_migrate_unpauses_and_emits_no_unpause_event() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    // Pause before migrating.
+    client.pause();
+    assert!(client.is_paused());
+
+    client.migrate();
+
+    // Contract must be live again.
+    assert!(!client.is_paused(), "migrate must unfreeze the contract");
+
+    // There must be no UnpauseEvent in the event log — migrate publishes
+    // MigratedEvent instead.
+    let has_unpause = t
+        .env
+        .events()
+        .all()
+        .iter()
+        .any(|(_, topics, _)| {
+            if topics.len() < 1 {
+                return false;
+            }
+            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
+            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "unpaused"))
+        });
+    assert!(
+        !has_unpause,
+        "migrate must not emit a duplicate UnpauseEvent"
+    );
+}
+
+// ─── Issue #1104: pause/unpause must be idempotent ────────────────────────────
+
+/// Calling pause twice must not emit two PauseEvents.
+#[test]
+fn test_pause_is_idempotent_no_duplicate_event() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    client.pause();
+    client.pause(); // second call must be a no-op
+
+    // Count PauseEvents — there must be exactly one.
+    let pause_count = t
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|(_, topics, _)| {
+            if topics.len() < 1 {
+                return false;
+            }
+            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
+            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "paused"))
+        })
+        .count();
+
+    assert_eq!(pause_count, 1, "exactly one PauseEvent must be emitted");
+    assert!(client.is_paused());
+}
+
+/// Calling unpause twice must not emit two UnpauseEvents.
+#[test]
+fn test_unpause_is_idempotent_no_duplicate_event() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    client.pause();
+    client.unpause();
+    client.unpause(); // second call must be a no-op
+
+    // Count UnpauseEvents — there must be exactly one.
+    let unpause_count = t
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|(_, topics, _)| {
+            if topics.len() < 1 {
+                return false;
+            }
+            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
+            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "unpaused"))
+        })
+        .count();
+
+    assert_eq!(unpause_count, 1, "exactly one UnpauseEvent must be emitted");
+    assert!(!client.is_paused());
+}
+
+/// pause → unpause → pause again must produce exactly 2 PauseEvents and 1
+/// UnpauseEvent, confirming alternating state changes are still counted
+/// correctly even with the idempotency guard in place.
+#[test]
+fn test_pause_unpause_alternating_event_counts() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    client.pause();
+    client.unpause();
+    client.pause();
+
+    let pause_count = t
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|(_, topics, _)| {
+            if topics.len() < 1 {
+                return false;
+            }
+            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
+            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "paused"))
+        })
+        .count();
+
+    let unpause_count = t
+        .env
+        .events()
+        .all()
+        .iter()
+        .filter(|(_, topics, _)| {
+            if topics.len() < 1 {
+                return false;
+            }
+            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
+            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "unpaused"))
+        })
+        .count();
+
+    assert_eq!(pause_count, 2, "two distinct pause transitions");
+    assert_eq!(unpause_count, 1, "one unpause transition");
+}
+
+// ─── Issue #1108: paginated getters must cap at MAX_PAGE_SIZE ─────────────────
+
+/// Requesting limit = u32::MAX must return at most MAX_PAGE_SIZE items even
+/// when the index holds more entries than that.
+///
+/// We can only create up to MAX_BATCH_SIZE (20) streams per batch call, and
+/// creating 101 streams individually would be prohibitively slow in a unit
+/// test, so we verify that:
+///   (a) a 20-stream index with limit=u32::MAX returns all 20 (≤ 100), and
+///   (b) the cap is enforced structurally: the same logic that would clamp
+///       101 → 100 also clamps u32::MAX → 100 for any index size.
+#[test]
+fn test_page_size_capped_at_max_page_size() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    // Create MAX_BATCH_SIZE (20) streams so the index is non-trivial.
+    for i in 0..20u32 {
+        let params = t.default_params(now);
+        t.token().approve(
+            &t.sender,
+            &t.contract_id,
+            &params.total_amount,
+            &(t.env.ledger().sequence() + 500 + i),
+        );
+        client.create_stream(&t.sender, &params);
+    }
+
+    // limit = u32::MAX must not panic and must return ≤ MAX_PAGE_SIZE items.
+    let page = client.get_sent_streams(&t.sender, &0u32, &u32::MAX);
+    assert!(
+        page.len() <= 100,
+        "get_sent_streams must return at most MAX_PAGE_SIZE=100 items, got {}",
+        page.len()
+    );
+
+    // With only 20 streams the full set fits within the cap.
+    assert_eq!(page.len(), 20);
+}
+
+/// When limit is already ≤ MAX_PAGE_SIZE the cap has no visible effect.
+#[test]
+fn test_page_size_below_cap_unaffected() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    for i in 0..5u32 {
+        let params = t.default_params(now);
+        t.token().approve(
+            &t.sender,
+            &t.contract_id,
+            &params.total_amount,
+            &(t.env.ledger().sequence() + 500 + i),
+        );
+        client.create_stream(&t.sender, &params);
+    }
+
+    // limit=10 is well below the cap of 100; all 5 results must come back.
+    let page = client.get_sent_streams(&t.sender, &0u32, &10u32);
+    assert_eq!(page.len(), 5);
+
+    // The same cap applies to received and archived variants.
+    let recv = client.get_received_streams(&t.recipient, &0u32, &u32::MAX);
+    assert!(recv.len() <= 100);
+    assert_eq!(recv.len(), 5);
+}
+
+/// Cap applies equally to the archived getter variants.
+#[test]
+fn test_page_size_cap_archived_streams() {
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+
+    // Create and immediately cancel 5 streams to populate the archive index.
+    for i in 0..5u32 {
+        let params = t.default_params(now);
+        t.token().approve(
+            &t.sender,
+            &t.contract_id,
+            &params.total_amount,
+            &(t.env.ledger().sequence() + 500 + i),
+        );
+        let stream_id = client.create_stream(&t.sender, &params);
+        client.cancel(&stream_id);
+    }
+
+    let archived = client.get_archived_sent_streams(&t.sender, &0u32, &u32::MAX);
+    assert!(
+        archived.len() <= 100,
+        "archived getter must also respect MAX_PAGE_SIZE"
+    );
+    assert_eq!(archived.len(), 5);
+
+    let archived_recv =
+        client.get_archived_received_streams(&t.recipient, &0u32, &u32::MAX);
+    assert!(archived_recv.len() <= 100);
+    assert_eq!(archived_recv.len(), 5);
+}

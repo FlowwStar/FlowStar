@@ -18,11 +18,8 @@ import {
   type TimelineEventType,
 } from '@/hooks/use-stream-history'
 import { explorerUrl, type NetworkName } from '@/lib/stellar'
-import { streamDetailCopy } from '@/lib/copy/stream-detail'
 import { useNetwork } from '@/components/providers/network-provider'
 import { streamTimelineCopy } from '@/lib/copy/stream-detail'
-
-const copy = streamDetailCopy.timeline
 
 function eventIcon(type: TimelineEventType) {
   switch (type) {
@@ -97,7 +94,6 @@ function TimelineItem({ event, isLast, network }: TimelineItemProps) {
               <p className="text-xs text-muted-foreground">
                 {streamTimelineCopy.amount(event.amount)}
               </p>
-              <p className="text-xs text-muted-foreground">{copy.amountLabel(event.amount)}</p>
             )}
             {event.from && event.to && (
               <p className="text-xs text-muted-foreground font-mono">
@@ -145,7 +141,6 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
           <Clock className="size-4 text-muted-foreground" />
           <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
             {streamTimelineCopy.title}
-            {copy.sectionTitle}
           </h2>
         </div>
         <button
@@ -153,7 +148,6 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
           onClick={refetch}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
           aria-label={streamTimelineCopy.refreshAriaLabel}
-          aria-label={copy.refreshAriaLabel}
         >
           <RefreshCcw className="size-3.5" />
         </button>
@@ -163,7 +157,6 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
           <RefreshCcw className="size-4 animate-spin" />
           {streamTimelineCopy.loading}
-          {copy.loading}
         </div>
       ) : events.length === 0 ? (
         <div className="py-6 text-center">
@@ -171,11 +164,6 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
           <p className="mt-2 text-sm text-muted-foreground">{streamTimelineCopy.emptyTitle}</p>
           <p className="text-xs text-muted-foreground mt-1">
             {streamTimelineCopy.emptyDescription}
-          <p className="mt-2 text-sm text-muted-foreground">
-            {copy.emptyTitle}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {copy.emptyBody}
           </p>
         </div>
       ) : (
@@ -201,13 +189,11 @@ export function StreamTimeline({ streamId }: StreamTimelineProps) {
                 <>
                   <ChevronDown className="size-3.5" />
                   {streamTimelineCopy.showMore(events.length - 3)}
-                  {copy.showMoreButton(events.length - 3)}
                 </>
               ) : (
                 <>
                   <ChevronUp className="size-3.5" />
                   {streamTimelineCopy.collapse}
-                  {copy.collapseButton}
                 </>
               )}
             </button>

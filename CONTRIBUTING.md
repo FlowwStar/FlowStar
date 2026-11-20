@@ -15,7 +15,7 @@ By participating in this project, you agree to follow the [Code of Conduct](./CO
 | ---------------- | ----------------- | ---------------------------------------------------------------- |
 | Node.js          | 18+               | [nodejs.org](https://nodejs.org)                                 |
 | npm              | bundled with Node | or pnpm / bun                                                    |
-| Rust             | stable            | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs       | sh` |
+| Rust             | 1.84.0 (pinned)   | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs       | sh` |
 | Soroban CLI      | latest            | `cargo install stellar-cli --locked`                             |
 | Freighter wallet | latest            | [freighter.app](https://www.freighter.app/) — set to **Testnet** |
 
@@ -289,6 +289,12 @@ Router) work inside stories without extra mocking.
 ## Contract development
 
 All contract source lives in `contracts/streaming/src/`.
+
+The Rust toolchain is pinned in `contracts/rust-toolchain.toml` (1.84.0 with
+`clippy`, `rustfmt` and the `wasm32v1-none` target). `rustup` picks it up
+automatically when you run `cargo` from `contracts/` or
+`contracts/streaming/`; CI uses the same version. Update that file and the
+workflows together when upgrading.
 
 ### Build
 

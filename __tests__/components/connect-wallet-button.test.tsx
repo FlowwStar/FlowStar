@@ -164,7 +164,6 @@ describe('ConnectWalletButton — connected', () => {
   })
 
   it('shows confirmation feedback after copying', async () => {
-    vi.useFakeTimers()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.assign(navigator, {
       clipboard: {
@@ -175,17 +174,15 @@ describe('ConnectWalletButton — connected', () => {
     render(<ConnectWalletButton />)
     fireEvent.click(screen.getByRole('button'))
     await waitFor(() => screen.getByText(/copy address/i))
-    
+
     // Initially shows "Copy address"
     expect(screen.getByText(/copy address/i)).toBeInTheDocument()
-    
+
     fireEvent.click(screen.getByText(/copy address/i))
-    
+
     // After clicking, should show "Copied"
     await waitFor(() => {
       expect(screen.getByText(/copied/i)).toBeInTheDocument()
     })
-
-    vi.useRealTimers()
   })
 })
