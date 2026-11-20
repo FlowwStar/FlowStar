@@ -49,7 +49,9 @@ export function streamsToCSV(
   for (const s of streams) {
     const { decimals, symbol } = s.token
     const status = getStreamStatus(s, nowSeconds)
-    const remaining = s.depositedAmount - s.withdrawnAmount
+    // A cancelled stream refunds the locked part to the sender and pays the
+    // unlocked part to the recipient, so nothing remains to withdraw.
+    const remaining = s.cancelled ? BigInt(0) : s.depositedAmount - s.withdrawnAmount
 
     const ratePerDay = formatTokenAmount(s.amountPerSecond * SECONDS_PER_DAY_BIGINT, decimals, 6)
     const ratePerMonth = formatTokenAmount(
