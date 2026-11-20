@@ -98,9 +98,15 @@ export function NotificationBell() {
 
   // Issue #684: move focus into the dropdown on open — first notification
   // item if there is one, otherwise the panel itself.
+  const wasOpenRef = useRef(false)
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      wasOpenRef.current = false
+      return
+    }
     itemRefs.current = itemRefs.current.slice(0, notifications.length)
+    if (wasOpenRef.current) return
+    wasOpenRef.current = true
     if (notifications.length > 0) {
       setActiveIndex(0)
       itemRefs.current[0]?.focus()
@@ -108,8 +114,7 @@ export function NotificationBell() {
       setActiveIndex(-1)
       panelRef.current?.focus()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [open, notifications.length])
 
   function handleToggle() {
     setOpen((v) => !v)
