@@ -794,9 +794,7 @@ function ShareButtons({
   const [showQr, setShowQr] = useState(false)
 
   const streamUrl =
-    typeof window !== 'undefined'
-      ? window.location.href
-      : `${SITE_URL}/app/stream/${streamId}`
+    typeof window !== 'undefined' ? window.location.href : `${SITE_URL}/app/stream/${streamId}`
   const shareText = copy.shareButtons.shareText(streamId)
 
   function copyLink() {
@@ -877,7 +875,7 @@ function StreamDetail({ id }: { id: string }) {
   const { address, isConnected } = useWallet()
   const { network, config } = useNetwork()
   const router = useRouter()
-  const now = useNow(1000)
+  const now = useNow(stream?.cancelled ? null : 1000)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cleanupOpen, setCleanupOpen] = useState(false)
