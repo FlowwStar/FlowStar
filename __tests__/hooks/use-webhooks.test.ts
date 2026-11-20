@@ -318,6 +318,53 @@ describe('useWebhooks', () => {
     expect(sentPayload().schema_version).toBe(WEBHOOK_SCHEMA_VERSION)
   })
 
+  // ── request timeout (issue #1157) ──────────────────────────────────────────
+
+  it('fireEvent records a failed delivery when the request times out', async () => {
+    vi.mocked(global.fetch).mockRejectedValue(
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+    )
+    const { result } = renderHook(() => useWebhooks())
+    await act(async () => {
+      result.current.addWebhook('https://example.com/hook', ['stream.created'])
+    })
+    await act(async () => {
+      await result.current.fireEvent('stream.created', { stream_id: 9 })
+    })
+    expect(result.current.history).toHaveLength(1)
+    expect(result.current.history[0].success).toBe(false)
+    expect(result.current.history[0].statusCode).toBeNull()
+  })
+
+  it('testWebhook returns false when the request times out', async () => {
+    vi.mocked(global.fetch).mockRejectedValue(
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+    )
+    const { result } = renderHook(() => useWebhooks())
+    await act(async () => {
+      result.current.addWebhook('https://example.com/hook', ['stream.created'])
+    })
+    const id = result.current.webhooks[0].id
+    let ok: boolean | undefined
+    await act(async () => {
+      ok = await result.current.testWebhook(id)
+    })
+    expect(ok).toBe(false)
+  })
+
+  it('passes an abort signal to fetch so requests can time out', async () => {
+    vi.mocked(global.fetch).mockResolvedValue(makeOkResponse())
+    const { result } = renderHook(() => useWebhooks())
+    await act(async () => {
+      result.current.addWebhook('https://example.com/hook', ['stream.created'])
+    })
+    await act(async () => {
+      await result.current.fireEvent('stream.created', { stream_id: 1 })
+    })
+    const init = vi.mocked(global.fetch).mock.calls[0][1] as RequestInit
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+  })
+
   it('fireEvent persists delivery history to localStorage', async () => {
     vi.mocked(global.fetch).mockResolvedValue(makeOkResponse())
     const { result } = renderHook(() => useWebhooks())
