@@ -34,7 +34,7 @@ function makeStream(id: string, overrides: Partial<StreamData> = {}): StreamData
   }
 }
 
-const meta = {
+const meta: Meta<typeof DashboardStats> = {
   title: 'Streams/DashboardStats',
   component: DashboardStats,
   parameters: {
@@ -48,7 +48,7 @@ const meta = {
       </div>
     ),
   ],
-} satisfies Meta<typeof DashboardStats>
+}
 
 export default meta
 type Story = StoryObj<typeof meta>

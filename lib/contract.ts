@@ -36,10 +36,11 @@ const FEE_BUFFER = 1.15 // 15% above minimum to ensure inclusion
 
 const REQUEST_TIMEOUT_MS = 30_000
 const POLL_TIMEOUT_MS = 60_000
+const SIMULATION_ACCOUNT = 'GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADI'
 const MAX_RETRIES = 3
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const
 
-function isRetryableError(err: unknown): boolean {
+export function isRetryableError(err: unknown): boolean {
   if (err instanceof TypeError) return true // network failure
   if (err instanceof Error && (err.message.includes('503') || err.message.includes('429')))
     return true
@@ -49,7 +50,7 @@ function isRetryableError(err: unknown): boolean {
   return status === 429 || status === 503
 }
 
-async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+export async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
   let lastErr: unknown
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController()
@@ -69,7 +70,7 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
   throw lastErr
 }
 
-async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   let lastErr: unknown
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -212,7 +213,7 @@ async function query(
   const contract = new Contract(contractAddress)
   // Use a dummy account for simulation reads
   const dummyKeypair = {
-    accountId: () => 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN',
+    accountId: () => SIMULATION_ACCOUNT,
     sequence: () => BigInt(0),
     incrementSequenceNumber: () => {},
   }
@@ -434,7 +435,7 @@ export async function estimateCreateStreamFee(
   }
 }
 
-function buildCreateStreamInputScVal(input: CreateStreamInput): xdr.ScVal {
+export function buildCreateStreamInputScVal(input: CreateStreamInput): xdr.ScVal {
   return xdr.ScVal.scvMap(
     [
       ['recipient', new Address(input.recipient).toScVal()],
@@ -454,7 +455,7 @@ function buildCreateStreamInputScVal(input: CreateStreamInput): xdr.ScVal {
   )
 }
 
-function buildCreateStreamParamsScVal(input: CreateStreamInput): xdr.ScVal {
+export function buildCreateStreamParamsScVal(input: CreateStreamInput): xdr.ScVal {
   return xdr.ScVal.scvMap(
     [
       ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
@@ -738,9 +739,7 @@ export async function getTokenMetadata(
     const config = getNetworkConfig(network)
     const server = getServer(network)
     const contract = new Contract(tokenAddress)
-    const dummyAccount = await withRetry(() =>
-      server.getAccount('GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN'),
-    )
+    const dummyAccount = await withRetry(() => server.getAccount(SIMULATION_ACCOUNT))
 
     const buildSimTx = (method: string) => {
       const tx = new TransactionBuilder(dummyAccount, {
@@ -794,9 +793,7 @@ export async function getTokenBalance(
   try {
     const server = getServer(network)
     const contract = new Contract(tokenAddress)
-    const account = await withRetry(() =>
-      server.getAccount('GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN'),
-    )
+    const account = await withRetry(() => server.getAccount(SIMULATION_ACCOUNT))
     const tx = new TransactionBuilder(account, {
       fee: '100',
       networkPassphrase: config.passphrase,

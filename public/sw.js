@@ -50,11 +50,13 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy))
           return response
         })
-        .catch(
-          () =>
-            caches.match(request).then((cached) => cached) ||
-            caches.match('/offline.html'),
-        ),
+        .catch(async () => {
+          const cached = await caches.match(request)
+          if (cached) return cached
+
+          const offline = await caches.match('/offline.html')
+          return offline ?? Response.error()
+        }),
     )
     return
   }

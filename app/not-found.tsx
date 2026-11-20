@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
 export default function NotFound() {
@@ -9,7 +9,7 @@ export default function NotFound() {
     <div className="flex min-h-screen items-center justify-center p-6 bg-background">
       <Card className="w-full max-w-2xl border-border">
         <CardHeader>
-          <CardTitle className="text-xl">Page not found</CardTitle>
+          <h1 className="font-heading text-xl">Page not found</h1>
           <CardDescription className="text-sm">
             The page you're looking for doesn't exist or has been moved.
           </CardDescription>
