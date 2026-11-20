@@ -59,6 +59,17 @@ const CONTRACT_NAME: &str = "FlowStar Streaming";
 const MAX_STREAM_DURATION: u64 = 315_360_000; // 10 years in seconds
 const MAX_BATCH_SIZE: u32 = 20;
 
+/// Maximum length, in bytes, of a stream metadata `name` field (issue #1107).
+///
+/// Soroban `String::len()` reports the length in bytes, so these caps bound
+/// the persistent-storage rent a single metadata entry can add.
+const MAX_METADATA_NAME_LEN: u32 = 64;
+
+/// Maximum length, in bytes, of a stream metadata `category` field (issue #1107).
+const MAX_METADATA_CATEGORY_LEN: u32 = 32;
+
+/// Maximum length, in bytes, of a stream metadata `memo` field (issue #1107).
+const MAX_METADATA_MEMO_LEN: u32 = 256;
 /// Maximum number of stream IDs returned by any single paginated getter call.
 ///
 /// Callers that pass a larger `limit` have it silently clamped to this value.
@@ -245,6 +256,10 @@ pub enum StreamError {
     /// The start_time is in the past (before the current ledger timestamp);
     /// backdating a stream would unlock funds immediately on creation.
     PastStartTime = 21,
+    /// A metadata `name`, `category`, or `memo` string exceeds its length cap
+    /// (see [`MAX_METADATA_NAME_LEN`] / [`MAX_METADATA_CATEGORY_LEN`] /
+    /// [`MAX_METADATA_MEMO_LEN`]).
+    MetadataTooLong = 22,
     /// There is no pending admin proposal to accept.
     NoPendingAdmin = 22,
 }
@@ -1674,6 +1689,12 @@ impl StreamingContract {
     // ── Metadata ──────────────────────────────────────────────────────────────
 
     /// Update the metadata for a stream. Only the sender can update.
+    ///
+    /// The `name`, `category`, and `memo` strings are capped in bytes by
+    /// [`MAX_METADATA_NAME_LEN`], [`MAX_METADATA_CATEGORY_LEN`], and
+    /// [`MAX_METADATA_MEMO_LEN`] respectively, so a sender cannot inflate the
+    /// persistent-storage rent of a stream with arbitrarily large metadata
+    /// (issue #1107). A field over its cap returns [`StreamError::MetadataTooLong`].
     pub fn update_stream_metadata(
         env: Env,
         stream_id: u64,
@@ -1682,6 +1703,15 @@ impl StreamingContract {
         let stream = Self::load_stream(&env, stream_id)?;
         stream.sender.require_auth();
         Self::require_not_paused(&env)?;
+
+        // Issue #1107: reject oversized metadata before writing, so a sender
+        // cannot push up the rent cost of persistent storage.
+        if metadata.name.len() > MAX_METADATA_NAME_LEN
+            || metadata.category.len() > MAX_METADATA_CATEGORY_LEN
+            || metadata.memo.len() > MAX_METADATA_MEMO_LEN
+        {
+            return Err(StreamError::MetadataTooLong);
+        }
 
         env.storage()
             .persistent()
@@ -1733,10 +1763,29 @@ impl StreamingContract {
     // ── Delegation ────────────────────────────────────────────────────────────
 
     /// Set a delegate who can withdraw on behalf of the recipient.
+    ///
+    /// # Errors
+    /// - [`StreamError::StreamCancelled`] — the stream was cancelled, so a
+    ///   delegate could withdraw nothing; the entry would be dead storage that
+    ///   indexers would still report as a third party (issue #1106).
+    /// - [`StreamError::InvalidRecipient`] — `delegate` is the stream's own
+    ///   recipient, which is pointless (the recipient can already withdraw)
+    ///   and would only create a misleading [`DelegateSetEvent`] (issue #1105).
     pub fn set_delegate(env: Env, stream_id: u64, delegate: Address) -> Result<(), StreamError> {
         let stream = Self::load_stream(&env, stream_id)?;
         stream.recipient.require_auth();
         Self::require_not_paused(&env)?;
+
+        // Issue #1106: a cancelled stream has nothing left to withdraw, so a
+        // delegate entry would never be used — reject instead of writing it.
+        if stream.cancelled {
+            return Err(StreamError::StreamCancelled);
+        }
+        // Issue #1105: delegating back to the recipient is a no-op that only
+        // creates a pointless DelegateSetEvent indexers report as a third party.
+        if delegate == stream.recipient {
+            return Err(StreamError::InvalidRecipient);
+        }
 
         env.storage()
             .persistent()
@@ -1867,22 +1916,32 @@ impl StreamingContract {
     }
 
     /// Remove a stream ID from an address index list.
+    ///
+    /// Only writes (and extends TTL) when the id was actually present. On a
+    /// miss — the key is absent, or present but doesn't contain `id` — this
+    /// returns without touching storage, so it neither pays for a needless
+    /// `set`/`extend_ttl` nor creates an empty index entry for a key that
+    /// never existed (issue #1109). `cleanup_stream` relies on this: it calls
+    /// here four times, but usually only two of the keys hold the id.
     fn remove_from_index(env: &Env, key: DataKey, id: u64) {
-        let mut indexes: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or(Vec::new(env));
+        let mut indexes: Vec<u64> = match env.storage().persistent().get(&key) {
+            Some(list) => list,
+            // The key doesn't exist at all: nothing to remove, and writing
+            // here would create an empty entry for a key that never existed.
+            None => return,
+        };
 
+        // Use `existing_id` to avoid shadowing the outer `id` parameter.
+        if let Some(i) = indexes.iter().position(|existing_id| existing_id == id) {
         let position = indexes.iter().position(|existing_id| existing_id == id);
         if let Some(i) = position {
             indexes.remove(i as u32);
+            env.storage().persistent().set(&key, &indexes);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
         }
-
-        env.storage().persistent().set(&key, &indexes);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+        // id not present: the list is unchanged, so skip the write entirely.
     }
 
     /// Extend the TTL of all storage entries for a stream to ~30 days.

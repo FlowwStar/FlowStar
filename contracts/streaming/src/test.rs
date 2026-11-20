@@ -689,3 +689,213 @@ fn test_page_size_cap_archived_streams() {
     assert!(archived_recv.len() <= 100);
     assert_eq!(archived_recv.len(), 5);
 }
+
+// ─── Issue #1105 / #1106: set_delegate guards ─────────────────────────────────
+
+#[test]
+fn test_set_delegate_rejects_delegate_equal_to_recipient() {
+    // Issue #1105: delegating back to the recipient is pointless (the recipient
+    // can already withdraw) and only creates a DelegateSetEvent indexers
+    // report as a third party. Reject it with InvalidRecipient.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Recipient tries to delegate withdrawal back to themselves.
+    let result = client.try_set_delegate(&stream_id, &t.recipient);
+    assert_eq!(result, Err(Ok(StreamError::InvalidRecipient)));
+
+    // No delegate entry must have been written.
+    assert_eq!(client.get_delegate(&stream_id), None);
+}
+
+#[test]
+fn test_set_delegate_rejected_on_cancelled_stream() {
+    // Issue #1106: nothing can be withdrawn from a cancelled stream, so a
+    // delegate entry would be dead storage. Reject with StreamCancelled.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    client.cancel(&stream_id);
+
+    let delegate = Address::generate(&t.env);
+    let result = client.try_set_delegate(&stream_id, &delegate);
+    assert_eq!(result, Err(Ok(StreamError::StreamCancelled)));
+
+    // No delegate entry must have been written.
+    assert_eq!(client.get_delegate(&stream_id), None);
+}
+
+// ─── Issue #1107: stream metadata length caps ─────────────────────────────────
+
+// Mirrors the contract constants in lib.rs (issue #1107).
+const MAX_METADATA_NAME_LEN: u32 = 64;
+const MAX_METADATA_CATEGORY_LEN: u32 = 32;
+const MAX_METADATA_MEMO_LEN: u32 = 256;
+
+#[test]
+fn test_update_stream_metadata_rejects_oversized_fields() {
+    // Issue #1107: name/category/memo are capped at 64/32/256 bytes to keep
+    // persistent-storage rent bounded. A field over its cap is rejected with
+    // MetadataTooLong and nothing is stored.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    // Name one byte over the limit.
+    let too_long_name = "x".repeat(MAX_METADATA_NAME_LEN as usize + 1);
+    let metadata = StreamMetadata {
+        name: soroban_sdk::String::from_str(&t.env, &too_long_name),
+        category: soroban_sdk::String::from_str(&t.env, "ok"),
+        memo: soroban_sdk::String::from_str(&t.env, "ok"),
+    };
+    assert_eq!(
+        client.try_update_stream_metadata(&stream_id, &metadata),
+        Err(Ok(StreamError::MetadataTooLong))
+    );
+
+    // Category over its (smaller) limit.
+    let too_long_category = "y".repeat(MAX_METADATA_CATEGORY_LEN as usize + 1);
+    let metadata = StreamMetadata {
+        name: soroban_sdk::String::from_str(&t.env, "ok"),
+        category: soroban_sdk::String::from_str(&t.env, &too_long_category),
+        memo: soroban_sdk::String::from_str(&t.env, "ok"),
+    };
+    assert_eq!(
+        client.try_update_stream_metadata(&stream_id, &metadata),
+        Err(Ok(StreamError::MetadataTooLong))
+    );
+
+    // Memo over its limit.
+    let too_long_memo = "z".repeat(MAX_METADATA_MEMO_LEN as usize + 1);
+    let metadata = StreamMetadata {
+        name: soroban_sdk::String::from_str(&t.env, "ok"),
+        category: soroban_sdk::String::from_str(&t.env, "ok"),
+        memo: soroban_sdk::String::from_str(&t.env, &too_long_memo),
+    };
+    assert_eq!(
+        client.try_update_stream_metadata(&stream_id, &metadata),
+        Err(Ok(StreamError::MetadataTooLong))
+    );
+
+    // Nothing must have been stored for any rejected update.
+    assert_eq!(client.get_stream_metadata(&stream_id), None);
+}
+
+#[test]
+fn test_update_stream_metadata_accepts_max_length_fields() {
+    // Issue #1107: fields at exactly the cap are allowed — len == MAX passes,
+    // only len > MAX is rejected.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let stream_id = client.create_stream(&t.sender, &params);
+
+    let max_name = "x".repeat(MAX_METADATA_NAME_LEN as usize);
+    let max_category = "y".repeat(MAX_METADATA_CATEGORY_LEN as usize);
+    let max_memo = "z".repeat(MAX_METADATA_MEMO_LEN as usize);
+    let metadata = StreamMetadata {
+        name: soroban_sdk::String::from_str(&t.env, &max_name),
+        category: soroban_sdk::String::from_str(&t.env, &max_category),
+        memo: soroban_sdk::String::from_str(&t.env, &max_memo),
+    };
+    client.update_stream_metadata(&stream_id, &metadata);
+
+    let stored = client.get_stream_metadata(&stream_id);
+    assert_eq!(stored, Some(metadata));
+}
+
+// ─── Issue #1109: remove_from_index no-write on miss ───────────────────────────
+
+#[test]
+fn test_remove_from_index_miss_preserves_other_entries() {
+    // Issue #1109: remove_from_index must not write (and must not corrupt the
+    // list) when the id is absent. cleanup_stream calls remove_from_index on
+    // the active SentBy/ReceivedBy indexes after a cancel, where the id was
+    // already moved to the archive indexes — a miss. This guards that a miss
+    // on an index that still holds *other* stream ids leaves them intact.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+
+    // Two streams from the same sender to the same recipient.
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &(total * 2),
+        &(t.env.ledger().sequence() + 500),
+    );
+    let id1 = client.create_stream(&t.sender, &params);
+    let id2 = client.create_stream(&t.sender, &params);
+
+    // Both appear in the sender's active sent index.
+    let sent = client.get_sent_streams(&t.sender, &0, &100);
+    assert!(sent.contains(id1));
+    assert!(sent.contains(id2));
+
+    // Cancel + clean up only the first stream. After cancel moves id1 to the
+    // archive indexes, cleanup's remove_from_index on the *active* index is a
+    // miss (id1 no longer present) — it must not touch id2.
+    client.cancel(&id1);
+    client.cleanup_stream(&t.sender, &id1);
+
+    // id2 must remain in the active sent index, untouched by the miss.
+    let sent_after = client.get_sent_streams(&t.sender, &0, &100);
+    assert!(sent_after.contains(id2), "id2 must remain in active index");
+    assert!(!sent_after.contains(id1), "id1 must be gone from active index");
+
+    // id1 must be gone from the archive too after cleanup.
+    assert!(
+        !client
+            .get_archived_sent_streams(&t.sender, &0, &100)
+            .contains(id1),
+        "id1 must be removed from archive after cleanup"
+    );
+}
