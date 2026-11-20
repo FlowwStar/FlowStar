@@ -1,14 +1,22 @@
 name: Security Scan
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   contract-audit:
     name: Rust / Soroban Audit
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       issues: write # Required to comment on issues
       pull-requests: write
     defaults:
@@ -18,11 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
+          # Keep in sync with contracts/rust-toolchain.toml.
+          toolchain: 1.84.0
           components: clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: contracts
 

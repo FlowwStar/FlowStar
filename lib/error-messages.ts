@@ -193,6 +193,15 @@ const ERROR_PATTERNS: Array<{
       category: 'contract',
     },
   },
+  // 21: PastStartTime
+  {
+    pattern: /Error\(Contract,\s*#?21\)/,
+    mapped: {
+      message: 'Stream start time cannot be in the past',
+      suggestion: 'Choose a start time in the future. Backdating a stream is not allowed.',
+      category: 'user',
+    },
+  },
 
   // Insufficient balance (fallback for non-contract errors)
   {
@@ -312,10 +321,10 @@ const ERROR_PATTERNS: Array<{
  * If no pattern matches, a generic `"Transaction failed"` fallback is
  * returned with `category: "contract"` and the raw message as `details`.
  *
- * **Known limitation:** The numeric contract error codes (#1–#20) are mapped
- * to the `StreamError` enum in `contracts/streaming/src/lib.rs`. If the
- * on-chain enum is extended with new codes, this mapping must be updated
- * manually (tracked in issues #231 and #287).
+ * **Known limitation:** The numeric contract error codes (#1–#21) are mapped
+ * by hand to the `StreamError` enum in `contracts/streaming/src/lib.rs`. Run
+ * `node scripts/check-error-mappings.mjs` after changing either file to verify
+ * that every enum variant still has a mapping (see `docs/ERROR_CODE_SYNC.md`).
  *
  * @param raw - The thrown value. Accepts an `Error` instance (uses
  *              `.message`) or any other type (coerced to a string via

@@ -1,6 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { explorerUrl, isValidStellarAddress } from '@/lib/stellar'
-import { describe, it, expect, beforeEach } from 'vitest'
 import {
   explorerUrl,
   isValidStellarAddress,
@@ -309,7 +307,7 @@ describe('verified token helpers', () => {
           decimals: 7,
         },
       ]
-      localStorage.setItem('customTokens', JSON.stringify(customTokens))
+      localStorage.setItem('flowstar:custom-tokens:testnet', JSON.stringify(customTokens))
 
       const tokens = getAllTokens('testnet')
       const addresses = tokens.map((t) => t.address)
@@ -336,6 +334,9 @@ describe('verified token helpers', () => {
       expect(addresses).toContain(KNOWN_TOKEN_ADDRESS)
       expect(new Set(addresses).size).toBe(addresses.length)
     })
+  })
+})
+
 describe('custom token storage', () => {
   it('returns an empty array when storage is empty', () => {
     expect(getCustomTokens('testnet')).toEqual([])
@@ -343,9 +344,7 @@ describe('custom token storage', () => {
 
   it('saves a token and reads it back', () => {
     saveCustomToken('testnet', { address: 'CABC', symbol: 'TKN', decimals: 7 })
-    expect(getCustomTokens('testnet')).toEqual([
-      { address: 'CABC', symbol: 'TKN', decimals: 7 },
-    ])
+    expect(getCustomTokens('testnet')).toEqual([{ address: 'CABC', symbol: 'TKN', decimals: 7 }])
   })
 
   it('does not store duplicates', () => {

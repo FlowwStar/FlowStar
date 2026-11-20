@@ -89,8 +89,8 @@ describe('lib/contract.ts retry helpers', () => {
       const promise = fetchWithRetry('https://api.example.com', {})
 
       // Advance through retry delays
-      await vi.advanceTimersByTimeAsync(100) // First retry delay
-      await vi.advanceTimersByTimeAsync(200) // Second retry delay
+      await vi.advanceTimersByTimeAsync(1000) // First retry delay
+      await vi.advanceTimersByTimeAsync(2000) // Second retry delay
 
       const result = await promise
       expect(result.status).toBe(200)
@@ -106,7 +106,7 @@ describe('lib/contract.ts retry helpers', () => {
       const fetchWithRetry = (module as any).fetchWithRetry
 
       const promise = fetchWithRetry('https://api.example.com', {})
-      await vi.advanceTimersByTimeAsync(100)
+      await vi.advanceTimersByTimeAsync(1000)
 
       const result = await promise
       expect(result.status).toBe(200)
@@ -118,17 +118,21 @@ describe('lib/contract.ts retry helpers', () => {
         .mockResolvedValueOnce({ ok: false, status: 503 })
         .mockResolvedValueOnce({ ok: false, status: 503 })
         .mockResolvedValueOnce({ ok: false, status: 503 })
+        .mockResolvedValueOnce({ ok: false, status: 503 })
 
       const module = await import('@/lib/contract')
       const fetchWithRetry = (module as any).fetchWithRetry
 
-      const promise = fetchWithRetry('https://api.example.com', {})
+      const rejection = fetchWithRetry('https://api.example.com', {}).catch(
+        (error: unknown) => error,
+      )
 
-      await vi.advanceTimersByTimeAsync(100)
-      await vi.advanceTimersByTimeAsync(200)
+      await vi.advanceTimersByTimeAsync(1000)
+      await vi.advanceTimersByTimeAsync(2000)
+      await vi.advanceTimersByTimeAsync(4000)
 
-      await expect(promise).rejects.toThrow()
-      expect(mockFetch).toHaveBeenCalledTimes(3)
+      await expect(rejection).resolves.toBeInstanceOf(Error)
+      expect(mockFetch).toHaveBeenCalledTimes(4)
     })
 
     it('handles network errors with retry', async () => {
@@ -140,7 +144,7 @@ describe('lib/contract.ts retry helpers', () => {
       const fetchWithRetry = (module as any).fetchWithRetry
 
       const promise = fetchWithRetry('https://api.example.com', {})
-      await vi.advanceTimersByTimeAsync(100)
+      await vi.advanceTimersByTimeAsync(1000)
 
       const result = await promise
       expect(result.status).toBe(200)
@@ -170,7 +174,7 @@ describe('lib/contract.ts retry helpers', () => {
       const withRetry = (module as any).withRetry
 
       const promise = withRetry(mockFn)
-      await vi.advanceTimersByTimeAsync(100)
+      await vi.advanceTimersByTimeAsync(1000)
 
       const result = await promise
       expect(result).toBe('success')
@@ -189,8 +193,8 @@ describe('lib/contract.ts retry helpers', () => {
       const withRetry = (module as any).withRetry
 
       const promise = withRetry(mockFn)
-      await vi.advanceTimersByTimeAsync(100)
-      await vi.advanceTimersByTimeAsync(200)
+      await vi.advanceTimersByTimeAsync(1000)
+      await vi.advanceTimersByTimeAsync(2000)
 
       const result = await promise
       expect(result).toBe('success')
@@ -215,12 +219,13 @@ describe('lib/contract.ts retry helpers', () => {
       const module = await import('@/lib/contract')
       const withRetry = (module as any).withRetry
 
-      const promise = withRetry(mockFn)
-      await vi.advanceTimersByTimeAsync(100)
-      await vi.advanceTimersByTimeAsync(200)
+      const rejection = withRetry(mockFn).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(1000)
+      await vi.advanceTimersByTimeAsync(2000)
+      await vi.advanceTimersByTimeAsync(4000)
 
-      await expect(promise).rejects.toEqual(retryableError)
-      expect(mockFn).toHaveBeenCalledTimes(3)
+      await expect(rejection).resolves.toEqual(retryableError)
+      expect(mockFn).toHaveBeenCalledTimes(4)
     })
 
     it('respects retry delays using fake timers', async () => {
@@ -237,8 +242,8 @@ describe('lib/contract.ts retry helpers', () => {
       // Before advancing timers, only first attempt should have happened
       expect(mockFn).toHaveBeenCalledTimes(1)
 
-      // Advance past the first retry delay (100ms)
-      await vi.advanceTimersByTimeAsync(100)
+      // Advance past the first retry delay (1000ms)
+      await vi.advanceTimersByTimeAsync(1000)
 
       const result = await promise
       expect(result).toBe('success')

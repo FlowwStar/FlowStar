@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Account, Keypair, StrKey, nativeToScVal, xdr } from '@stellar/stellar-sdk'
 import { NETWORKS } from '@/lib/stellar'
-import { createStream, estimateCreateStreamFee, fetchStream } from '@/lib/contract'
+import type { CreateStreamInput } from '@/types/stream'
+import {
+  buildCreateStreamInputScVal,
+  buildCreateStreamParamsScVal,
+  fetchStream,
+} from '@/lib/contract'
 
 // Issue #928: coverage for scValToStreamData (lib/contract.ts). The decoder is
 // module-private, so it is exercised through fetchStream's live path with a
@@ -202,9 +207,8 @@ describe('scValToStreamData (via fetchStream)', () => {
 })
 
 // Issue #929: coverage for buildCreateStreamInputScVal / buildCreateStreamParamsScVal
-// (lib/contract.ts). Both builders are module-private, so they are exercised through
-// the public live-mode paths that use them: estimateCreateStreamFee (params map) and
-// createStream (input map). The ScVal args are captured from the simulated transaction.
+// (lib/contract.ts). The builders are exported so their ScVal maps can be
+// inspected directly.
 
 const PARAMS_FIELDS = [
   'cliff_amount',
@@ -226,18 +230,18 @@ const INPUT_FIELDS = [
   'cliff_amount',
 ]
 
-const TOKEN = XLM.address
+const TOKEN = XLM
 const BIG = 2n ** 70n + 12_345n
 
 interface CreateArgs {
   recipient: string
-  token: string
+  token: typeof XLM
   totalAmount: bigint
   startTime: bigint
   endTime: bigint
   cliffTime: bigint
   cliffAmount: bigint
-  metadata?: string
+  metadata?: CreateStreamInput['metadata']
 }
 
 function makeArgs(overrides: Partial<CreateArgs> = {}): CreateArgs {
@@ -253,57 +257,46 @@ function makeArgs(overrides: Partial<CreateArgs> = {}): CreateArgs {
   }
 }
 
-/** Pull the contract-call operation's args out of the simulated transaction. */
-function capturedArgs(): xdr.ScVal[] {
-  const tx = fakeServer.simulateTransaction.mock.calls.at(-1)?.[0] as xdr.Transaction
-  const op = tx.operations()[0]
-  return op.body().invokeHostFunctionOp().hostFunction().invokeContract().args()
-}
-
 /** Convert an ScVal map into an ordered list of [key, value] entries. */
 function mapEntries(val: xdr.ScVal): Array<[string, xdr.ScVal]> {
-  expect(val.switch().name).toBe('scvMap')
-  return val
-    .map()!
-    .map((entry) => [entry.key().sym().toString(), entry.val()] as [string, xdr.ScVal])
+  expect(val.type).toBe('scvMap')
+  return ((val as xdr.ScValMap).map ?? []).map(
+    (entry) => [(entry.key as xdr.ScValSymbol).sym.toString(), entry.val] as [string, xdr.ScVal],
+  )
 }
 
 function expectI128(val: xdr.ScVal, expected: bigint) {
-  expect(val.switch().name).toBe('scvI128')
-  const parts = val.i128()
-  const hi = BigInt(parts.hi().toString())
-  const lo = BigInt(parts.lo().toString())
-  expect((hi << 64n) + lo).toBe(expected)
+  expect(val.type).toBe('scvI128')
+  const parts = (val as xdr.ScValI128).i128
+  expect((parts.hi << 64n) + parts.lo).toBe(expected)
 }
 
 function expectU64(val: xdr.ScVal, expected: bigint) {
-  expect(val.switch().name).toBe('scvU64')
-  expect(BigInt(val.u64().toString())).toBe(expected)
+  expect(val.type).toBe('scvU64')
+  expect((val as xdr.ScValU64).u64).toBe(expected)
 }
 
 function expectAddress(val: xdr.ScVal, expected: string) {
-  expect(val.switch().name).toBe('scvAddress')
-  expect(StrKey.encodeContract(Buffer.from(val.address().contractId()))).toBe(expected)
+  expect(val.type).toBe('scvAddress')
+  const address = (val as xdr.ScValAddress).address
+  const encoded =
+    address.type === 'scAddressTypeContract'
+      ? StrKey.encodeContract(Buffer.from((address as xdr.ScAddressContract).contractId.value))
+      : StrKey.encodeEd25519PublicKey(
+          Buffer.from((address as xdr.ScAddressAccount).accountId.ed25519.value),
+        )
+  expect(encoded).toBe(expected)
 }
 
-describe('buildCreateStreamParamsScVal (via estimateCreateStreamFee)', () => {
-  beforeEach(() => {
-    fakeServer.getLatestLedger.mockResolvedValue({ sequence: 1 })
-    fakeServer.simulateTransaction.mockResolvedValue({
-      result: { retval: nativeToScVal(0, { type: 'i128' }) },
-    })
-  })
-
-  it('emits the contract field names in the expected order', async () => {
-    await estimateCreateStreamFee('testnet', makeArgs())
-    const entries = mapEntries(capturedArgs()[0])
+describe('buildCreateStreamParamsScVal', () => {
+  it('emits the contract field names in the expected order', () => {
+    const entries = mapEntries(buildCreateStreamParamsScVal(makeArgs()))
     expect(entries.map(([key]) => key)).toEqual(PARAMS_FIELDS)
   })
 
-  it('encodes amounts as i128 and times as u64', async () => {
+  it('encodes amounts as i128 and times as u64', () => {
     const args = makeArgs()
-    await estimateCreateStreamFee('testnet', args)
-    const map = new Map(mapEntries(capturedArgs()[0]))
+    const map = new Map(mapEntries(buildCreateStreamParamsScVal(args)))
 
     expectI128(map.get('total_amount')!, args.totalAmount)
     expectI128(map.get('cliff_amount')!, args.cliffAmount)
@@ -312,49 +305,38 @@ describe('buildCreateStreamParamsScVal (via estimateCreateStreamFee)', () => {
     expectU64(map.get('cliff_time')!, args.cliffTime)
   })
 
-  it('encodes recipient and token as addresses', async () => {
+  it('encodes recipient and token as addresses', () => {
     const args = makeArgs()
-    await estimateCreateStreamFee('testnet', args)
-    const map = new Map(mapEntries(capturedArgs()[0]))
+    const map = new Map(mapEntries(buildCreateStreamParamsScVal(args)))
 
     expectAddress(map.get('recipient')!, args.recipient)
-    expectAddress(map.get('token')!, args.token)
+    expectAddress(map.get('token')!, args.token.address)
   })
 
-  it('preserves bigint values above Number.MAX_SAFE_INTEGER', async () => {
+  it('preserves bigint values above Number.MAX_SAFE_INTEGER', () => {
     const args = makeArgs({ totalAmount: BIG, cliffAmount: BIG - 1n })
-    await estimateCreateStreamFee('testnet', args)
-    const map = new Map(mapEntries(capturedArgs()[0]))
+    const map = new Map(mapEntries(buildCreateStreamParamsScVal(args)))
 
     expectI128(map.get('total_amount')!, BIG)
     expectI128(map.get('cliff_amount')!, BIG - 1n)
   })
 
-  it('does not include a metadata entry', async () => {
-    await estimateCreateStreamFee('testnet', makeArgs({ metadata: 'Q1 Salary' }))
-    const keys = mapEntries(capturedArgs()[0]).map(([key]) => key)
+  it('does not include a metadata entry', () => {
+    const args = makeArgs({ metadata: { name: 'Q1 Salary', category: 'payroll', memo: '' } })
+    const keys = mapEntries(buildCreateStreamParamsScVal(args)).map(([key]) => key)
     expect(keys).not.toContain('metadata')
   })
 })
 
-describe('buildCreateStreamInputScVal (via createStream)', () => {
-  beforeEach(() => {
-    fakeServer.getLatestLedger.mockResolvedValue({ sequence: 1 })
-    fakeServer.simulateTransaction.mockResolvedValue({
-      result: { retval: nativeToScVal(42, { type: 'u64' }) },
-    })
-  })
-
-  it('emits the contract field names in the expected order', async () => {
-    await createStream('testnet', makeArgs())
-    const entries = mapEntries(capturedArgs()[0])
+describe('buildCreateStreamInputScVal', () => {
+  it('emits the contract field names in the expected order', () => {
+    const entries = mapEntries(buildCreateStreamInputScVal(makeArgs()))
     expect(entries.map(([key]) => key)).toEqual(INPUT_FIELDS)
   })
 
-  it('encodes amounts as i128 and times as u64', async () => {
+  it('encodes amounts as i128 and times as u64', () => {
     const args = makeArgs()
-    await createStream('testnet', args)
-    const map = new Map(mapEntries(capturedArgs()[0]))
+    const map = new Map(mapEntries(buildCreateStreamInputScVal(args)))
 
     expectI128(map.get('total_amount')!, args.totalAmount)
     expectI128(map.get('cliff_amount')!, args.cliffAmount)
@@ -363,27 +345,25 @@ describe('buildCreateStreamInputScVal (via createStream)', () => {
     expectU64(map.get('cliff_time')!, args.cliffTime)
   })
 
-  it('encodes recipient and token as addresses', async () => {
+  it('encodes recipient and token as addresses', () => {
     const args = makeArgs()
-    await createStream('testnet', args)
-    const map = new Map(mapEntries(capturedArgs()[0]))
+    const map = new Map(mapEntries(buildCreateStreamInputScVal(args)))
 
     expectAddress(map.get('recipient')!, args.recipient)
-    expectAddress(map.get('token')!, args.token)
+    expectAddress(map.get('token')!, args.token.address)
   })
 
-  it('preserves bigint values above Number.MAX_SAFE_INTEGER', async () => {
+  it('preserves bigint values above Number.MAX_SAFE_INTEGER', () => {
     const args = makeArgs({ totalAmount: BIG, cliffAmount: BIG - 1n })
-    await createStream('testnet', args)
-    const map = new Map(mapEntries(capturedArgs()[0]))
+    const map = new Map(mapEntries(buildCreateStreamInputScVal(args)))
 
     expectI128(map.get('total_amount')!, BIG)
     expectI128(map.get('cliff_amount')!, BIG - 1n)
   })
 
-  it('does not include a metadata entry', async () => {
-    await createStream('testnet', makeArgs({ metadata: 'Q1 Salary' }))
-    const keys = mapEntries(capturedArgs()[0]).map(([key]) => key)
+  it('does not include a metadata entry', () => {
+    const args = makeArgs({ metadata: { name: 'Q1 Salary', category: 'payroll', memo: '' } })
+    const keys = mapEntries(buildCreateStreamInputScVal(args)).map(([key]) => key)
     expect(keys).not.toContain('metadata')
   })
 })

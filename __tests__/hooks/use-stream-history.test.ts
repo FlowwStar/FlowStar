@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
-import { useStreamHistory } from '@/hooks/use-stream-history'
+import { fetchHorizonTransactions, useStreamHistory } from '@/hooks/use-stream-history'
 
 // Mock the network provider
 vi.mock('@/components/providers/network-provider', () => ({
@@ -18,7 +18,7 @@ global.fetch = mockFetch
 
 describe('useStreamHistory - fetchHorizonTransactions', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   afterEach(() => {
@@ -49,10 +49,6 @@ describe('useStreamHistory - fetchHorizonTransactions', () => {
         json: async () => horizonResponse,
       })
 
-      // Call the unexported fetchHorizonTransactions via dynamic import
-      const module = await import('@/hooks/use-stream-history')
-      const fetchHorizonTransactions = (module as any).fetchHorizonTransactions
-
       const result = await fetchHorizonTransactions(
         'https://horizon.example.com',
         'CONTRACT123',
@@ -81,9 +77,6 @@ describe('useStreamHistory - fetchHorizonTransactions', () => {
         status: 404,
       })
 
-      const module = await import('@/hooks/use-stream-history')
-      const fetchHorizonTransactions = (module as any).fetchHorizonTransactions
-
       const result = await fetchHorizonTransactions(
         'https://horizon.example.com',
         'CONTRACT123',
@@ -98,9 +91,6 @@ describe('useStreamHistory - fetchHorizonTransactions', () => {
         ok: true,
         json: async () => ({ _embedded: { records: [] } }),
       })
-
-      const module = await import('@/hooks/use-stream-history')
-      const fetchHorizonTransactions = (module as any).fetchHorizonTransactions
 
       const result = await fetchHorizonTransactions(
         'https://horizon.example.com',
@@ -117,9 +107,6 @@ describe('useStreamHistory - fetchHorizonTransactions', () => {
         json: async () => ({}),
       })
 
-      const module = await import('@/hooks/use-stream-history')
-      const fetchHorizonTransactions = (module as any).fetchHorizonTransactions
-
       const result = await fetchHorizonTransactions(
         'https://horizon.example.com',
         'CONTRACT123',
@@ -132,9 +119,6 @@ describe('useStreamHistory - fetchHorizonTransactions', () => {
     it('handles network errors by returning empty array', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network failure'))
 
-      const module = await import('@/hooks/use-stream-history')
-      const fetchHorizonTransactions = (module as any).fetchHorizonTransactions
-
       const result = await fetchHorizonTransactions(
         'https://horizon.example.com',
         'CONTRACT123',
@@ -145,14 +129,7 @@ describe('useStreamHistory - fetchHorizonTransactions', () => {
     })
 
     it('returns empty array when contractId is empty', async () => {
-      const module = await import('@/hooks/use-stream-history')
-      const fetchHorizonTransactions = (module as any).fetchHorizonTransactions
-
-      const result = await fetchHorizonTransactions(
-        'https://horizon.example.com',
-        '',
-        '42',
-      )
+      const result = await fetchHorizonTransactions('https://horizon.example.com', '', '42')
 
       expect(result).toEqual([])
       expect(mockFetch).not.toHaveBeenCalled()

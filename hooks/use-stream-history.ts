@@ -4,12 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNetwork } from '@/components/providers/network-provider'
 
 /** Kind of lifecycle event shown on a stream's timeline. */
-export type TimelineEventType =
-  | 'created'
-  | 'withdrawal'
-  | 'topup'
-  | 'transfer'
-  | 'cancellation'
+export type TimelineEventType = 'created' | 'withdrawal' | 'topup' | 'transfer' | 'cancellation'
 
 /** One entry on a stream's timeline, built from a contract event. */
 export interface TimelineEvent {
@@ -37,7 +32,8 @@ function decodeEventType(topics: string[]): TimelineEventType | null {
   const joined = topics.join(',').toLowerCase()
   if (joined.includes('create') || joined.includes('stream_created')) return 'created'
   if (joined.includes('withdraw')) return 'withdrawal'
-  if (joined.includes('topup') || joined.includes('top_up') || joined.includes('deposit')) return 'topup'
+  if (joined.includes('topup') || joined.includes('top_up') || joined.includes('deposit'))
+    return 'topup'
   if (joined.includes('transfer')) return 'transfer'
   if (joined.includes('cancel')) return 'cancellation'
   return null
@@ -56,7 +52,7 @@ interface HorizonTransaction {
  * labels every one as `'created'`. Horizon generally doesn't index Soroban
  * contract accounts, so it usually returns `[]`.
  */
-async function fetchHorizonTransactions(
+export async function fetchHorizonTransactions(
   horizonUrl: string,
   contractId: string,
   streamId: string,
@@ -71,7 +67,7 @@ async function fetchHorizonTransactions(
       { headers: { Accept: 'application/json' } },
     )
     if (!res.ok) return []
-    const data = await res.json() as { _embedded?: { records?: HorizonTransaction[] } }
+    const data = (await res.json()) as { _embedded?: { records?: HorizonTransaction[] } }
     const records = data._embedded?.records ?? []
 
     for (const tx of records) {
@@ -130,7 +126,7 @@ async function fetchRpcEvents(
       }),
     })
 
-    const json = await res.json() as {
+    const json = (await res.json()) as {
       result?: {
         events?: Array<{
           type: string
@@ -150,9 +146,7 @@ async function fetchRpcEvents(
       const eventType = decodeEventType(ev.topic ?? [])
       if (!eventType) continue
 
-      const ts = ev.ledgerClosedAt
-        ? new Date(ev.ledgerClosedAt).getTime()
-        : Date.now()
+      const ts = ev.ledgerClosedAt ? new Date(ev.ledgerClosedAt).getTime() : Date.now()
 
       let description = ''
       switch (eventType) {
@@ -214,11 +208,7 @@ export function useStreamHistory(streamId: string) {
     if (!streamId) return
     setLoading(true)
     try {
-      const rpcEvents = await fetchRpcEvents(
-        config.rpcUrl,
-        config.streamContractId,
-        streamId,
-      )
+      const rpcEvents = await fetchRpcEvents(config.rpcUrl, config.streamContractId, streamId)
 
       const allEvents = rpcEvents.sort((a, b) => b.timestamp - a.timestamp)
       setEvents(allEvents)
