@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { ClearLocalData } from '@/components/settings/clear-local-data'
 
 const mockToastSuccess = vi.fn()
@@ -28,7 +28,7 @@ describe('ClearLocalData', () => {
 
     expect(screen.queryByText("Are you sure? This can't be undone.")).not.toBeInTheDocument()
 
-    screen.getByText('Clear local data').click()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear local data' }))
 
     expect(screen.getByText("Are you sure? This can't be undone.")).toBeInTheDocument()
     // Clicking the initial button only arms the confirmation; nothing is removed yet.
@@ -44,8 +44,8 @@ describe('ClearLocalData', () => {
 
     render(<ClearLocalData />)
 
-    screen.getByText('Clear local data').click()
-    screen.getByText('Confirm clear').click()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear local data' }))
+    fireEvent.click(screen.getByText('Confirm clear'))
 
     expect(window.localStorage.getItem('flowstar:streams')).toBeNull()
     expect(window.localStorage.getItem('flowstar_notifications')).toBeNull()
@@ -61,8 +61,8 @@ describe('ClearLocalData', () => {
 
     render(<ClearLocalData />)
 
-    screen.getByText('Clear local data').click()
-    screen.getByText('Confirm clear').click()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear local data' }))
+    fireEvent.click(screen.getByText('Confirm clear'))
 
     expect(mockToastSuccess).toHaveBeenCalledWith(
       'Cleared 2 items of local data',
@@ -74,8 +74,8 @@ describe('ClearLocalData', () => {
     window.localStorage.setItem('flowstar:streams', '[]')
     render(<ClearLocalData />)
 
-    screen.getByText('Clear local data').click()
-    screen.getByText('Cancel').click()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear local data' }))
+    fireEvent.click(screen.getByText('Cancel'))
 
     expect(screen.queryByText("Are you sure? This can't be undone.")).not.toBeInTheDocument()
     expect(window.localStorage.getItem('flowstar:streams')).toBe('[]')

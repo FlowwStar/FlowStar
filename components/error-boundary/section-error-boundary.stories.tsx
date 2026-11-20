@@ -4,7 +4,7 @@ import { fn, mocked } from 'storybook/test'
 import * as sentryModule from '@/lib/sentry'
 import { SectionErrorBoundary } from './section-error-boundary'
 
-const meta = {
+const meta: Meta<typeof SectionErrorBoundary> = {
   title: 'Error/SectionErrorBoundary',
   component: SectionErrorBoundary,
   parameters: {
@@ -14,7 +14,7 @@ const meta = {
   beforeEach: () => {
     mocked(sentryModule).captureError = fn()
   },
-} satisfies Meta<typeof SectionErrorBoundary>
+}
 
 export default meta
 type Story = StoryObj<typeof meta>
@@ -34,9 +34,7 @@ export const Default: Story = {
 /** Child component that throws an error. */
 export const WithError: Story = {
   args: {
-    children: (
-      <ErrorThrowingChild />
-    ),
+    children: <ErrorThrowingChild />,
     sectionName: 'Analytics panel',
     onReloadData: fn(),
   },
@@ -65,6 +63,6 @@ export const MultipleWithErrorBoundary: Story = {
   ),
 }
 
-function ErrorThrowingChild() {
+function ErrorThrowingChild(): never {
   throw new Error('Something went wrong in this section')
 }

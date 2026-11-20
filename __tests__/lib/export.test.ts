@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { streamsToCSV, downloadCSV, downloadJSON } from '@/lib/export'
-import { describe, it, expect } from 'vitest'
-import { streamsToCSV, webhookHistoryToCSV } from '@/lib/export'
+import { streamsToCSV, webhookHistoryToCSV, downloadCSV, downloadJSON } from '@/lib/export'
 import type { StreamData } from '@/types/stream'
 
 const TOKEN = { address: 'CUSDC', symbol: 'USDC', decimals: 7 }
+
+function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(blob)
+  })
+}
 
 function makeStream(overrides?: Partial<StreamData>): StreamData {
   return {
@@ -112,9 +119,7 @@ describe('downloadCSV / downloadJSON', () => {
         return el
       },
     )
-    clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => {})
+    clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   })
 
   afterEach(() => {
@@ -130,7 +135,7 @@ describe('downloadCSV / downloadJSON', () => {
     const blob = createObjectURL.mock.calls[0][0] as Blob
     expect(blob).toBeInstanceOf(Blob)
     expect(blob.type).toBe('text/csv;charset=utf-8;')
-    return blob.text().then((text) => {
+    return readBlob(blob).then((text) => {
       expect(text).toBe(csv)
     })
   })
@@ -160,7 +165,7 @@ describe('downloadCSV / downloadJSON', () => {
     const blob = createObjectURL.mock.calls[0][0] as Blob
     expect(blob).toBeInstanceOf(Blob)
     expect(blob.type).toBe('application/json;charset=utf-8;')
-    return blob.text().then((text) => {
+    return readBlob(blob).then((text) => {
       expect(text).toBe(JSON.stringify(data, null, 2))
     })
   })
@@ -180,11 +185,14 @@ describe('downloadCSV / downloadJSON', () => {
 
     expect(revokeObjectURL).toHaveBeenCalledTimes(1)
     expect(revokeObjectURL).toHaveBeenCalledWith(FAKE_URL)
+  })
+})
+
 interface WebhookDelivery {
   webhookId: string
   eventType: string
   statusCode: number | null
-  deliveredAt: string
+  deliveredAt: number
   success: boolean
 }
 
@@ -193,7 +201,7 @@ function makeDelivery(overrides?: Partial<WebhookDelivery>): WebhookDelivery {
     webhookId: 'wh-1',
     eventType: 'stream.created',
     statusCode: 200,
-    deliveredAt: '2024-01-01T00:00:00.000Z',
+    deliveredAt: Date.parse('2024-01-01T00:00:00.000Z'),
     success: true,
     ...overrides,
   }

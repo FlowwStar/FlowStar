@@ -3,6 +3,10 @@ import { NETWORKS, checkAccountInfo, getXlmBalance } from '@/lib/stellar'
 
 // Issue #938: coverage for the Horizon account lookups in lib/stellar.ts.
 
+const captureErrorMock = vi.hoisted(() => vi.fn())
+
+vi.mock('@/lib/sentry', () => ({ captureError: captureErrorMock }))
+
 const ADDRESS = 'GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H'
 
 const fetchMock = vi.fn()
@@ -29,6 +33,7 @@ function accountBody(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
   vi.spyOn(console, 'error').mockImplementation(() => {})
+  captureErrorMock.mockClear()
 })
 
 afterEach(() => {
@@ -72,7 +77,9 @@ describe('getXlmBalance', () => {
 
   it('returns null when there is no native balance entry', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse(accountBody({ balances: [{ balance: '5.0000000', asset_type: 'credit_alphanum4' }] })),
+      jsonResponse(
+        accountBody({ balances: [{ balance: '5.0000000', asset_type: 'credit_alphanum4' }] }),
+      ),
     )
     await expect(getXlmBalance(ADDRESS, 'testnet')).resolves.toBeNull()
   })
@@ -85,7 +92,9 @@ describe('getXlmBalance', () => {
   it('returns null and logs on a network error', async () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
     await expect(getXlmBalance(ADDRESS, 'testnet')).resolves.toBeNull()
-    expect(console.error).toHaveBeenCalledWith('Error fetching XLM balance:', expect.any(TypeError))
+    expect(captureErrorMock).toHaveBeenCalledWith(expect.any(TypeError), {
+      operation: 'getXlmBalance',
+    })
   })
 })
 
@@ -141,6 +150,8 @@ describe('checkAccountInfo', () => {
       transactionCount: 0,
       error: 'Network error',
     })
-    expect(console.error).toHaveBeenCalledWith('Error checking account info:', expect.any(TypeError))
+    expect(captureErrorMock).toHaveBeenCalledWith(expect.any(TypeError), {
+      operation: 'checkAccountInfo',
+    })
   })
 })
