@@ -3,31 +3,39 @@ set -euo pipefail
 
 NETWORK="testnet"
 SOURCE="deployer"
+ADMIN=""
 UPDATE_ENV=false
 CONTRACT_DIR="contracts/streaming"
 WASM_PATH="contracts/target/wasm32v1-none/release/flowstar_streaming.wasm"
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [OPTIONS]
+Usage: $(basename "$0") --admin <address> [OPTIONS]
 
-Deploy the FlowStar streaming contract to Stellar.
+Deploy the FlowStar streaming contract to Stellar and initialize it immediately.
 
 Options:
+  --admin <address>             Admin address for initialize (required; must authorize)
   --network <testnet|mainnet>   Target network (default: testnet)
   --source <identity>           Stellar CLI identity to sign with (default: deployer)
   --update-env                  Write the contract ID to .env.local
   -h, --help                    Show this help message
 
 Examples:
-  ./scripts/deploy.sh
-  ./scripts/deploy.sh --network mainnet --source prod-deployer --update-env
+  ./scripts/deploy.sh --admin GXXXXX
+  ./scripts/deploy.sh --admin GXXXXX --network mainnet --source prod-deployer --update-env
 EOF
-  exit 0
+  exit "${1:-0}"
 }
 
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --admin)
+      if [[ -z "${2:-}" || "$2" == --* ]]; then
+        echo "Error: --admin requires an address" >&2
+        usage 1
+      fi
+      ADMIN="$2"; shift 2 ;;
     --network)   NETWORK="$2"; shift 2 ;;
     --source)    SOURCE="$2"; shift 2 ;;
     --update-env) UPDATE_ENV=true; shift ;;
@@ -35,6 +43,11 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown option: $1"; usage ;;
   esac
 done
+
+if [[ -z "$ADMIN" ]]; then
+  echo "Error: --admin <address> is required to initialize the contract" >&2
+  usage 1
+fi
 
 if [[ "$NETWORK" != "testnet" && "$NETWORK" != "mainnet" ]]; then
   echo "Error: --network must be 'testnet' or 'mainnet'"
@@ -61,10 +74,23 @@ CONTRACT_ID=$(stellar contract deploy \
   --source "$SOURCE" \
   --network "$NETWORK")
 
+echo "==> Initializing contract with admin '$ADMIN'..."
+if ! stellar contract invoke \
+  --id "$CONTRACT_ID" \
+  --source "$SOURCE" \
+  --network "$NETWORK" \
+  -- \
+  initialize \
+  --admin "$ADMIN"; then
+  echo "Error: initialize failed for contract $CONTRACT_ID. It is UNINITIALIZED and can be claimed by anyone — initialize it before use." >&2
+  exit 1
+fi
+
 echo ""
-echo "==> Contract deployed successfully!"
+echo "==> Contract deployed and initialized successfully!"
 echo "    Network:     $NETWORK"
 echo "    Contract ID: $CONTRACT_ID"
+echo "    Admin:       $ADMIN"
 
 if [[ "$UPDATE_ENV" == true ]]; then
   ENV_FILE=".env.local"
