@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -356,8 +357,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [walletNetwork, setWalletNetwork] = useState<string | null>(null);
   const { network } = useNetwork();
 
-  // Auto-reconnect on mount using persisted walletId
-  useEffect(() => {
+  // Auto-reconnect on mount using persisted walletId.
+  // The reconnect logic is stored in a ref so the effect can run exactly once
+  // on mount without needing to list unstable dependencies.
+  const reconnectRef = useRef(() => {
     const saved = localStorage.getItem("walletId");
     if (!saved) {
       setReconnecting(false);
@@ -373,7 +376,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         localStorage.removeItem("walletId");
       })
       .finally(() => setReconnecting(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+
+  useEffect(() => {
+    reconnectRef.current();
   }, []);
 
   // Poll Freighter's active network while connected
