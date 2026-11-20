@@ -58,6 +58,13 @@ const CONTRACT_NAME: &str = "FlowStar Streaming";
 const MAX_STREAM_DURATION: u64 = 315_360_000; // 10 years in seconds
 const MAX_BATCH_SIZE: u32 = 20;
 
+/// Maximum number of stream IDs returned by any single paginated getter call.
+///
+/// Callers that pass a larger `limit` have it silently clamped to this value.
+/// Use successive pages (incrementing `offset` by `MAX_PAGE_SIZE`) to retrieve
+/// more than 100 results.
+const MAX_PAGE_SIZE: u32 = 100;
+
 /// TTL for instance storage entries (~1 day).
 ///
 /// Stellar produces ~1 ledger every 5 seconds.
@@ -366,6 +373,18 @@ pub struct UnpauseEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the contract admin calls `migrate` after an upgrade.
+///
+/// Off-chain consumers should use this event to detect that the contract has
+/// been upgraded and unpaused. The `version` field carries
+/// [`CONTRACT_VERSION`] at the time of the migration so indexers can record
+/// which code version is now running.
+#[soroban_sdk::contractevent]
+pub struct MigratedEvent {
+    pub version: u32,
+    pub timestamp: u64,
+}
+
 #[soroban_sdk::contractevent]
 pub struct DelegateSetEvent {
     pub stream_id: u64,
@@ -417,8 +436,23 @@ impl StreamingContract {
     // ── Admin: Pause/Unpause ─────────────────────────────────────────────────
 
     /// Pause all write operations (admin only).
+    ///
+    /// Returns `Ok(())` immediately if the contract is already paused — no
+    /// storage write and no event are emitted. This keeps the pause-window
+    /// event count accurate for off-chain indexers that track pause periods.
     pub fn pause(env: Env) -> Result<(), StreamError> {
         Self::require_admin(&env)?;
+
+        // Idempotency guard: if already paused, return early without writing
+        // storage or emitting a duplicate PauseEvent.
+        let already_paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        if already_paused {
+            return Ok(());
+        }
 
         env.storage().instance().set(&DataKey::Paused, &true);
         env.storage()
@@ -433,8 +467,21 @@ impl StreamingContract {
     }
 
     /// Unpause all write operations (admin only).
+    ///
+    /// Returns `Ok(())` immediately if the contract is already active — no
+    /// storage write and no event are emitted.
     pub fn unpause(env: Env) -> Result<(), StreamError> {
         Self::require_admin(&env)?;
+
+        // Idempotency guard: if already active, return early.
+        let already_paused: bool = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        if !already_paused {
+            return Ok(());
+        }
 
         env.storage().instance().set(&DataKey::Paused, &false);
         env.storage()
@@ -518,6 +565,20 @@ impl StreamingContract {
             }
             id += 1;
         }
+
+        // Extend instance TTL so admin, next-id, and pause-flag remain
+        // accessible immediately after the upgrade (fixes issue #1098).
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_TTL_LEDGERS, INSTANCE_TTL_LEDGERS);
+
+        // Notify off-chain consumers that the upgrade + migration completed and
+        // the contract is now unpaused (fixes issue #1100).
+        MigratedEvent {
+            version: CONTRACT_VERSION,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -837,6 +898,7 @@ impl StreamingContract {
         }
         if new_recipient == env.current_contract_address() {
             return Err(StreamError::InvalidRecipient);
+        }
         if new_recipient == stream.sender {
             return Err(StreamError::SelfStream);
         }
@@ -1554,6 +1616,17 @@ impl StreamingContract {
         soroban_sdk::String::from_str(&env, CONTRACT_NAME)
     }
 
+    /// Returns `true` if write operations are currently paused.
+    ///
+    /// Useful for off-chain tooling and tests to inspect the pause state
+    /// without attempting a write.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
     // ── Delegation ────────────────────────────────────────────────────────────
 
     /// Set a delegate who can withdraw on behalf of the recipient.
@@ -1764,9 +1837,12 @@ impl StreamingContract {
     }
 
     fn paginate(env: &Env, list: &Vec<u64>, offset: u32, limit: u32) -> Vec<u64> {
+        // Clamp the requested page size to MAX_PAGE_SIZE to prevent a single
+        // call from returning the entire index for heavy users (issue #1108).
+        let clamped_limit = core::cmp::min(limit, MAX_PAGE_SIZE);
         let len = list.len();
         let start = core::cmp::min(offset, len);
-        let end = if let Some(limit_end) = offset.checked_add(limit) {
+        let end = if let Some(limit_end) = offset.checked_add(clamped_limit) {
             core::cmp::min(limit_end, len)
         } else {
             len
