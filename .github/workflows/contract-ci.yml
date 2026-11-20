@@ -1,5 +1,8 @@
 name: Contract CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -33,8 +36,53 @@ jobs:
           targets: wasm32v1-none
           components: clippy, rustfmt
 
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: contracts
+
       - name: Build Contracts
         run: cargo build --target wasm32v1-none --release
+
+      - name: Check WASM size budget
+        env:
+          # No documented current size exists; keep this ~10% above the actual
+          # release WASM size and update it whenever the contract grows.
+          WASM_SIZE_BUDGET_BYTES: '8388608' # 8 MiB
+        run: |
+          set -euo pipefail
+          budget="$WASM_SIZE_BUDGET_BYTES"
+          largest=0
+          count=0
+          {
+            echo '## WASM size budget'
+            echo
+            echo "Budget: ${budget} bytes (8 MiB)."
+            echo
+            echo '| File | Size (bytes) |'
+            echo '| --- | ---: |'
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS= read -r wasm; do
+            size=$(wc -c < "$wasm" | tr -d '[:space:]')
+            echo "$wasm: ${size} bytes"
+            echo "| \`$wasm\` | ${size} |" >> "$GITHUB_STEP_SUMMARY"
+            count=$((count + 1))
+            if [ "$size" -gt "$largest" ]; then
+              largest="$size"
+            fi
+          done < <(find target/wasm32v1-none/release -maxdepth 1 -type f -name '*.wasm' | sort)
+          if [ "$count" -eq 0 ]; then
+            echo '::error::No WASM files found in target/wasm32v1-none/release/ - check the Build Contracts step.'
+            echo 'No WASM files were produced.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          {
+            echo
+            echo "Largest WASM: ${largest} bytes; budget: ${budget} bytes."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$largest" -gt "$budget" ]; then
+            echo "::error::Largest WASM is ${largest} bytes, exceeding the ${budget}-byte budget by $((largest - budget)) bytes. Reduce contract size or update WASM_SIZE_BUDGET_BYTES in .github/workflows/contract-ci.yml to the new current size + ~10%."
+            exit 1
+          fi
 
       - name: Test
         run: cargo test
