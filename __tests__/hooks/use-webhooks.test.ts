@@ -332,4 +332,110 @@ describe('useWebhooks', () => {
     expect(stored[0].eventType).toBe('stream.topped_up')
     expect(stored[0].success).toBe(true)
   })
+
+  // ── retry policy (issue #1158) ─────────────────────────────────────────────
+
+  describe('retry policy', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    async function fireAndSettle(
+      result: { current: ReturnType<typeof useWebhooks> },
+      eventType: 'stream.created' = 'stream.created',
+    ) {
+      const promise = result.current.fireEvent(eventType, { stream_id: 1 })
+      // Advance through any scheduled backoff delays.
+      await vi.runAllTimersAsync()
+      await promise
+    }
+
+    it.each([400, 401, 403, 404, 422])(
+      'does not retry a non-retryable %i response',
+      async (status) => {
+        vi.mocked(global.fetch).mockResolvedValue(makeFailResponse(status))
+        const { result } = renderHook(() => useWebhooks())
+        await act(async () => {
+          result.current.addWebhook('https://example.com/hook', ['stream.created'])
+        })
+        await act(async () => {
+          await fireAndSettle(result)
+        })
+        expect(global.fetch).toHaveBeenCalledOnce()
+        expect(result.current.history).toHaveLength(1)
+        expect(result.current.history[0].success).toBe(false)
+        expect(result.current.history[0].statusCode).toBe(status)
+      },
+    )
+
+    it('does not schedule any backoff timer for a non-retryable 4xx', async () => {
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout')
+      vi.mocked(global.fetch).mockResolvedValue(makeFailResponse(404))
+      const { result } = renderHook(() => useWebhooks())
+      await act(async () => {
+        result.current.addWebhook('https://example.com/hook', ['stream.created'])
+      })
+      await act(async () => {
+        await fireAndSettle(result)
+      })
+      expect(global.fetch).toHaveBeenCalledOnce()
+      expect(setTimeoutSpy).not.toHaveBeenCalled()
+      setTimeoutSpy.mockRestore()
+    })
+
+    it.each([408, 429, 500, 502, 503])(
+      'retries a retryable %i response and succeeds on a later attempt',
+      async (status) => {
+        vi.mocked(global.fetch)
+          .mockResolvedValueOnce(makeFailResponse(status))
+          .mockResolvedValueOnce(makeOkResponse(200))
+        const { result } = renderHook(() => useWebhooks())
+        await act(async () => {
+          result.current.addWebhook('https://example.com/hook', ['stream.created'])
+        })
+        await act(async () => {
+          await fireAndSettle(result)
+        })
+        expect(global.fetch).toHaveBeenCalledTimes(2)
+        expect(result.current.history).toHaveLength(1)
+        expect(result.current.history[0].success).toBe(true)
+        expect(result.current.history[0].statusCode).toBe(200)
+      },
+    )
+
+    it('retries a network error and succeeds on a later attempt', async () => {
+      vi.mocked(global.fetch)
+        .mockRejectedValueOnce(new Error('network error'))
+        .mockResolvedValueOnce(makeOkResponse(200))
+      const { result } = renderHook(() => useWebhooks())
+      await act(async () => {
+        result.current.addWebhook('https://example.com/hook', ['stream.created'])
+      })
+      await act(async () => {
+        await fireAndSettle(result)
+      })
+      expect(global.fetch).toHaveBeenCalledTimes(2)
+      expect(result.current.history[0].success).toBe(true)
+    })
+
+    it('exhausts attempts on persistent 5xx and records a failed delivery', async () => {
+      vi.mocked(global.fetch).mockResolvedValue(makeFailResponse(503))
+      const { result } = renderHook(() => useWebhooks())
+      await act(async () => {
+        result.current.addWebhook('https://example.com/hook', ['stream.created'])
+      })
+      await act(async () => {
+        await fireAndSettle(result)
+      })
+      const attempts = vi.mocked(global.fetch).mock.calls.length
+      expect(attempts).toBeGreaterThan(1)
+      expect(result.current.history).toHaveLength(1)
+      expect(result.current.history[0].success).toBe(false)
+      expect(result.current.history[0].statusCode).toBe(503)
+    })
+  })
 })
