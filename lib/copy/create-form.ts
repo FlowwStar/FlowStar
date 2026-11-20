@@ -86,6 +86,7 @@ export const createFormCopy = {
     quickCliffLabel: 'Quick cliff',
     cliffDateLabel: 'Cliff date',
     cliffAmountLabel: (symbol: string) => `Cliff amount (${symbol})`,
+    cliffAmountPlaceholder: '0',
     optionalTag: 'optional',
   },
 
@@ -112,10 +113,6 @@ export const createFormCopy = {
       minutes: (n: number) => `${n} min`,
       belowOneMinute: '< 1 min',
     },
-  },
-
-    cliffAmountPlaceholder: '0',
-    optionalTag: 'optional',
   },
 
   txPreviewOperationLabel: 'Create Stream',
@@ -154,8 +151,7 @@ export const createFormCopy = {
     federationLookupFailed: 'Federation lookup failed',
     federationDidNotResolve: 'Federation address did not resolve to a valid Stellar account',
     invalidAddressFormat: 'Invalid Stellar address format',
-    invalidAddressChecksum:
-      'Invalid checksum — double-check this address for a mistyped character',
+    invalidAddressChecksum: 'Invalid checksum — double-check this address for a mistyped character',
     acknowledgeRecipientWarning: 'Please acknowledge the warning about this recipient address',
     invalidAmount: 'Enter a valid amount greater than 0',
     amountExceedsBalance: (balance: string, symbol: string) =>

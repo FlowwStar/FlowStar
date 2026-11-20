@@ -328,6 +328,214 @@ async function approveTokens(
 
 ---
 
+### Example 6: Top Up a Stream
+
+Add more funds to an active stream. The vesting rate is recalculated over the remaining time from the moment of the top-up.
+
+```typescript
+async function topUpStream(
+  senderAddress: string,
+  streamId: bigint,
+  additionalAmount: bigint,
+) {
+  const server = new rpc.Server(NETWORK.rpcUrl);
+  const account = await server.getAccount(senderAddress);
+  const contract = new Contract(STREAM_CONTRACT_ID);
+
+  // Approve the additional tokens first
+  await approveTokens(
+    senderAddress,
+    'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC', // token address
+    additionalAmount,
+  );
+
+  const tx = new TransactionBuilder(account, {
+    fee: '1000000',
+    networkPassphrase: NETWORK.passphrase,
+  })
+    .addOperation(
+      contract.call('top_up', [
+        nativeToScVal(streamId, { type: 'u64' }),
+        nativeToScVal(additionalAmount, { type: 'i128' }),
+      ])
+    )
+    .setTimeout(300)
+    .build();
+
+  const signedXdr = await window.freighter.signTransaction(tx.toXDR());
+  const txObj = TransactionBuilder.fromXDR(signedXdr, NETWORK.passphrase);
+  const response = await server.sendTransaction(txObj);
+
+  console.log(`Top-up submitted: ${response.hash}`);
+  return response.hash;
+}
+
+// Usage: add 500 XLM to stream 42
+topUpStream('GSENDER...', 42n, 500n * 10_000_000n);
+```
+
+---
+
+### Example 7: Transfer a Stream to a New Recipient
+
+The current recipient can transfer their stream rights to another address at any time. Any delegate registered on the stream is cleared on transfer.
+
+```typescript
+async function transferStream(
+  currentRecipientAddress: string,
+  streamId: bigint,
+  newRecipientAddress: string,
+) {
+  const server = new rpc.Server(NETWORK.rpcUrl);
+  const account = await server.getAccount(currentRecipientAddress);
+  const contract = new Contract(STREAM_CONTRACT_ID);
+
+  const tx = new TransactionBuilder(account, {
+    fee: '1000000',
+    networkPassphrase: NETWORK.passphrase,
+  })
+    .addOperation(
+      contract.call('transfer_stream', [
+        nativeToScVal(streamId, { type: 'u64' }),
+        new Address(newRecipientAddress).toScVal(),
+      ])
+    )
+    .setTimeout(300)
+    .build();
+
+  const signedXdr = await window.freighter.signTransaction(tx.toXDR());
+  const txObj = TransactionBuilder.fromXDR(signedXdr, NETWORK.passphrase);
+  const response = await server.sendTransaction(txObj);
+
+  console.log(`Transfer submitted: ${response.hash}`);
+  return response.hash;
+}
+
+// Usage
+transferStream('GCURRENT_RECIPIENT...', 42n, 'GNEW_RECIPIENT...');
+```
+
+---
+
+### Example 8: Delegation
+
+A recipient can register a delegate who withdraws on their behalf — useful for smart-contract treasuries or automated payout bots. While a delegate is active, only the delegate can call `withdraw`; the recipient must remove the delegate first to regain direct access.
+
+```typescript
+async function setDelegate(
+  recipientAddress: string,
+  streamId: bigint,
+  delegateAddress: string,
+) {
+  const server = new rpc.Server(NETWORK.rpcUrl);
+  const account = await server.getAccount(recipientAddress);
+  const contract = new Contract(STREAM_CONTRACT_ID);
+
+  const tx = new TransactionBuilder(account, {
+    fee: '1000000',
+    networkPassphrase: NETWORK.passphrase,
+  })
+    .addOperation(
+      contract.call('set_delegate', [
+        nativeToScVal(streamId, { type: 'u64' }),
+        new Address(delegateAddress).toScVal(),
+      ])
+    )
+    .setTimeout(300)
+    .build();
+
+  const signedXdr = await window.freighter.signTransaction(tx.toXDR());
+  const txObj = TransactionBuilder.fromXDR(signedXdr, NETWORK.passphrase);
+  const response = await server.sendTransaction(txObj);
+
+  console.log(`Delegate set: ${response.hash}`);
+  return response.hash;
+}
+
+async function removeDelegate(
+  recipientAddress: string,
+  streamId: bigint,
+) {
+  const server = new rpc.Server(NETWORK.rpcUrl);
+  const account = await server.getAccount(recipientAddress);
+  const contract = new Contract(STREAM_CONTRACT_ID);
+
+  const tx = new TransactionBuilder(account, {
+    fee: '1000000',
+    networkPassphrase: NETWORK.passphrase,
+  })
+    .addOperation(
+      contract.call('remove_delegate', [
+        nativeToScVal(streamId, { type: 'u64' }),
+      ])
+    )
+    .setTimeout(300)
+    .build();
+
+  const signedXdr = await window.freighter.signTransaction(tx.toXDR());
+  const txObj = TransactionBuilder.fromXDR(signedXdr, NETWORK.passphrase);
+  const response = await server.sendTransaction(txObj);
+
+  console.log(`Delegate removed: ${response.hash}`);
+  return response.hash;
+}
+
+async function getDelegate(streamId: bigint): Promise<string | null> {
+  // getDelegate is a read-only call — no signing needed
+  const server = new rpc.Server(NETWORK.rpcUrl);
+  const contract = new Contract(STREAM_CONTRACT_ID);
+
+  const result = await server.simulateTransaction(
+    new TransactionBuilder(
+      await server.getAccount(STREAM_CONTRACT_ID), // dummy source for simulation
+      { fee: '100', networkPassphrase: NETWORK.passphrase }
+    )
+      .addOperation(
+        contract.call('get_delegate', [nativeToScVal(streamId, { type: 'u64' })])
+      )
+      .setTimeout(30)
+      .build()
+  );
+
+  // Returns the delegate address string, or null if none is set
+  return result ? scValToNative(result) : null;
+}
+
+// Usage
+async function delegatedWithdrawal(
+  delegateAddress: string,
+  streamId: bigint,
+  amount: bigint,
+) {
+  const server = new rpc.Server(NETWORK.rpcUrl);
+  const account = await server.getAccount(delegateAddress);
+  const contract = new Contract(STREAM_CONTRACT_ID);
+
+  // Delegate authorizes the withdrawal; tokens still go to the recipient
+  const tx = new TransactionBuilder(account, {
+    fee: '1000000',
+    networkPassphrase: NETWORK.passphrase,
+  })
+    .addOperation(
+      contract.call('withdraw', [
+        nativeToScVal(streamId, { type: 'u64' }),
+        nativeToScVal(amount, { type: 'i128' }),
+      ])
+    )
+    .setTimeout(300)
+    .build();
+
+  const signedXdr = await window.freighter.signTransaction(tx.toXDR());
+  const txObj = TransactionBuilder.fromXDR(signedXdr, NETWORK.passphrase);
+  const response = await server.sendTransaction(txObj);
+
+  console.log(`Delegated withdrawal submitted: ${response.hash}`);
+  return response.hash;
+}
+```
+
+---
+
 ## Event Handling
 
 Monitor stream changes:

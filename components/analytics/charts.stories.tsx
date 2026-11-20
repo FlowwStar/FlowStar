@@ -44,20 +44,18 @@ const mockTopRecipients: AnalyticsChartsProps['topRecipients'] = [
     address: 'GBXUQR5DNRVAQB46CJMNF4XKLJZL5AOPNOPK3RLVQXPKWCZWUZNAGM3',
     federationName: null,
     count: 3,
-    totals: [
-      { symbol: 'EUR', amount: 20000000000n, decimals: 6 },
-    ],
+    totals: [{ symbol: 'EUR', amount: 20000000000n, decimals: 6 }],
   },
 ]
 
-const meta = {
+const meta: Meta<typeof AnalyticsCharts> = {
   title: 'Analytics/Charts',
   component: AnalyticsCharts,
   parameters: {
     layout: 'padded',
   },
   tags: ['autodocs'],
-} satisfies Meta<typeof AnalyticsCharts>
+}
 
 export default meta
 type Story = StoryObj<typeof meta>
@@ -82,12 +80,8 @@ export const SingleToken: Story = {
       { label: 'Jan 1', count: 5, volume: 1500 },
       { label: 'Jan 8', count: 8, volume: 2400 },
     ],
-    topTokens: [
-      { symbol: 'USDC', amount: 50000000000n, count: 20, decimals: 6 },
-    ],
-    tokenShares: [
-      { symbol: 'USDC', amount: 50000000000n, count: 20, decimals: 6 },
-    ],
+    topTokens: [{ symbol: 'USDC', amount: 50000000000n, count: 20, decimals: 6 }],
+    tokenShares: [{ symbol: 'USDC', amount: 50000000000n, count: 20, decimals: 6 }],
     totalVolume: 50000000000n,
     statusBreakdown: [
       { status: 'streaming', count: 15 },
@@ -98,9 +92,7 @@ export const SingleToken: Story = {
         address: 'GCZJVEY2HJVCWZQW2IGUBNVQ4FXQMYB7VVKQEMKJ3BMPZX5ZMMK5GO7C',
         federationName: 'alice.stellar.org',
         count: 20,
-        totals: [
-          { symbol: 'USDC', amount: 50000000000n, decimals: 6 },
-        ],
+        totals: [{ symbol: 'USDC', amount: 50000000000n, decimals: 6 }],
       },
     ],
     unlockProgress: { unlocked: 25000000000n, deposited: 50000000000n },

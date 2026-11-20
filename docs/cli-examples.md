@@ -500,6 +500,253 @@ done
 
 ---
 
+## Delegate Operations
+
+A delegate can withdraw on behalf of the recipient. While a delegate is active, only the delegate may call `withdraw` — the recipient is locked out until the delegate is removed.
+
+### Set a Delegate
+
+```bash
+STREAM_ID="123"
+DELEGATE="GDELEGATE..."
+
+# Must be signed by the stream recipient
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --source $RECIPIENT_KEYPAIR \
+  -- \
+  set_delegate \
+  --stream_id $STREAM_ID \
+  --delegate $DELEGATE
+```
+
+### Remove a Delegate
+
+```bash
+STREAM_ID="123"
+
+# Must be signed by the stream recipient
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --source $RECIPIENT_KEYPAIR \
+  -- \
+  remove_delegate \
+  --stream_id $STREAM_ID
+```
+
+### Get the Current Delegate
+
+```bash
+STREAM_ID="123"
+
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  -- \
+  get_delegate \
+  --stream_id $STREAM_ID
+```
+
+### Withdraw as a Delegate
+
+```bash
+STREAM_ID="123"
+AMOUNT=100000000
+
+# Must be signed by the registered delegate, not the recipient
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --source $DELEGATE_KEYPAIR \
+  -- \
+  withdraw \
+  --stream_id $STREAM_ID \
+  --amount $AMOUNT
+```
+
+---
+
+## Partial Cancel
+
+`partial_cancel` returns part of the still-locked (unvested) balance to the sender while keeping the stream active. The vesting schedule re-anchors at the moment of the call.
+
+### Partially Cancel a Stream
+
+```bash
+STREAM_ID="123"
+REFUND_AMOUNT=250000000 # Amount of locked tokens to reclaim
+
+# Must be signed by the sender
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --source $SENDER_KEYPAIR \
+  -- \
+  partial_cancel \
+  --stream_id $STREAM_ID \
+  --amount $REFUND_AMOUNT
+```
+
+### Check Locked Balance Before Partial Cancel
+
+```bash
+STREAM_ID="123"
+
+# Get full stream details to calculate locked amount
+STREAM=$(soroban contract invoke \
+  --id $CONTRACT_ID \
+  -- \
+  get_stream \
+  --stream_id $STREAM_ID)
+
+WITHDRAWABLE=$(soroban contract invoke \
+  --id $CONTRACT_ID \
+  -- \
+  get_withdrawable \
+  --stream_id $STREAM_ID)
+
+echo "Stream data: $STREAM"
+echo "Withdrawable (unlocked): $WITHDRAWABLE"
+# Locked = deposited_amount - unlocked_amount
+# You can partially cancel up to the locked portion
+```
+
+---
+
+## Admin Operations
+
+### Pause the Contract
+
+Pauses all write operations (`create_stream`, `withdraw`, `cancel`, `transfer_stream`, `top_up`, etc.). Read operations remain available. Must be signed by the admin.
+
+```bash
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --source $ADMIN_KEYPAIR \
+  -- \
+  pause
+```
+
+### Unpause the Contract
+
+Resumes all write operations. Must be signed by the admin.
+
+```bash
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --source $ADMIN_KEYPAIR \
+  -- \
+  unpause
+```
+
+### Upgrade the Contract WASM
+
+Replaces the contract's WASM bytecode. The new WASM must already be uploaded to the network. Must be signed by the admin.
+
+```bash
+# 1. Upload the new WASM and capture its hash
+NEW_WASM_HASH=$(soroban contract upload \
+  --source $ADMIN_KEYPAIR \
+  --wasm path/to/new_contract.wasm)
+
+echo "New WASM hash: $NEW_WASM_HASH"
+
+# 2. Upgrade the contract
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --source $ADMIN_KEYPAIR \
+  -- \
+  upgrade \
+  --admin $ADMIN_ADDRESS \
+  --new_wasm_hash $NEW_WASM_HASH
+```
+
+---
+
+## Archived Streams
+
+Streams are moved to the archive indexes automatically when they are cancelled or fully drained after `end_time`. The archive is append-only; streams are never removed from it except by `cleanup_stream`.
+
+### List Archived Sent Streams
+
+```bash
+ADDRESS="GXXXXX..."
+
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  -- \
+  get_archived_sent_streams \
+  --address $ADDRESS \
+  --offset 0 \
+  --limit 100
+```
+
+### List Archived Received Streams
+
+```bash
+ADDRESS="GXXXXX..."
+
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  -- \
+  get_archived_received_streams \
+  --address $ADDRESS \
+  --offset 0 \
+  --limit 100
+```
+
+---
+
+## Cleanup Stream
+
+`cleanup_stream` removes all on-chain storage for a completed or cancelled stream, reclaiming ledger space. Either the sender or the recipient may call it. The stream must be cancelled or fully drained before cleanup is allowed.
+
+```bash
+STREAM_ID="123"
+CALLER="GSENDER_OR_RECIPIENT..."
+
+# Check eligibility first: stream must be cancelled or fully withdrawn after end_time
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  -- \
+  get_stream \
+  --stream_id $STREAM_ID
+
+# Then clean up
+soroban contract invoke \
+  --id $CONTRACT_ID \
+  --source $CALLER_KEYPAIR \
+  -- \
+  cleanup_stream \
+  --caller $CALLER \
+  --stream_id $STREAM_ID
+```
+
+### Batch Cleanup Script
+
+```bash
+#!/bin/bash
+
+# Clean up a list of completed stream IDs to reclaim storage
+STREAM_IDS=(201 202 203 204 205)
+CALLER="GXXXXX..."
+
+for STREAM_ID in "${STREAM_IDS[@]}"; do
+  echo "Cleaning up stream $STREAM_ID..."
+
+  soroban contract invoke \
+    --id $CONTRACT_ID \
+    --source $CALLER_KEYPAIR \
+    -- \
+    cleanup_stream \
+    --caller $CALLER \
+    --stream_id $STREAM_ID
+
+  sleep 1
+done
+
+echo "Cleanup complete."
+```
+
+---
+
 ## See Also
 
 - [API Reference](./api-reference.md)

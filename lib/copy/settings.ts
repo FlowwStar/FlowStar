@@ -51,6 +51,9 @@ export const settingsCopy = {
     toasts: {
       entryUpdated: 'Entry updated',
       entryRemoved: 'Entry removed',
+    },
+  },
+
   clearLocalData: {
     title: 'Clear local data',
     description:

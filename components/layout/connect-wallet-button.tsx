@@ -26,8 +26,7 @@ import { walletCopy as copy } from '@/lib/copy/wallet'
 import { toast } from 'sonner'
 
 export function ConnectWalletButton({ className }: { className?: string }) {
-  const { address, isConnected, connecting, connect, disconnect, walletId } =
-    useWallet()
+  const { address, isConnected, connecting, connect, disconnect, walletId } = useWallet()
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const [pendingId, setPendingId] = useState<string | null>(null)
@@ -76,12 +75,8 @@ export function ConnectWalletButton({ className }: { className?: string }) {
             <p className="truncate font-mono text-sm">{shortenAddress(address, 8)}</p>
           </div>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={copyAddress}>
-            {copied ? (
-              <Check className="size-4 text-primary" />
-            ) : (
-              <Copy className="size-4" />
-            )}
+          <DropdownMenuItem onClick={copyAddress} closeOnClick={false}>
+            {copied ? <Check className="size-4 text-primary" /> : <Copy className="size-4" />}
             {copied ? copy.copied : copy.copyAddress}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={disconnect} variant="destructive">
@@ -108,7 +103,10 @@ export function ConnectWalletButton({ className }: { className?: string }) {
         </DialogHeader>
         <div className="grid gap-2 pt-2">
           <div className="sr-only" aria-live="polite" aria-atomic="true">
-            {connecting && copy.connectingTo(WALLET_OPTIONS.find((w) => w.id === pendingId)?.name || copy.fallbackWalletName)}
+            {connecting &&
+              copy.connectingTo(
+                WALLET_OPTIONS.find((w) => w.id === pendingId)?.name || copy.fallbackWalletName,
+              )}
           </div>
           {WALLET_OPTIONS.map((wallet) => {
             const isPending = connecting && pendingId === wallet.id
@@ -126,15 +124,12 @@ export function ConnectWalletButton({ className }: { className?: string }) {
                 </span>
                 <span className="flex-1">
                   <span className="block text-sm font-medium">{wallet.name}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {wallet.detail}
-                  </span>
+                  <span className="block text-xs text-muted-foreground">{wallet.detail}</span>
                 </span>
-                {isPending && (
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                )}
-                {!isPending && !available && (
-                  wallet.installUrl ? (
+                {isPending && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+                {!isPending &&
+                  !available &&
+                  (wallet.installUrl ? (
                     <a
                       href={wallet.installUrl}
                       target="_blank"
@@ -149,8 +144,7 @@ export function ConnectWalletButton({ className }: { className?: string }) {
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                       {copy.notInstalled}
                     </span>
-                  )
-                )}
+                  ))}
               </button>
             )
           })}
