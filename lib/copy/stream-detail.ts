@@ -98,6 +98,21 @@ export const streamDetailCopy = {
     errorToast: 'Failed to extend TTL',
   },
 
+  // Delegate management card — issue #1142 (depends on ADR-008 / issue #1141)
+  delegate: {
+    title: 'Withdrawal delegate',
+    emptyHelpText:
+      'The recipient can appoint a delegate address to withdraw on their behalf — useful for treasuries or automated payout bots.',
+    setButton: 'Set delegate',
+    settingButton: 'Setting…',
+    removeButton: 'Remove',
+    removingButton: 'Removing…',
+    cancelButton: 'Cancel',
+    addressPlaceholder: 'Delegate address (G...)',
+    lockoutWarning:
+      'While this delegate is active, only the delegate — not the recipient directly — can withdraw from this stream. Remove the delegate to restore direct withdrawals.',
+  },
+
   shareButtons: {
     shareButton: 'Share',
     shareAriaLabel: 'Share stream',
