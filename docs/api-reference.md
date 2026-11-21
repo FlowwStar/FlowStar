@@ -602,6 +602,49 @@ const paused = await query('is_paused', []);
 
 Extend the TTL of a stream's ledger data (~30 more days). Anyone can call.
 
+```typescript
+import { TransactionBuilder, Address } from '@stellar/stellar-sdk';
+
+// The signer's account must match the required authorizer for the operation
+const tx = new TransactionBuilder(account, {
+  fee: '1000000',
+  networkPassphrase: 'Test SDF Network ; September 2015',
+})
+  .addOperation(contract.call('create_stream', ...args))
+  .setTimeout(300)
+  .build();
+
+// Sign with the authorized account
+const signedXdr = await wallet.sign(tx);
+```
+
+---
+
+## Error Codes
+
+| Code | Name | Description | Recovery |
+|------|------|-------------|----------|
+| 1 | NotFound | Stream does not exist | Verify stream ID exists |
+| 2 | Unauthorized | Caller is not authorized for this operation | Use correct wallet address |
+| 3 | InvalidAmount | Amount is negative or zero | Use positive amount > 0 |
+| 4 | InvalidTime | Start/end times are invalid | Ensure start_time < end_time |
+| 5 | InvalidCliff | Cliff configuration is invalid | Ensure cliff_time >= start_time |
+| 6 | AlreadyCancelled | Stream is already cancelled | Cannot modify cancelled streams |
+| 7 | InsufficientFunds | Insufficient balance to execute operation | Add more funds or reduce amount |
+| 8 | InvalidToken | Token contract is not valid SEP-41 | Verify token address |
+| 9 | TransferFailed | Token transfer failed (likely insufficient allowance) | Approve contract for amount |
+| 10 | InsufficientWithdrawable | No funds available to withdraw | Wait for cliff or unlock period |
+| 11 | BatchSizeExceeded | More than 20 streams in a batch | Split into smaller batches |
+| 12 | BatchEmpty | Batch contains no streams | Provide at least one stream |
+| 13 | ArithmeticOverflow | Vesting calculation overflowed i128 | Report the stream parameters; do not retry silently |
+| 14 | AlreadyInitialized | Contract has already been initialized | Only call `initialize` once |
+| 15 | NotInitialized | Contract has not been initialized | Call `initialize` before any other operation |
+| 16 | ContractPaused | All write operations are paused | Wait for admin to call `unpause` |
+| 17 | DurationExceedsMaximum | Stream duration exceeds the 10-year cap | Shorten `end_time − start_time` to ≤ 315,360,000 s |
+| 18 | InvalidRecipient | Recipient address is the contract itself | Use a regular account or external contract address |
+| 19 | RateIsZero | Total amount is too small for the duration — per-second rate would be zero | Increase `total_amount` or shorten the stream duration |
+| 20 | StreamNotEligibleForCleanup | Stream is neither cancelled nor fully drained; cleanup not allowed | Cancel the stream or wait for it to fully drain before calling `cleanup_stream` |
+| 21 | PastStartTime | `start_time` is earlier than the current ledger timestamp | Use a `start_time` at or after the current block time |
 - Emits: `StreamBumpedEvent`
 
 ---
@@ -647,6 +690,44 @@ Capped at `deposited_amount`. Nothing unlocks before `cliff_time`.
 
 ---
 
+## Storage Keys and TTL Behaviour
+
+The contract uses two Soroban storage tiers. TTL is measured in ledgers (≈ 5 s each).
+
+| Constant | Ledgers | Wall-clock |
+|---|---|---|
+| `INSTANCE_TTL_LEDGERS` | 17,280 | ≈ 1 day |
+| `PERSISTENT_TTL_LEDGERS` | 518,400 | ≈ 30 days |
+
+### Key table
+
+| Key | Storage tier | Type | Written by | TTL extended by |
+|---|---|---|---|---|
+| `NextId` | Instance | `u64` | `create_stream`, `create_streams_batch` | every write operation |
+| `Admin` | Instance | `Address` | `initialize` | every write operation |
+| `Paused` | Instance | `bool` | `pause`, `unpause`, `migrate` | every write operation |
+| `Stream(id)` | Persistent | `Stream` | `create_stream`, `withdraw`, `cancel`, `transfer_stream`, `top_up` | same write ops + `bump_stream` |
+| `StreamMetadata(id)` | Persistent | `StreamMetadata` | `update_stream_metadata` | `update_stream_metadata`, `bump_stream` |
+| `SentBy(addr)` | Persistent | `Vec<u64>` (active IDs) | `create_stream`, `cancel`, `cleanup_stream` | any write that touches the stream + `bump_stream` |
+| `ReceivedBy(addr)` | Persistent | `Vec<u64>` (active IDs) | `create_stream`, `transfer_stream`, `cancel`, `cleanup_stream` | any write that touches the stream + `bump_stream` |
+| `ArchiveSentBy(addr)` | Persistent | `Vec<u64>` (archived IDs) | `cancel`, `withdraw` (on full drain), `cleanup_stream` | `bump_stream` |
+| `ArchiveReceivedBy(addr)` | Persistent | `Vec<u64>` (archived IDs) | `cancel`, `withdraw` (on full drain), `cleanup_stream` | `bump_stream` |
+| `Delegate(id)` | Persistent | `Address` | `set_delegate` | `set_delegate`, `bump_stream` |
+
+### TTL expiry behaviour
+
+Soroban does not delete expired entries immediately — they become *inaccessible*. A read returns `None`; a write restores the entry with a fresh TTL. For stream data this means a stream that has not been touched in more than 30 days will appear as `StreamNotFound` until `bump_stream` is called to restore its TTL.
+
+Instance keys (`NextId`, `Admin`, `Paused`) share a single ledger entry for the whole contract. Any write to the contract bumps their TTL, so they remain accessible as long as the contract is in active use.
+
+---
+
+## See Also
+
+- [Integration Guide](./integration-guide.md)
+- [CLI Examples](./cli-examples.md)
+- [Stream Lifecycle](./STREAM_LIFECYCLE.md)
+- [Soroban Documentation](https://soroban.stellar.org/)
 ## Events Reference
 
 | Event | Emitted by | Key fields |
