@@ -872,8 +872,12 @@ fn test_remove_from_index_miss_preserves_other_entries() {
         &(total * 2),
         &(t.env.ledger().sequence() + 500),
     );
-    let id1 = client.create_stream(&t.sender, &params);
-    let id2 = client.create_stream(&t.sender, &params);
+    // Pre-existing: these were missing `.unwrap()`, which doesn't type-check
+    // against `Vec<u64>::contains` / `cancel(&u64)` below — unrelated to
+    // issue #1109/#1132, fixed here only because it blocks this file from
+    // compiling at all.
+    let id1 = client.create_stream(&t.sender, &params).unwrap();
+    let id2 = client.create_stream(&t.sender, &params).unwrap();
 
     // Both appear in the sender's active sent index.
     let sent = client.get_sent_streams(&t.sender, &0, &100);
@@ -883,8 +887,8 @@ fn test_remove_from_index_miss_preserves_other_entries() {
     // Cancel + clean up only the first stream. After cancel moves id1 to the
     // archive indexes, cleanup's remove_from_index on the *active* index is a
     // miss (id1 no longer present) — it must not touch id2.
-    client.cancel(&id1);
-    client.cleanup_stream(&t.sender, &id1);
+    client.cancel(&id1).unwrap();
+    client.cleanup_stream(&t.sender, &id1).unwrap();
 
     // id2 must remain in the active sent index, untouched by the miss.
     let sent_after = client.get_sent_streams(&t.sender, &0, &100);
@@ -898,4 +902,97 @@ fn test_remove_from_index_miss_preserves_other_entries() {
             .contains(id1),
         "id1 must be removed from archive after cleanup"
     );
+}
+
+// ─── Issue #1132: cleanup_stream after a transfer ──────────────────────────────
+
+#[test]
+fn test_cleanup_stream_after_transfer_clears_new_recipients_indexes() {
+    // Issue #1132: the existing cleanup tests only ever use the stream's
+    // *original* recipient. After transfer_stream, the stream lives under
+    // the new recipient's index — cleanup_stream reads `stream.recipient`
+    // (already updated to the new recipient by transfer) when removing
+    // ReceivedBy/ArchiveReceivedBy entries, and nothing exercised that path,
+    // or cleanup_stream's `caller == stream.recipient` auth branch.
+    //
+    // Timeline: create (original recipient) → transfer (new recipient) →
+    // cancel (archives under the new recipient) → cleanup, called by the
+    // *new* recipient. Neither recipient's active or archive index should
+    // contain the stream id afterward.
+    let t = TestEnv::setup();
+    let now = 1_000_000u64;
+    t.set_time(now);
+    let client = t.client();
+    let params = t.default_params(now);
+    let total = params.total_amount;
+    let original_recipient = t.recipient.clone();
+    let new_recipient = Address::generate(&t.env);
+
+    t.token().approve(
+        &t.sender,
+        &t.contract_id,
+        &total,
+        &(t.env.ledger().sequence() + 500),
+    );
+    let id = client.create_stream(&t.sender, &params).unwrap();
+
+    // Sanity: before transfer, the stream is under the original recipient.
+    assert!(client
+        .get_received_streams(&original_recipient, &0, &100)
+        .contains(id));
+
+    client.transfer_stream(&id, &new_recipient).unwrap();
+
+    // Transfer moves the *active* index immediately.
+    assert!(
+        !client
+            .get_received_streams(&original_recipient, &0, &100)
+            .contains(id),
+        "original recipient's active index must be empty right after transfer"
+    );
+    assert!(client
+        .get_received_streams(&new_recipient, &0, &100)
+        .contains(id));
+
+    t.set_time(now + 100);
+    client.cancel(&id).unwrap();
+
+    // Cancel archives under whichever address is the *current* recipient —
+    // the new one — not the original.
+    assert!(
+        !client
+            .get_archived_received_streams(&original_recipient, &0, &100)
+            .contains(id),
+        "original recipient must never gain an archive entry for a stream it was transferred away"
+    );
+    assert!(client
+        .get_archived_received_streams(&new_recipient, &0, &100)
+        .contains(id));
+
+    // Cleanup, called by the new recipient (exercises the
+    // `caller == stream.recipient` branch of cleanup_stream's auth check).
+    client.cleanup_stream(&new_recipient, &id).unwrap();
+
+    // Neither recipient's active or archive index may contain the id now.
+    assert!(!client
+        .get_received_streams(&original_recipient, &0, &100)
+        .contains(id));
+    assert!(!client
+        .get_archived_received_streams(&original_recipient, &0, &100)
+        .contains(id));
+    assert!(!client
+        .get_received_streams(&new_recipient, &0, &100)
+        .contains(id));
+    assert!(
+        !client
+            .get_archived_received_streams(&new_recipient, &0, &100)
+            .contains(id),
+        "new recipient's archive index must be cleared by cleanup_stream"
+    );
+
+    // Sender-side indexes are cleaned up too, same as any other cleanup.
+    assert!(!client.get_sent_streams(&t.sender, &0, &100).contains(id));
+    assert!(!client
+        .get_archived_sent_streams(&t.sender, &0, &100)
+        .contains(id));
 }

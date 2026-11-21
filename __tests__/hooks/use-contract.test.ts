@@ -12,6 +12,12 @@ vi.mock('@/components/providers/network-provider', () => ({
 
 vi.mock('@/hooks/use-streams', () => ({ invalidateStreams: vi.fn() }))
 
+// Issue #1144: the pause flag is its own hook (polling is tested separately
+// in use-contract-paused.test.ts) — stub it here so useContract's tests
+// aren't exercising live polling/timers.
+const mockUseContractPaused = vi.hoisted(() => vi.fn(() => false))
+vi.mock('@/hooks/use-contract-paused', () => ({ useContractPaused: mockUseContractPaused }))
+
 vi.mock('sonner', () => ({
   toast: {
     loading: vi.fn(() => 'toast-id'),
@@ -24,15 +30,31 @@ vi.mock('sonner', () => ({
 vi.mock('@/lib/contract', () => ({
   createStream: vi.fn(),
   withdrawFromStream: vi.fn(),
+  withdrawMaxFromStream: vi.fn(),
   cancelStream: vi.fn(),
+  partialCancelStream: vi.fn(),
   estimateCreateStreamFee: vi.fn(),
+  setDelegateForStream: vi.fn(),
+  removeDelegateForStream: vi.fn(),
+  getStreamDelegate: vi.fn(),
+  topUpStream: vi.fn(),
+  updateStreamMetadata: vi.fn(),
+  transferStream: vi.fn(),
 }))
 
 import {
   createStream,
   withdrawFromStream,
+  withdrawMaxFromStream,
   cancelStream,
+  partialCancelStream,
   estimateCreateStreamFee,
+  setDelegateForStream,
+  removeDelegateForStream,
+  getStreamDelegate,
+  topUpStream,
+  updateStreamMetadata,
+  transferStream,
 } from '@/lib/contract'
 import { useContract } from '@/hooks/use-contract'
 import type { CreateStreamInput, StreamData } from '@/types/stream'
@@ -79,15 +101,24 @@ const makeStream = (id = '1', recipient = 'GRCPT'): StreamData => ({
 describe('useContract', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUseContractPaused.mockReturnValue(false)
     mockUseWallet.mockReturnValue({ address: 'GSENDER', isConnected: true })
     vi.mocked(createStream).mockResolvedValue('new-stream-id')
     vi.mocked(withdrawFromStream).mockResolvedValue('tx-hash-withdraw')
     vi.mocked(cancelStream).mockResolvedValue('tx-hash-cancel')
+    vi.mocked(setDelegateForStream).mockResolvedValue('tx-hash-set-delegate')
+    vi.mocked(removeDelegateForStream).mockResolvedValue('tx-hash-remove-delegate')
+    vi.mocked(getStreamDelegate).mockResolvedValue(null)
+    vi.mocked(topUpStream).mockResolvedValue('tx-hash-topup')
+    vi.mocked(transferStream).mockResolvedValue('tx-hash-transfer')
+    vi.mocked(partialCancelStream).mockResolvedValue('tx-hash-partial-cancel')
     vi.mocked(estimateCreateStreamFee).mockResolvedValue({
       minFee: 100_000,
       estimatedFee: 115_000,
       estimatedFeeXlm: '0.0115',
     })
+    vi.mocked(updateStreamMetadata).mockResolvedValue('tx-hash-metadata')
+    vi.mocked(transferStream).mockResolvedValue('tx-hash-transfer')
   })
 
   // ── initial state ──────────────────────────────────────────────────────────
@@ -183,6 +214,182 @@ describe('useContract', () => {
     expect(cancelStream).toHaveBeenCalledWith('55', 'testnet', expect.any(Function))
   })
 
+  // ── delegate (issue #1141) ──────────────────────────────────────────────────
+
+  it('calls setDelegateForStream with correct id and delegate address', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.setDelegate('42', 'GDELEGATE')
+    })
+    expect(setDelegateForStream).toHaveBeenCalledWith(
+      '42',
+      'GDELEGATE',
+  // ── topUp (issue #1135) ────────────────────────────────────────────────────
+
+  it('calls topUpStream with correct id, amount, address and network', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.topUp('7', 500n)
+    })
+    expect(topUpStream).toHaveBeenCalledWith('7', 500n, 'GSENDER', 'testnet', expect.any(Function))
+  })
+
+  it('returns the topUpStream transaction hash', async () => {
+    const { result } = renderHook(() => useContract())
+    let hash: string | null | undefined
+    await act(async () => {
+      hash = await result.current.topUp('7', 500n)
+    })
+    expect(hash).toBe('tx-hash-topup')
+  })
+
+  it('sets error on topUp failure', async () => {
+    vi.mocked(topUpStream).mockRejectedValueOnce(new Error('StreamEnded'))
+    const { result } = renderHook(() => useContract())
+    let caught: unknown
+    await act(async () => {
+      try {
+        await result.current.topUp('7', 500n)
+      } catch (err) {
+        caught = err
+      }
+    })
+    expect(caught).toBeInstanceOf(Error)
+    expect(result.current.error).toBeTruthy()
+  })
+
+  it('throws when wallet not connected on topUp', async () => {
+    mockUseWallet.mockReturnValue({ address: null, isConnected: false } as any)
+    const { result } = renderHook(() => useContract())
+    await expect(act(() => result.current.topUp('7', 500n))).rejects.toThrow('Connect a wallet')
+  })
+
+  // ── transferStream (issue #1137) ──────────────────────────────────────────
+
+  it('calls transferStream with correct id, newRecipient, address and network', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.transferStream('7', 'GNEWRECIPIENT')
+    })
+    expect(transferStream).toHaveBeenCalledWith(
+      '7',
+      'GNEWRECIPIENT',
+      'GSENDER',
+  // ── updateMetadata (issue #1143) ──────────────────────────────────────────
+
+  it('calls updateStreamMetadata with correct id and metadata', async () => {
+    const { result } = renderHook(() => useContract())
+    const metadata = { name: 'Q3 Salary', category: 'payroll', memo: 'note' }
+    await act(async () => {
+      await result.current.updateMetadata('42', metadata)
+    })
+    expect(updateStreamMetadata).toHaveBeenCalledWith(
+      '42',
+      metadata,
+      'testnet',
+      expect.any(Function),
+    )
+  })
+
+  it('throws when wallet not connected on setDelegate', async () => {
+    mockUseWallet.mockReturnValue({ address: null, isConnected: false } as any)
+    const { result } = renderHook(() => useContract())
+    await expect(result.current.setDelegate('42', 'GDELEGATE')).rejects.toThrow(
+      'Connect a wallet first.',
+    )
+  })
+
+  it('calls removeDelegateForStream with correct id', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.removeDelegate('42')
+    })
+    expect(removeDelegateForStream).toHaveBeenCalledWith('42', 'testnet', expect.any(Function))
+  })
+
+  it('reads the current delegate via getStreamDelegate', async () => {
+    vi.mocked(getStreamDelegate).mockResolvedValueOnce('GDELEGATE')
+    const { result } = renderHook(() => useContract())
+    let delegate: string | null = null
+    await act(async () => {
+      delegate = await result.current.getDelegate('42')
+    })
+    expect(getStreamDelegate).toHaveBeenCalledWith('42', 'testnet')
+    expect(delegate).toBe('GDELEGATE')
+  // ── transfer (issue #1138) ─────────────────────────────────────────────────
+
+  it('calls transferStream with correct id and new recipient', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.transfer('42', 'GNEWRECIPIENT')
+    })
+    expect(transferStream).toHaveBeenCalledWith(
+      '42',
+      'GNEWRECIPIENT',
+      'testnet',
+      expect.any(Function),
+    )
+  })
+
+  it('returns the transferStream transaction hash', async () => {
+    const { result } = renderHook(() => useContract())
+    let hash: string | null | undefined
+    await act(async () => {
+      hash = await result.current.transferStream('7', 'GNEWRECIPIENT')
+    })
+    expect(hash).toBe('tx-hash-transfer')
+  })
+
+  it('sets error on transferStream failure', async () => {
+    vi.mocked(transferStream).mockRejectedValueOnce(new Error('SameRecipient'))
+  // ── paused (issue #1144) ───────────────────────────────────────────────────
+
+  it('exposes paused=false by default', () => {
+    const { result } = renderHook(() => useContract())
+    expect(result.current.paused).toBe(false)
+  })
+
+  it('blocks writes and throws when the contract is paused', async () => {
+    mockUseContractPaused.mockReturnValue(true)
+    const { result } = renderHook(() => useContract())
+    expect(result.current.paused).toBe(true)
+
+    await expect(act(() => result.current.withdraw('1', 100n))).rejects.toThrow(/paused/i)
+    expect(withdrawFromStream).not.toHaveBeenCalled()
+  // ── partialCancel ──────────────────────────────────────────────────────────
+
+  it('calls partialCancelStream with correct id and amount', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.partialCancel('55', 250n)
+    })
+    expect(partialCancelStream).toHaveBeenCalledWith('55', 250n, 'testnet', expect.any(Function))
+  })
+
+  it('sets error on partialCancel failure', async () => {
+    vi.mocked(partialCancelStream).mockRejectedValueOnce(new Error('invalid amount'))
+    const { result } = renderHook(() => useContract())
+    let caught: unknown
+    await act(async () => {
+      try {
+        await result.current.transferStream('7', 'GNEWRECIPIENT')
+        await result.current.partialCancel('55', 250n)
+      } catch (err) {
+        caught = err
+      }
+    })
+    expect(caught).toBeInstanceOf(Error)
+    expect(result.current.error).toBeTruthy()
+  })
+
+  it('throws when wallet not connected on transferStream', async () => {
+    mockUseWallet.mockReturnValue({ address: null, isConnected: false } as any)
+    const { result } = renderHook(() => useContract())
+    await expect(
+      act(() => result.current.transferStream('7', 'GNEWRECIPIENT')),
+    ).rejects.toThrow('Connect a wallet')
+  })
+
   // ── estimateFee ────────────────────────────────────────────────────────────
 
   it('returns fee estimate', async () => {
@@ -232,12 +439,12 @@ describe('useContract', () => {
       res = await result.current.withdrawAll([makeStream()])
     })
     expect(res).toEqual({ succeeded: 0, failed: 0 })
-    expect(withdrawFromStream).not.toHaveBeenCalled()
+    expect(withdrawMaxFromStream).not.toHaveBeenCalled()
   })
 
   it('counts succeeded and failed withdrawals correctly', async () => {
     vi.mocked(getWithdrawableAmount).mockReturnValue(500n)
-    vi.mocked(withdrawFromStream)
+    vi.mocked(withdrawMaxFromStream)
       .mockResolvedValueOnce('tx1')
       .mockRejectedValueOnce(new Error('timeout'))
     const { result } = renderHook(() => useContract())
@@ -251,7 +458,7 @@ describe('useContract', () => {
 
   it('calls onProgress callback with current/total counts', async () => {
     vi.mocked(getWithdrawableAmount).mockReturnValue(500n)
-    vi.mocked(withdrawFromStream).mockResolvedValue('tx1')
+    vi.mocked(withdrawMaxFromStream).mockResolvedValue('tx1')
     const onProgress = vi.fn()
     const { result } = renderHook(() => useContract())
     await act(async () => {
@@ -259,5 +466,17 @@ describe('useContract', () => {
     })
     expect(onProgress).toHaveBeenCalledWith(1, 2)
     expect(onProgress).toHaveBeenCalledWith(2, 2)
+  })
+
+  it('withdrawAll delegates each withdrawal to withdrawMaxFromStream (fresh on-chain amount, not a stale snapshot) — #1146', async () => {
+    vi.mocked(getWithdrawableAmount).mockReturnValue(500n)
+    vi.mocked(withdrawMaxFromStream).mockResolvedValue('tx1')
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.withdrawAll([makeStream('1'), makeStream('2')])
+    })
+    expect(withdrawMaxFromStream).toHaveBeenCalledWith('1', 'testnet')
+    expect(withdrawMaxFromStream).toHaveBeenCalledWith('2', 'testnet')
+    expect(withdrawFromStream).not.toHaveBeenCalled()
   })
 })

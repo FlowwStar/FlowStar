@@ -168,6 +168,14 @@ describe('mapError', () => {
       expect(result.suggestion).toContain('cancelled or drained')
     })
 
+    // 21 - PastStartTime
+    it('maps Error(Contract, #21) to PastStartTime', () => {
+      const result = mapError('Error(Contract, #21)')
+      expect(result.message).toBe('Start time is in the past')
+      expect(result.category).toBe('contract')
+      expect(result.suggestion).toContain('start time')
+    })
+
     it('handles optional hash prefix in error codes', () => {
       const withHash = mapError('Error(Contract, #1)')
       const withoutHash = mapError('Error(Contract, 1)')

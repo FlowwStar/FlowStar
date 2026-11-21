@@ -1,9 +1,31 @@
 'use client'
 
-import { use, useState } from 'react'
+import { use, useState, useEffect } from 'react'
+import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowDownLeft, Copy, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Copy,
+  Check,
+  ExternalLink,
+  Timer,
+  AlertTriangle,
+  Link as LinkIcon,
+  Wallet,
+  Share2,
+  MessageCircle,
+  Send,
+  QrCode,
+  Trash2,
+  Plus,
+} from 'lucide-react'
+import { toast } from 'sonner'
+import { ConnectWalletButton } from '@/components/layout/connect-wallet-button'
+import { SITE_URL } from '@/lib/site'
 import { StreamStatusBadge } from '@/components/streams/stream-status-badge'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { TokenAmount } from '@/components/ui/token-amount'
@@ -19,8 +41,19 @@ import {
   getStreamProgress,
   getUnlockedAmount,
   getWithdrawableAmount,
+  getLockedAmount,
   formatTokenAmount,
 } from '@/lib/stream-utils'
+  formatDateTime,
+  parseTokenAmount,
+  shortenAddress,
+  formatRate,
+  previewTopUpRate,
+  SECONDS_PER_DAY,
+} from '@/lib/stream-utils'
+import { explorerUrl, validateStellarAddress } from '@/lib/stellar'
+import type { StreamData } from '@/types/stream'
+import { explorerUrl } from '@/lib/stellar'
 import { useNetwork } from '@/components/providers/network-provider'
 import { UnlockChart } from '@/components/streams/unlock-chart'
 import { StreamTimeline } from '@/components/streams/stream-timeline'
@@ -35,17 +68,1514 @@ import { AutoWithdrawSection } from '@/components/stream-detail/auto-withdraw-se
 import { WithdrawDialog } from '@/components/stream-detail/withdraw-dialog'
 import { CancelDialog } from '@/components/stream-detail/cancel-dialog'
 import { CleanupDialog } from '@/components/stream-detail/cleanup-dialog'
+import { bumpStreamTtl, getTokenBalance } from '@/lib/contract'
+import type { StreamData } from '@/types/stream'
+import { getFederationNameForAddress } from '@/lib/address-book'
+import { bumpStreamTtl } from '@/lib/contract'
+import { getFederationNameForAddress, getAddressBookEntries } from '@/lib/address-book'
+import { isFederationAddress, resolveFederationAddress } from '@/lib/federation'
+import { QrShareDialog } from '@/components/streams/qr-share-dialog'
+import { streamDetailCopy as copy } from '@/lib/copy/stream-detail'
+import type { StreamMetadata } from '@/types/stream'
+
+/**
+ * Parses user-typed amount input, treating anything `parseTokenAmount`
+ * rejects (negative, malformed, e.g. a lone "-" mid-typing) as `0n` instead
+ * of throwing — these inputs are live-typed values, not submitted forms, so
+ * a bad keystroke should fall back to "invalid amount" (handled by the
+ * existing `parsed <= 0n` checks) rather than crash the component.
+ */
+function safeParseTokenAmount(value: string, decimals: number): bigint {
+  try {
+    return parseTokenAmount(value, decimals)
+  } catch {
+    return 0n
+  }
+}
+
+// ─── Address copy button ────────────────────────────────────────────────────
+
+function CopyableAddress({
+  address,
+  href,
+  federationName,
+}: {
+  address: string
+  href?: string
+  /** Issue #155: known Federation name (e.g. alice*domain.com) for this address, if any. */
+  federationName?: string | null
+}) {
+  const [copied, setCopied] = useState(false)
+  function handleCopy() {
+    navigator.clipboard.writeText(address)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label={copy.copyableAddress.copyAriaLabel}
+        title={federationName ? address : undefined}
+        className="group inline-flex items-center gap-1.5 font-mono text-sm hover:text-primary transition-colors"
+      >
+        <span className="truncate max-w-[200px] sm:max-w-xs">
+          {federationName ?? shortenAddress(address, 6)}
+        </span>
+        {copied ? (
+          <Check className="size-3.5 text-primary shrink-0" />
+        ) : (
+          <Copy className="size-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+        )}
+      </button>
+      <span className="sr-only" role="status" aria-live="polite">
+        {copied ? copy.copyableAddress.copiedStatus : ''}
+      </span>
+      {href && (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-muted-foreground hover:text-primary transition-colors"
+          aria-label={copy.copyableAddress.viewOnExplorerAriaLabel}
+        >
+          <ExternalLink className="size-3.5" />
+        </a>
+      )}
+    </span>
+  )
+}
+
+// ─── Detail row ─────────────────────────────────────────────────────────────
+
+function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-3 border-b border-border last:border-0">
+      <span className="text-sm text-muted-foreground shrink-0">{label}</span>
+      <span className="text-sm text-right">{children}</span>
+    </div>
+  )
+}
+
+// ─── Withdraw dialog ────────────────────────────────────────────────────────
+
+function WithdrawDialog({
+  open,
+  onClose,
+  streamId,
+  withdrawable,
+  token,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  withdrawable: bigint
+  token: { symbol: string; decimals: number; address: string }
+}) {
+  const { withdraw, pending, error } = useContract()
+  const { network } = useNetwork()
+  const { usdPrice: xlmPrice } = useTokenPrice('XLM')
+  const [inputAmount, setInputAmount] = useState('')
+  const [showFeeEstimate, setShowFeeEstimate] = useState(false)
+
+  const max = formatTokenAmount(withdrawable, token.decimals, token.decimals)
+  const parsed = inputAmount ? safeParseTokenAmount(inputAmount, token.decimals) : 0n
+  const invalid = parsed <= 0n || parsed > withdrawable
+
+  // Calculate estimated fees
+  const estimatedFee = TYPICAL_FEES.withdraw.typical
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined)
+  const withdrawFeeHigh = isHighFee(feeBreakdown.totalEstimated, TYPICAL_FEES.withdraw.typical)
+
+  async function handleWithdraw() {
+    try {
+      const hash = await withdraw(streamId, parsed)
+      toast.success(copy.withdrawDialog.successToastTitle, {
+        description: copy.withdrawDialog.successToastDescription(
+          formatTokenAmount(parsed, token.decimals, 4),
+          token.symbol,
+        ),
+        ...(hash && {
+          action: {
+            label: copy.withdrawDialog.viewTransactionAction,
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
+          },
+        }),
+      })
+      onClose()
+      setInputAmount('')
+    } catch {
+      // error shown inline
+    }
+  }
+
+  return (
+    <>
+      <Dialog open={open && !showFeeEstimate} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{copy.withdrawDialog.title}</DialogTitle>
+            <DialogDescription>
+              {copy.withdrawDialog.maxPrefix}{' '}
+              <span className="font-mono font-medium text-foreground">
+                {max} {token.symbol}
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="withdraw-amount">
+                {copy.withdrawDialog.amountLabel(token.symbol)}
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="withdraw-amount"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder={copy.withdrawDialog.amountPlaceholder}
+                  value={inputAmount}
+                  onChange={(e) => setInputAmount(e.target.value)}
+                  aria-invalid={!!inputAmount && invalid}
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setInputAmount(max)}
+                >
+                  {copy.withdrawDialog.maxButton}
+                </Button>
+              </div>
+              {inputAmount && invalid && (
+                <p className="text-xs text-destructive">{copy.withdrawDialog.exceedsBalance}</p>
+              )}
+            </div>
+
+            {/* Fee info */}
+            <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                {copy.withdrawDialog.estimatedFeeLabel}{' '}
+                <span className="font-mono text-foreground">
+                  {(estimatedFee / 1e7).toFixed(7)} XLM
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {copy.withdrawDialog.feeShownAgainNote}
+              </p>
+            </div>
+
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={onClose} disabled={pending}>
+                {copy.withdrawDialog.cancelButton}
+              </Button>
+              <Button
+                onClick={() => setShowFeeEstimate(true)}
+                disabled={pending || invalid || !inputAmount}
+              >
+                {pending ? copy.withdrawDialog.withdrawing : copy.withdrawDialog.reviewFeesButton}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <FeeEstimateDialog
+        open={showFeeEstimate}
+        onConfirm={handleWithdraw}
+        onCancel={() => setShowFeeEstimate(false)}
+        fees={feeBreakdown}
+        action={copy.withdrawDialog.feeConfirmAction}
+        averageFee={TYPICAL_FEES.withdraw.typical}
+        isHighFee={withdrawFeeHigh}
+        loading={pending}
+      />
+    </>
+  )
+}
+
+// ─── Top-up dialog ──────────────────────────────────────────────────────────
+
+// Issue #1136: lets the sender add funds to an active stream from the UI.
+// Depends on the topUpStream() wrapper added for issue #1135.
+function TopUpDialog({
+  open,
+  onClose,
+  streamId,
+  stream,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  stream: StreamData
+}) {
+  const { topUp, pending, error } = useContract()
+  const { network } = useNetwork()
+  const { address } = useWallet()
+  const { usdPrice: xlmPrice } = useTokenPrice('XLM')
+  const now = useNow(5000)
+  const [inputAmount, setInputAmount] = useState('')
+  const [showFeeEstimate, setShowFeeEstimate] = useState(false)
+  const [balance, setBalance] = useState<bigint | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+
+  const token = stream.token
+
+  useEffect(() => {
+    if (!open || !address) return
+    setBalance(null)
+    setBalanceLoading(true)
+    getTokenBalance(token.address, address, network)
+      .then(setBalance)
+      .catch(() => setBalance(null))
+      .finally(() => setBalanceLoading(false))
+  }, [open, address, token.address, network])
+
+  const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
+  const exceedsBalance = balance !== null && parsed > balance
+  const invalid = parsed <= 0n || exceedsBalance
+
+  const newRate = parsed > 0n ? previewTopUpRate(stream, parsed, now) : stream.amountPerSecond
+  const newRateFormatted = formatRate(newRate, token.decimals, token.symbol)
+
+  const estimatedFee = TYPICAL_FEES.topUp.typical
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined)
+  const topUpFeeHigh = isHighFee(feeBreakdown.totalEstimated, TYPICAL_FEES.topUp.typical)
+
+  async function handleTopUp() {
+    try {
+      const hash = await topUp(streamId, parsed)
+      toast.success(copy.topUpDialog.successToastTitle, {
+        description: copy.topUpDialog.successToastDescription(
+          formatTokenAmount(parsed, token.decimals, 4),
+          token.symbol,
+        ),
+        ...(hash && {
+          action: {
+            label: copy.topUpDialog.viewTransactionAction,
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
+          },
+        }),
+      })
+      onClose()
+      setInputAmount('')
+    } catch {
+      // error shown inline
+    }
+  }
+
+  return (
+    <>
+      <Dialog open={open && !showFeeEstimate} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{copy.topUpDialog.title}</DialogTitle>
+            <DialogDescription>{copy.topUpDialog.description}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="topup-amount">{copy.topUpDialog.amountLabel(token.symbol)}</Label>
+              <Input
+                id="topup-amount"
+                type="number"
+                min="0"
+                step="any"
+                placeholder={copy.topUpDialog.amountPlaceholder}
+                value={inputAmount}
+                onChange={(e) => setInputAmount(e.target.value)}
+                aria-invalid={!!inputAmount && invalid}
+              />
+              <p className="text-xs text-muted-foreground">
+                {copy.topUpDialog.availableBalancePrefix}{' '}
+                <span className="font-mono">
+                  {balanceLoading
+                    ? '…'
+                    : balance !== null
+                      ? `${formatTokenAmount(balance, token.decimals, token.decimals)} ${token.symbol}`
+                      : '—'}
+                </span>
+              </p>
+              {inputAmount && exceedsBalance && (
+                <p className="text-xs text-destructive">{copy.topUpDialog.exceedsBalance}</p>
+              )}
+            </div>
+
+            {parsed > 0n && (
+              <div className="rounded-lg bg-secondary/50 p-3">
+                <p className="text-xs text-muted-foreground">
+                  {copy.topUpDialog.newRateLabel}{' '}
+                  <span className="font-mono text-foreground">{newRateFormatted.best}</span>
+                </p>
+              </div>
+            )}
+
+            {/* Fee info */}
+            <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                {copy.topUpDialog.estimatedFeeLabel}{' '}
+                <span className="font-mono text-foreground">
+                  {(estimatedFee / 1e7).toFixed(7)} XLM
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {copy.topUpDialog.feeShownAgainNote}
+              </p>
+            </div>
+
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={onClose} disabled={pending}>
+                {copy.topUpDialog.cancelButton}
+              </Button>
+              <Button
+                onClick={() => setShowFeeEstimate(true)}
+                disabled={pending || invalid || !inputAmount}
+              >
+                {pending ? copy.topUpDialog.toppingUp : copy.topUpDialog.reviewFeesButton}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <FeeEstimateDialog
+        open={showFeeEstimate}
+        onConfirm={handleTopUp}
+        onCancel={() => setShowFeeEstimate(false)}
+        fees={feeBreakdown}
+        action={copy.topUpDialog.feeConfirmAction}
+        averageFee={TYPICAL_FEES.topUp.typical}
+        isHighFee={topUpFeeHigh}
+        loading={pending}
+      />
+    </>
+  )
+}
+
+// ─── Cancel dialog ───────────────────────────────────────────────────────────
+
+function CancelDialog({
+  open,
+  onClose,
+  streamId,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+}) {
+  const { scheduleCancel } = useUndoableCancel()
+  const { usdPrice: xlmPrice } = useTokenPrice('XLM')
+  const [showFeeEstimate, setShowFeeEstimate] = useState(false)
+
+  const estimatedFee = TYPICAL_FEES.cancel.typical
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined)
+  const cancelFeeHigh = isHighFee(feeBreakdown.totalEstimated, TYPICAL_FEES.cancel.typical)
+
+  function handleCancel() {
+    // Don't submit immediately — schedule an undoable cancellation. The
+    // actual `cancel` transaction (and its success/error toast) fires from
+    // useUndoableCancel once the countdown expires without being undone.
+    scheduleCancel(streamId)
+    setShowFeeEstimate(false)
+    onClose()
+  }
+
+  return (
+    <>
+      <Dialog open={open && !showFeeEstimate} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{copy.cancelDialog.title}</DialogTitle>
+            <DialogDescription>{copy.cancelDialog.description}</DialogDescription>
+          </DialogHeader>
+
+          {/* Fee info */}
+          <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              {copy.cancelDialog.estimatedFeeLabel}{' '}
+              <span className="font-mono text-foreground">
+                {(estimatedFee / 1e7).toFixed(7)} XLM
+              </span>
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={onClose}>
+              {copy.cancelDialog.keepStreamButton}
+            </Button>
+            <Button variant="destructive" onClick={() => setShowFeeEstimate(true)}>
+              {copy.cancelDialog.reviewAndCancelButton}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <FeeEstimateDialog
+        open={showFeeEstimate}
+        onConfirm={handleCancel}
+        onCancel={() => setShowFeeEstimate(false)}
+        fees={feeBreakdown}
+        action={copy.cancelDialog.feeConfirmAction}
+        averageFee={TYPICAL_FEES.cancel.typical}
+        isHighFee={cancelFeeHigh}
+        loading={false}
+      />
+    </>
+  )
+}
+
+// ─── Reclaim funds (partial cancel) dialog ─────────────────────────────────
+
+// Issue #1139/#1140: mirrors the contract's `partial_cancel` re-basing of the
+// unlock curve (contracts/streaming/src/lib.rs) so the dialog can preview the
+// new per-second rate before the sender submits the transaction.
+function previewRateAfterReclaim(
+  stream: StreamData,
+  amount: bigint,
+  nowSeconds: number,
+): bigint {
+  if (amount <= 0n) return stream.amountPerSecond
+  const now = BigInt(nowSeconds)
+  const unlocked = getUnlockedAmount(stream, nowSeconds)
+  const depositedAmount = stream.depositedAmount - amount
+  const remainingSeconds = stream.endTime - now
+
+  if (now >= stream.cliffTime) {
+    const remaining = depositedAmount - unlocked
+    return remainingSeconds > 0n ? remaining / remainingSeconds : 0n
+  }
+  const linearAmount = stream.linearAmount - amount
+  return stream.duration > 0n ? linearAmount / stream.duration : 0n
+}
+
+function ReclaimDialog({
+  open,
+  onClose,
+  streamId,
+  stream,
+  nowSeconds,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  stream: StreamData
+  nowSeconds: number
+}) {
+  const { partialCancel, pending, error } = useContract()
+  const { network } = useNetwork()
+  const [inputAmount, setInputAmount] = useState('')
+
+  const token = stream.token
+  const locked = getLockedAmount(stream, nowSeconds)
+  const max = formatTokenAmount(locked, token.decimals, token.decimals)
+  const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
+  const invalid = parsed <= 0n || parsed > locked
+
+  const newRate =
+    !invalid && parsed > 0n ? previewRateAfterReclaim(stream, parsed, nowSeconds) : null
+  const newRateFormatted =
+    newRate !== null ? formatRate(newRate, token.decimals, token.symbol).best : null
+
+  async function handleReclaim() {
+    try {
+      const hash = await partialCancel(streamId, parsed)
+      toast.success(copy.reclaimDialog.successToastTitle, {
+        description: copy.reclaimDialog.successToastDescription(
+          formatTokenAmount(parsed, token.decimals, 4),
+          token.symbol,
+        ),
+        ...(hash && {
+          action: {
+            label: copy.reclaimDialog.viewTransactionAction,
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
+          },
+        }),
+      })
+      onClose()
+      setInputAmount('')
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{copy.reclaimDialog.title}</DialogTitle>
+          <DialogDescription>
+            {copy.reclaimDialog.maxPrefix}{' '}
+            <span className="font-mono font-medium text-foreground">
+              {max} {token.symbol}
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="reclaim-amount">{copy.reclaimDialog.amountLabel(token.symbol)}</Label>
+            <div className="flex gap-2">
+              <Input
+                id="reclaim-amount"
+                type="number"
+                min="0"
+                step="any"
+                placeholder={copy.reclaimDialog.amountPlaceholder}
+                value={inputAmount}
+                onChange={(e) => setInputAmount(e.target.value)}
+                aria-invalid={!!inputAmount && invalid}
+              />
+              <Button type="button" variant="secondary" size="sm" onClick={() => setInputAmount(max)}>
+                {copy.reclaimDialog.maxButton}
+              </Button>
+            </div>
+            {inputAmount && invalid && (
+              <p className="text-xs text-destructive">{copy.reclaimDialog.exceedsBalance}</p>
+            )}
+          </div>
+
+          {newRateFormatted && (
+            <div className="rounded-lg bg-secondary/50 p-3">
+              <p className="text-xs text-muted-foreground">
+                {copy.reclaimDialog.newRateLabel}{' '}
+                <span className="font-mono text-foreground">{newRateFormatted}</span>
+              </p>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={pending}>
+              {copy.reclaimDialog.cancelButton}
+            </Button>
+            <Button onClick={handleReclaim} disabled={pending || invalid || !inputAmount}>
+              {pending ? copy.reclaimDialog.reclaiming : copy.reclaimDialog.reclaimButton}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Cleanup (remove from history) dialog ───────────────────────────────────
+
+// Issue #689: wires the contract's `cleanup_stream` into the UI — lets either
+// party permanently remove a completed/cancelled stream's on-chain data.
+function CleanupDialog({
+  open,
+  onClose,
+  streamId,
+  onCleaned,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  onCleaned: () => void
+}) {
+  const { cleanup, pending, error } = useContract()
+
+  async function handleConfirm() {
+    try {
+      await cleanup(streamId)
+      onClose()
+      onCleaned()
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{copy.cleanupDialog.title}</DialogTitle>
+          <DialogDescription>{copy.cleanupDialog.description}</DialogDescription>
+        </DialogHeader>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" onClick={onClose} disabled={pending}>
+            {copy.cleanupDialog.cancelButton}
+          </Button>
+          <Button variant="destructive" onClick={handleConfirm} disabled={pending}>
+            {pending ? copy.cleanupDialog.removing : copy.cleanupDialog.confirmButton}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Edit metadata dialog ───────────────────────────────────────────────────
+
+// Issue #1143: lets the sender update a stream's name/category/memo after
+// creation, via the contract's `update_stream_metadata`.
+function EditMetadataDialog({
+  open,
+  onClose,
+  streamId,
+  metadata,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  metadata?: StreamMetadata
+}) {
+  const { updateMetadata, pending, error } = useContract()
+  const [name, setName] = useState(metadata?.name ?? '')
+  const [category, setCategory] = useState(metadata?.category ?? '')
+  const [memo, setMemo] = useState(metadata?.memo ?? '')
+
+  // Re-sync local fields whenever the dialog is (re)opened, so a stale edit
+  // from a previous open doesn't linger.
+  useEffect(() => {
+    if (open) {
+      setName(metadata?.name ?? '')
+      setCategory(metadata?.category ?? '')
+      setMemo(metadata?.memo ?? '')
+    }
+  }, [open, metadata])
+
+  async function handleSave() {
+    try {
+      await updateMetadata(streamId, {
+        name: name.trim(),
+        category: category.trim(),
+        memo: memo.trim(),
+      })
+      toast.success(copy.editMetadataDialog.successToastTitle)
+      onClose()
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{copy.editMetadataDialog.title}</DialogTitle>
+          <DialogDescription>{copy.editMetadataDialog.description}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="metadata-name">{copy.editMetadataDialog.nameLabel}</Label>
+            <Input
+              id="metadata-name"
+              value={name}
+              maxLength={64}
+              placeholder={copy.editMetadataDialog.namePlaceholder}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="metadata-category">{copy.editMetadataDialog.categoryLabel}</Label>
+            <Input
+              id="metadata-category"
+              value={category}
+              maxLength={32}
+              placeholder={copy.editMetadataDialog.categoryPlaceholder}
+              onChange={(e) => setCategory(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="metadata-memo">{copy.editMetadataDialog.memoLabel}</Label>
+            <Input
+              id="metadata-memo"
+              value={memo}
+              maxLength={256}
+              placeholder={copy.editMetadataDialog.memoPlaceholder}
+              onChange={(e) => setMemo(e.target.value)}
+            />
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={pending}>
+              {copy.editMetadataDialog.cancelButton}
+            </Button>
+            <Button onClick={handleSave} disabled={pending}>
+              {pending ? copy.editMetadataDialog.saving : copy.editMetadataDialog.saveButton}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Transfer dialog ─────────────────────────────────────────────────────────
+
+// Issue #1138: lets the recipient reassign the stream to a new address, via
+// the contract's `transfer_stream`. Two steps: resolve/validate the address,
+// then an explicit confirmation warning that any delegate is cleared.
+function TransferDialog({
+  open,
+  onClose,
+  streamId,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+}) {
+  const { transfer, pending, error } = useContract()
+  const [input, setInput] = useState('')
+  const [resolving, setResolving] = useState(false)
+  const [resolveError, setResolveError] = useState<string | null>(null)
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null)
+  const [step, setStep] = useState<'input' | 'confirm'>('input')
+
+  function reset() {
+    setInput('')
+    setResolving(false)
+    setResolveError(null)
+    setResolvedAddress(null)
+    setStep('input')
+  }
+
+  function handleClose() {
+    reset()
+    onClose()
+  }
+
+  async function handleContinue() {
+    const trimmed = input.trim()
+    setResolveError(null)
+
+    if (isFederationAddress(trimmed)) {
+      setResolving(true)
+      try {
+        const result = await resolveFederationAddress(trimmed)
+        setResolvedAddress(result.accountId)
+        setStep('confirm')
+      } catch (err) {
+        setResolveError(err instanceof Error ? err.message : copy.transferDialog.invalidFormat)
+      } finally {
+        setResolving(false)
+      }
+      return
+    }
+
+    const check = validateStellarAddress(trimmed)
+    if (!check.valid) {
+      setResolveError(
+        check.reason === 'checksum'
+          ? copy.transferDialog.invalidChecksum
+          : copy.transferDialog.invalidFormat,
+      )
+      return
+    }
+    setResolvedAddress(trimmed)
+    setStep('confirm')
+  }
+
+  async function handleConfirm() {
+    if (!resolvedAddress) return
+    try {
+      await transfer(streamId, resolvedAddress)
+      toast.success(copy.transferDialog.successToastTitle, {
+        description: copy.transferDialog.successToastDescription(
+          shortenAddress(resolvedAddress, 6),
+        ),
+      })
+      handleClose()
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  const addressBookEntries = open ? getAddressBookEntries() : []
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="sm:max-w-sm">
+        {step === 'input' ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{copy.transferDialog.title}</DialogTitle>
+              <DialogDescription>{copy.transferDialog.description}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-1">
+              <div className="space-y-1.5">
+                <Label htmlFor="transfer-address">{copy.transferDialog.addressLabel}</Label>
+                <Input
+                  id="transfer-address"
+                  list="transfer-address-book"
+                  value={input}
+                  placeholder={copy.transferDialog.addressPlaceholder}
+                  onChange={(e) => {
+                    setInput(e.target.value)
+                    setResolveError(null)
+                  }}
+                  aria-invalid={!!resolveError}
+                />
+                <datalist id="transfer-address-book">
+                  {addressBookEntries.map((entry) => (
+                    <option key={entry.id} value={entry.address}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </datalist>
+                {resolving && (
+                  <p className="text-xs text-muted-foreground">{copy.transferDialog.resolving}</p>
+                )}
+                {resolveError && <p className="text-xs text-destructive">{resolveError}</p>}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={handleClose}>
+                  {copy.transferDialog.cancelButton}
+                </Button>
+                <Button onClick={handleContinue} disabled={!input.trim() || resolving}>
+                  {copy.transferDialog.continueButton}
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>{copy.transferDialog.confirmTitle}</DialogTitle>
+              <DialogDescription>{copy.transferDialog.confirmDelegateWarning}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-1">
+              <p className="text-sm">
+                {copy.transferDialog.confirmTransferringTo}{' '}
+                <span className="font-mono font-medium">{resolvedAddress}</span>
+              </p>
+              {error && <p className="text-xs text-destructive">{error}</p>}
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setStep('input')} disabled={pending}>
+                  {copy.transferDialog.backButton}
+                </Button>
+                <Button variant="destructive" onClick={handleConfirm} disabled={pending}>
+                  {pending ? copy.transferDialog.transferring : copy.transferDialog.confirmButton}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Auto-withdraw settings ─────────────────────────────────────────────────
+
+const INTERVAL_OPTIONS = [
+  { label: copy.autoWithdraw.intervalOptionLabels[0], hours: 6 },
+  { label: copy.autoWithdraw.intervalOptionLabels[1], hours: 12 },
+  { label: copy.autoWithdraw.intervalOptionLabels[2], hours: 24 },
+  { label: copy.autoWithdraw.intervalOptionLabels[3], hours: 48 },
+] as const
+
+function AutoWithdrawSection({ stream }: { stream: import('@/types/stream').StreamData }) {
+  const { settings, updateSettings, lastAutoWithdraw, autoWithdrawPending, withdrawalHistory } =
+    useAutoWithdraw(stream)
+  const [minDisplay, setMinDisplay] = useState('')
+  const [maxDisplay, setMaxDisplay] = useState('')
+  const [showHistory, setShowHistory] = useState(false)
+
+  const STRATEGY_OPTIONS: Array<{
+    value: import('@/hooks/use-auto-withdraw').WithdrawStrategy
+    label: string
+    description: string
+  }> = [
+    {
+      value: 'time-based',
+      ...copy.autoWithdraw.strategies.timeBased,
+    },
+    {
+      value: 'threshold-based',
+      ...copy.autoWithdraw.strategies.thresholdBased,
+    },
+    {
+      value: 'gas-optimized',
+      ...copy.autoWithdraw.strategies.gasOptimized,
+    },
+    {
+      value: 'max',
+      ...copy.autoWithdraw.strategies.max,
+    },
+  ]
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Timer className="size-4 text-muted-foreground" />
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            {copy.autoWithdraw.title}
+          </h2>
+        </div>
+        <label className="relative inline-flex cursor-pointer items-center">
+          <input
+            type="checkbox"
+            checked={settings.enabled}
+            onChange={(e) => updateSettings({ enabled: e.target.checked })}
+            className="peer sr-only"
+            aria-label={copy.autoWithdraw.enableAriaLabel}
+          />
+          <div className="h-5 w-9 rounded-full bg-muted peer-checked:bg-primary transition-colors after:absolute after:left-[2px] after:top-[2px] after:size-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
+        </label>
+      </div>
+
+      {settings.enabled && (
+        <div className="space-y-4 pt-1">
+          <p className="text-xs text-muted-foreground">{copy.autoWithdraw.helpText}</p>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">{copy.autoWithdraw.strategyLabel}</Label>
+            <div className="space-y-2">
+              {STRATEGY_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => updateSettings({ strategy: opt.value })}
+                  aria-pressed={settings.strategy === opt.value}
+                  className={
+                    'w-full text-left p-3 rounded-lg border transition-colors ' +
+                    (settings.strategy === opt.value
+                      ? 'border-primary bg-primary/10'
+                      : 'border-border hover:border-primary/50')
+                  }
+                >
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="text-xs text-muted-foreground">{opt.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {settings.strategy === 'time-based' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">{copy.autoWithdraw.frequencyLabel}</Label>
+              <div className="flex flex-wrap gap-2">
+                {INTERVAL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.hours}
+                    type="button"
+                    onClick={() => updateSettings({ intervalHours: opt.hours })}
+                    aria-pressed={settings.intervalHours === opt.hours}
+                    className={
+                      'rounded-full border px-3 py-1 text-xs font-medium transition-colors ' +
+                      (settings.intervalHours === opt.hours
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border text-muted-foreground hover:border-primary hover:text-primary')
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {settings.strategy === 'threshold-based' && (
+            <div className="space-y-1.5">
+              <Label htmlFor="threshold" className="text-xs">
+                {copy.autoWithdraw.thresholdLabel}
+              </Label>
+              <Input
+                id="threshold"
+                type="number"
+                min="1"
+                max="100"
+                value={settings.thresholdPercentage}
+                onChange={(e) =>
+                  updateSettings({
+                    thresholdPercentage: parseInt(e.target.value) || 50,
+                  })
+                }
+                className="max-w-48"
+              />
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="min-amount" className="text-xs">
+              {copy.autoWithdraw.minAmountLabel(stream.token.symbol)}
+            </Label>
+            <Input
+              id="min-amount"
+              type="number"
+              min="0"
+              step="any"
+              placeholder={copy.autoWithdraw.minAmountPlaceholder}
+              value={minDisplay}
+              onChange={(e) => {
+                setMinDisplay(e.target.value)
+                const raw = e.target.value
+                  ? safeParseTokenAmount(e.target.value, stream.token.decimals).toString()
+                  : '0'
+                updateSettings({ minAmountRaw: raw })
+              }}
+              className="max-w-48"
+            />
+            <p className="text-xs text-muted-foreground">{copy.autoWithdraw.minAmountHelp}</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="max-limit" className="text-xs">
+              {copy.autoWithdraw.maxLimitLabel(stream.token.symbol)}
+            </Label>
+            <Input
+              id="max-limit"
+              type="number"
+              min="0"
+              step="any"
+              placeholder={copy.autoWithdraw.maxLimitPlaceholder}
+              value={maxDisplay}
+              onChange={(e) => {
+                setMaxDisplay(e.target.value)
+                const raw = e.target.value
+                  ? safeParseTokenAmount(e.target.value, stream.token.decimals).toString()
+                  : '0'
+                updateSettings({ maxSafetyLimitRaw: raw })
+              }}
+              className="max-w-48"
+            />
+            <p className="text-xs text-muted-foreground">{copy.autoWithdraw.maxLimitHelp}</p>
+          </div>
+
+          {autoWithdrawPending && (
+            <p className="text-xs text-primary">{copy.autoWithdraw.autoWithdrawingStatus}</p>
+          )}
+          {lastAutoWithdraw && (
+            <p className="text-xs text-muted-foreground">
+              {copy.autoWithdraw.lastAutoWithdrawalPrefix}{' '}
+              {new Date(lastAutoWithdraw).toLocaleTimeString()}
+            </p>
+          )}
+
+          {withdrawalHistory.length > 0 && (
+            <div className="space-y-1.5 pt-2 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setShowHistory(!showHistory)}
+                className="text-xs text-primary hover:underline"
+                aria-expanded={showHistory}
+                aria-controls="stream-withdrawal-history"
+              >
+                {showHistory
+                  ? copy.autoWithdraw.hideHistoryButton
+                  : copy.autoWithdraw.showHistoryButton}{' '}
+                {copy.autoWithdraw.withdrawalHistorySuffix} ({withdrawalHistory.length})
+              </button>
+              {showHistory && (
+                <div id="stream-withdrawal-history" className="space-y-1 max-h-32 overflow-y-auto">
+                  {withdrawalHistory.map((entry, idx) => (
+                    <div
+                      key={idx}
+                      className="text-xs text-muted-foreground font-mono p-1.5 bg-secondary rounded"
+                    >
+                      <p>{new Date(entry.timestamp).toLocaleTimeString()}</p>
+                      <p className={entry.error ? 'text-destructive' : 'text-primary'}>
+                        {entry.error
+                          ? `${copy.autoWithdraw.historyErrorPrefix} ${entry.error}`
+                          : `${copy.autoWithdraw.historyWithdrewPrefix} ${entry.amount}`}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── TTL warning ───────────────────────────────────────────────────────────
+
+const TTL_DAYS = 30
+const WARN_DAYS = 7
+
+function estimateDaysSinceLastWrite(
+  stream: import('@/types/stream').StreamData,
+  nowSeconds: number,
+): number {
+  const now = BigInt(nowSeconds)
+  const lastWrite = stream.withdrawnAmount > 0n ? now : stream.cancelled ? now : stream.startTime
+  return Number(now - lastWrite) / SECONDS_PER_DAY
+}
+
+function TtlWarning({
+  stream,
+  nowSeconds,
+}: {
+  stream: import('@/types/stream').StreamData
+  nowSeconds: number
+}) {
+  const { address } = useWallet()
+  const { network } = useNetwork()
+  const [bumping, setBumping] = useState(false)
+  const [bumped, setBumped] = useState(false)
+
+  const daysSinceWrite = estimateDaysSinceLastWrite(stream, nowSeconds)
+  const estimatedDaysLeft = TTL_DAYS - daysSinceWrite
+
+  if (bumped || estimatedDaysLeft > WARN_DAYS || estimatedDaysLeft < 0) return null
+
+  async function handleBump() {
+    if (!address) return
+    setBumping(true)
+    try {
+      await bumpStreamTtl(network, stream.id, address)
+      setBumped(true)
+      toast.success(copy.ttlWarning.successToast)
+    } catch {
+      toast.error(copy.ttlWarning.errorToast)
+    } finally {
+      setBumping(false)
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-3 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-4">
+      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-yellow-500" />
+      <div className="flex-1 space-y-1">
+        <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
+          {copy.ttlWarning.title}
+        </p>
+        <p className="text-xs text-yellow-600 dark:text-yellow-400/80">
+          {copy.ttlWarning.body(
+            Math.max(0, Math.floor(estimatedDaysLeft)),
+            Math.floor(estimatedDaysLeft) !== 1,
+          )}
+        </p>
+        {address && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleBump}
+            disabled={bumping}
+            className="mt-2 border-yellow-500/40 text-yellow-700 hover:bg-yellow-500/10 dark:text-yellow-400"
+          >
+            {bumping ? copy.ttlWarning.extendingButton : copy.ttlWarning.extendTtlButton}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Rate display ──────────────────────────────────────────────────────────
+
+function RateDisplay({ stream }: { stream: import('@/types/stream').StreamData }) {
+  const [expanded, setExpanded] = useState(false)
+  const rate = formatRate(stream.linearAmount, stream.duration, stream.token.decimals, stream.token.symbol)
+
+  return (
+    <div className="text-right">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls="rate-breakdown"
+        onClick={() => setExpanded((v) => !v)}
+        className="font-mono text-sm font-medium text-primary hover:underline"
+      >
+        {rate.best}
+      </button>
+      {expanded && (
+        <div
+          id="rate-breakdown"
+          className="mt-1 space-y-0.5 text-xs text-muted-foreground font-mono"
+        >
+          <p>{rate.perMinute}</p>
+          <p>{rate.perHour}</p>
+          <p>{rate.perDay}</p>
+          <p>{rate.perMonth}</p>
+          <p>{rate.perYear}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Delegate management card (issue #1142, depends on ADR-008 / #1141) ─────
+
+function DelegateCard({
+  stream,
+  isRecipient,
+}: {
+  stream: import('@/types/stream').StreamData
+  isRecipient: boolean
+}) {
+  const { setDelegate, removeDelegate, getDelegate, pending } = useContract()
+  const [delegate, setDelegateValue] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [addressInput, setAddressInput] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    getDelegate(stream.id).then((d) => {
+      if (active) {
+        setDelegateValue(d)
+        setLoading(false)
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [getDelegate, stream.id])
+
+  async function handleSet() {
+    const trimmed = addressInput.trim()
+    if (!trimmed) return
+    setBusy(true)
+    try {
+      await setDelegate(stream.id, trimmed)
+      setDelegateValue(trimmed)
+      setEditing(false)
+      setAddressInput('')
+    } catch {
+      // useContract already surfaces an error toast.
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRemove() {
+    setBusy(true)
+    try {
+      await removeDelegate(stream.id)
+      setDelegateValue(null)
+    } catch {
+      // useContract already surfaces an error toast.
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (loading) return null
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-6 space-y-4">
+      <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+        {copy.delegate.title}
+      </h2>
+
+      {delegate ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/50 p-3">
+            <span className="font-mono text-sm">{shortenAddress(delegate)}</span>
+            {isRecipient && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRemove}
+                disabled={busy || pending}
+              >
+                {busy ? copy.delegate.removingButton : copy.delegate.removeButton}
+              </Button>
+            )}
+          </div>
+          <div className="flex items-start gap-3 rounded-xl border border-yellow-500/40 bg-yellow-500/10 p-3">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-yellow-500" />
+            <p className="text-xs text-yellow-700 dark:text-yellow-400">
+              {copy.delegate.lockoutWarning}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">{copy.delegate.emptyHelpText}</p>
+          {isRecipient &&
+            (editing ? (
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  value={addressInput}
+                  onChange={(e) => setAddressInput(e.target.value)}
+                  placeholder={copy.delegate.addressPlaceholder}
+                  className="min-w-0 flex-1 font-mono text-sm"
+                  aria-label={copy.delegate.addressPlaceholder}
+                />
+                <Button
+                  size="sm"
+                  onClick={handleSet}
+                  disabled={busy || pending || !addressInput.trim()}
+                >
+                  {busy ? copy.delegate.settingButton : copy.delegate.setButton}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditing(false)
+                    setAddressInput('')
+                  }}
+                >
+                  {copy.delegate.cancelButton}
+                </Button>
+              </div>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                {copy.delegate.setButton}
+              </Button>
+            ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Stream detail skeleton ──────────────────────────────────────────────────
+
+function StreamDetailSkeleton() {
+  return (
+    <div className="mx-auto max-w-2xl space-y-6 animate-pulse">
+      {/* Back bar */}
+      <div className="flex items-center justify-between">
+        <div className="h-4 w-24 rounded bg-muted" />
+        <div className="h-4 w-12 rounded bg-muted" />
+      </div>
+      {/* Header card */}
+      <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-xl bg-muted" />
+            <div className="space-y-1.5">
+              <div className="h-4 w-36 rounded bg-muted" />
+              <div className="h-3 w-20 rounded bg-muted" />
+            </div>
+          </div>
+          <div className="h-5 w-16 rounded-full bg-muted" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-3 w-24 rounded bg-muted" />
+          <div className="h-9 w-48 rounded bg-muted" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-2 w-full rounded-full bg-muted" />
+          <div className="flex justify-between">
+            <div className="h-3 w-20 rounded bg-muted" />
+            <div className="h-3 w-32 rounded bg-muted" />
+          </div>
+        </div>
+      </div>
+      {/* Details card */}
+      <div className="rounded-2xl border border-border bg-card p-6 space-y-3">
+        <div className="h-3.5 w-16 rounded bg-muted" />
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="flex justify-between py-2 border-b border-border last:border-0">
+            <div className="h-3.5 w-20 rounded bg-muted" />
+            <div className="h-3.5 w-32 rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Main page ───────────────────────────────────────────────────────────────
+
+function ShareButtons({
+  stream,
+  status,
+}: {
+  stream: import('@/types/stream').StreamData
+  status: import('@/types/stream').StreamStatus
+}) {
+  const streamId = stream.id
+  const [showQr, setShowQr] = useState(false)
+
+  const streamUrl =
+    typeof window !== 'undefined' ? window.location.href : `${SITE_URL}/app/stream/${streamId}`
+  const shareText = copy.shareButtons.shareText(streamId)
+
+  function copyLink() {
+    navigator.clipboard.writeText(streamUrl)
+    toast.success(copy.shareButtons.linkCopiedToast)
+  }
+
+  function shareToTwitter() {
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(streamUrl)}`
+    window.open(url, '_blank', 'width=550,height=420')
+  }
+
+  function shareToTelegram() {
+    const url = `https://t.me/share/url?url=${encodeURIComponent(streamUrl)}&text=${encodeURIComponent(shareText)}`
+    window.open(url, '_blank', 'width=550,height=420')
+  }
+
+  return (
+    <div className="relative">
+      {/* Issue #685: DropdownMenu (Base UI) gives us click-outside, Escape,
+          aria-expanded/aria-haspopup, and focus return to the trigger for free. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            aria-label={copy.shareButtons.shareAriaLabel}
+          >
+            <Share2 className="size-4" />
+            {copy.shareButtons.shareButton}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onClick={copyLink}>
+            <LinkIcon className="size-4 mr-2" />
+            <span>{copy.shareButtons.copyLinkButton}</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={shareToTwitter}>
+            <svg className="size-4 mr-2" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M23 3a10.9 10.9 0 01-3.14 1.53 4.48 4.48 0 00-7.86 3v1A10.66 10.66 0 013 4s-4 9 5 13a11.64 11.64 0 01-7 2s9 5 20 5a9.5 9.5 0 00-9-5.5c4.75 2.25 7-7 7-7" />
+            </svg>
+            <span>{copy.shareButtons.twitterButton}</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={shareToTelegram}>
+            <MessageCircle className="size-4 mr-2" />
+            <span>{copy.shareButtons.telegramButton}</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setShowQr(true)}>
+            <QrCode className="size-4 mr-2" />
+            <span>{copy.shareButtons.qrButton}</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Issue #153: QR code sharing modal */}
+      <QrShareDialog
+        open={showQr}
+        onOpenChange={setShowQr}
+        streamUrl={streamUrl}
+        stream={stream}
+        status={status}
+      />
+    </div>
+  )
+}
+
+function ConnectPrompt() {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-border bg-card p-4">
+      <Wallet className="size-5 shrink-0 text-muted-foreground" />
+      <p className="text-sm text-muted-foreground flex-1">{copy.connectPrompt.body}</p>
+      <ConnectWalletButton />
+    </div>
+  )
+}
 
 function StreamDetail({ id }: { id: string }) {
   const { stream, loading } = useStream(id)
   const { address, isConnected } = useWallet()
   const { network } = useNetwork()
   const router = useRouter()
-  const now = useNow(1000)
+  const now = useNow(stream?.cancelled ? null : 1000)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [topUpOpen, setTopUpOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [reclaimOpen, setReclaimOpen] = useState(false)
   const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [editMetadataOpen, setEditMetadataOpen] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
   const isCancelling = useIsStreamCancelling(id)
+  // Issue #1144: contract-wide pause flag, shared with every write action.
+  const { paused } = useContract()
 
   if (loading) {
     return <StreamDetailSkeleton />
@@ -76,12 +1606,29 @@ function StreamDetail({ id }: { id: string }) {
   const isSender = address === stream.sender
   const canWithdraw = isRecipient && !stream.cancelled && withdrawable > 0n
   const canCancel = isSender && !stream.cancelled && status !== 'completed' && !isCancelling
+  // Issue #1136: sender can top up any stream that isn't cancelled or ended.
+  const canTopUp = isSender && !stream.cancelled && status !== 'completed'
+  // Issue #1140: reclaim ("partial cancel") is only meaningful while there's
+  // still a locked balance to pull back and the stream hasn't been
+  // fully/cancel-terminated.
+  const canPartialCancel =
+    isSender &&
+    !stream.cancelled &&
+    status !== 'completed' &&
+    !isCancelling &&
+    getLockedAmount(stream, now) > 0n
   // Issue #689: eligible for cleanup once terminal — cancelled, or fully
   // withdrawn past end_time — mirroring the contract's own eligibility check.
   const canCleanup =
     (isSender || isRecipient) &&
     (stream.cancelled ||
       (status === 'completed' && stream.withdrawnAmount >= stream.depositedAmount))
+  // Issue #1143: the sender can edit metadata at any time, paused or not
+  // excluded (the write itself is blocked while paused; see useContract).
+  const canEditDetails = isSender
+  // Issue #1138: only the current recipient, and only while the stream is
+  // still active, can reassign it.
+  const canTransfer = isRecipient && !stream.cancelled
 
   function handleDuplicate() {
     if (!stream) return
@@ -237,10 +1784,16 @@ function StreamDetail({ id }: { id: string }) {
         )}
 
         {/* Actions */}
-        {(canWithdraw || canCancel || canCleanup || isSender) && (
+        {(canWithdraw || canCancel || canTopUp || canCleanup || isSender) && (
+        {(canWithdraw || canCancel || canCleanup || canTransfer || isSender) && (
+        {(canWithdraw || canCancel || canPartialCancel || canCleanup || isSender) && (
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
             {canWithdraw && (
-              <Button onClick={() => setWithdrawOpen(true)} className="gap-1.5">
+              <Button
+                onClick={() => setWithdrawOpen(true)}
+                disabled={paused}
+                className="gap-1.5"
+              >
                 <ArrowDownLeft className="size-4" />
                 {copy.header.withdrawButton}{' '}
                 <span className="font-mono">
@@ -248,9 +1801,28 @@ function StreamDetail({ id }: { id: string }) {
                 </span>
               </Button>
             )}
+            {canTopUp && (
+              <Button variant="outline" onClick={() => setTopUpOpen(true)} className="gap-1.5">
+                <Plus className="size-4" />
+                {copy.header.topUpButton}
+              </Button>
+            )}
             {canCancel && (
-              <Button variant="secondary" onClick={() => setCancelOpen(true)}>
+              <Button variant="secondary" onClick={() => setCancelOpen(true)} disabled={paused}>
                 {copy.header.cancelStreamButton}
+              </Button>
+            )}
+            {canTransfer && (
+              <Button variant="secondary" onClick={() => setTransferOpen(true)} disabled={paused}>
+                {copy.header.transferStreamButton}
+              </Button>
+            )}
+            {canEditDetails && (
+              <Button variant="outline" onClick={() => setEditMetadataOpen(true)} disabled={paused}>
+                {copy.header.editDetailsButton}
+            {canPartialCancel && (
+              <Button variant="outline" onClick={() => setReclaimOpen(true)}>
+                {copy.header.reclaimFundsButton}
               </Button>
             )}
             <DownloadReceiptButton stream={stream} />
@@ -271,6 +1843,9 @@ function StreamDetail({ id }: { id: string }) {
               </Button>
             )}
           </div>
+        )}
+        {paused && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">{copy.header.pausedNotice}</p>
         )}
       </div>
 
@@ -295,6 +1870,11 @@ function StreamDetail({ id }: { id: string }) {
         <AutoWithdrawSection stream={stream} />
       )}
 
+      {/* Delegate management (issue #1142): visible to both parties, recipient manages it */}
+      {(isSender || isRecipient) && !stream.cancelled && (
+        <DelegateCard stream={stream} isRecipient={isRecipient} />
+      )}
+
       {/* Dialogs */}
       <WithdrawDialog
         open={withdrawOpen}
@@ -303,12 +1883,36 @@ function StreamDetail({ id }: { id: string }) {
         withdrawable={withdrawable}
         token={stream.token}
       />
+      <TopUpDialog
+        open={topUpOpen}
+        onClose={() => setTopUpOpen(false)}
+        streamId={stream.id}
+        stream={stream}
+      />
       <CancelDialog open={cancelOpen} onClose={() => setCancelOpen(false)} streamId={stream.id} />
+      <ReclaimDialog
+        open={reclaimOpen}
+        onClose={() => setReclaimOpen(false)}
+        streamId={stream.id}
+        stream={stream}
+        nowSeconds={now}
+      />
       <CleanupDialog
         open={cleanupOpen}
         onClose={() => setCleanupOpen(false)}
         streamId={stream.id}
         onCleaned={() => router.push('/app')}
+      />
+      <EditMetadataDialog
+        open={editMetadataOpen}
+        onClose={() => setEditMetadataOpen(false)}
+        streamId={stream.id}
+        metadata={stream.metadata}
+      />
+      <TransferDialog
+        open={transferOpen}
+        onClose={() => setTransferOpen(false)}
+        streamId={stream.id}
       />
     </div>
   )

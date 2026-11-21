@@ -7,23 +7,17 @@ export interface AddressBookEntry {
   federationAddress?: string
 }
 
+import { readJSON, writeJSON } from './storage'
+
 const STORAGE_KEY = 'flowstar:address-book'
 
 function readEntries(): AddressBookEntry[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY)
-    if (!stored) return []
-    const parsed = JSON.parse(stored) as AddressBookEntry[]
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
+  const parsed = readJSON<AddressBookEntry[]>(STORAGE_KEY, [])
+  return Array.isArray(parsed) ? parsed : []
 }
 
 function writeEntries(entries: AddressBookEntry[]) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, 50)))
+  writeJSON(STORAGE_KEY, entries.slice(0, 50))
 }
 
 /**

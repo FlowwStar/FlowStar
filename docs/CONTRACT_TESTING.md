@@ -239,9 +239,33 @@ regressions before they are deployed:
 
 The benchmarks cover: `create_stream` (with and without cliff), `withdraw`
 (25 % and 100 % progress), `cancel` (10 %, 50 %, 99 % progress),
-`transfer_stream`, `top_up` (at start and mid-stream), paginated
-`get_sent_streams` / `get_received_streams` (10 and 100 streams),
-`get_withdrawable`, and `get_stream`.
+`partial_cancel` (pre-cliff and post-cliff rate-recompute paths, plus 99 %
+progress), `transfer_stream`, `top_up` (at start and mid-stream),
+`create_streams_batch` at its maximum size (`MAX_BATCH_SIZE` = 20 streams —
+the single most expensive call in the contract, since it repeats the full
+`create_stream` validation + index-update path up to 20 times in one
+transaction), paginated `get_sent_streams` / `get_received_streams` (10 and
+100 streams), `get_withdrawable`, and `get_stream`.
+
+#### Cost profile notes (issue #1134)
+
+- `partial_cancel` does strictly more work than a plain `cancel`: `cancel`
+  only flips a boolean flag, while `partial_cancel` recomputes
+  `linear_amount` / `duration` / `amount_per_second` and performs a token
+  transfer back to the sender — expect it to land closer to `withdraw` than
+  to `cancel` in CPU cost.
+- `create_streams_batch` at `MAX_BATCH_SIZE` (20) is expected to be the
+  **largest** number in the whole report: each stream in the batch pays the
+  full single-`create_stream` cost (param validation, token transfer,
+  storage write, sender + recipient index updates), so the total scales
+  roughly linearly — approximately 20× a single `create_stream (no cliff)`
+  measurement. This is the first benchmark to check against the 70 M
+  instruction "investigate before merging" threshold above, since it has the
+  least headroom of any call in the contract.
+- Exact `cpu=`/`mem=` figures depend on the `soroban-sdk` version and host
+  machine; run `cargo test --package flowstar-streaming bench -- --nocapture`
+  locally (from `contracts/`) to capture current numbers before comparing
+  against the thresholds above.
 
 ---
 

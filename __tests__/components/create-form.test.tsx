@@ -170,6 +170,39 @@ describe('CreateForm — validation', () => {
     })
   })
 
+  describe('hook dependency hygiene (issue #1164)', () => {
+    it('validation observes the latest field values (no stale closure)', async () => {
+      render(<CreateForm />)
+
+      // First submit with an empty form: both errors should appear.
+      submitForm()
+
+      await waitFor(() => {
+        expect(screen.getByText('Invalid Stellar address format')).toBeInTheDocument()
+        expect(screen.getByText('Enter a valid amount greater than 0')).toBeInTheDocument()
+      })
+
+      // Now update the fields the validation callback depends on.
+      fireEvent.change(screen.getByPlaceholderText(/GABC/i), {
+        target: { value: VALID_ADDRESS },
+      })
+      fireEvent.change(screen.getByLabelText(/total amount/i), {
+        target: { value: '100' },
+      })
+
+      // Re-submit: the callback must see the updated values, not the
+      // values captured on the first render.
+      submitForm()
+
+      await waitFor(() => {
+        expect(screen.queryByText('Invalid Stellar address format')).not.toBeInTheDocument()
+        expect(
+          screen.queryByText('Enter a valid amount greater than 0'),
+        ).not.toBeInTheDocument()
+      })
+    })
+  })
+
   describe('cliff amount exceeds total amount', () => {
     it('shows cliff-exceeds-total error when cliff amount > total amount', async () => {
       render(<CreateForm />)
