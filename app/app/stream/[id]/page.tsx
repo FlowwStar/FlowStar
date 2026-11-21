@@ -76,6 +76,21 @@ import { getFederationNameForAddress } from '@/lib/address-book'
 import { QrShareDialog } from '@/components/streams/qr-share-dialog'
 import { streamDetailCopy as copy } from '@/lib/copy/stream-detail'
 
+/**
+ * Parses user-typed amount input, treating anything `parseTokenAmount`
+ * rejects (negative, malformed, e.g. a lone "-" mid-typing) as `0n` instead
+ * of throwing — these inputs are live-typed values, not submitted forms, so
+ * a bad keystroke should fall back to "invalid amount" (handled by the
+ * existing `parsed <= 0n` checks) rather than crash the component.
+ */
+function safeParseTokenAmount(value: string, decimals: number): bigint {
+  try {
+    return parseTokenAmount(value, decimals)
+  } catch {
+    return 0n
+  }
+}
+
 // ─── Address copy button ────────────────────────────────────────────────────
 
 function CopyableAddress({
@@ -163,7 +178,7 @@ function WithdrawDialog({
   const [showFeeEstimate, setShowFeeEstimate] = useState(false)
 
   const max = formatTokenAmount(withdrawable, token.decimals, token.decimals)
-  const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
+  const parsed = inputAmount ? safeParseTokenAmount(inputAmount, token.decimals) : 0n
   const invalid = parsed <= 0n || parsed > withdrawable
 
   // Calculate estimated fees
@@ -545,7 +560,7 @@ function AutoWithdrawSection({ stream }: { stream: import('@/types/stream').Stre
               onChange={(e) => {
                 setMinDisplay(e.target.value)
                 const raw = e.target.value
-                  ? parseTokenAmount(e.target.value, stream.token.decimals).toString()
+                  ? safeParseTokenAmount(e.target.value, stream.token.decimals).toString()
                   : '0'
                 updateSettings({ minAmountRaw: raw })
               }}
@@ -568,7 +583,7 @@ function AutoWithdrawSection({ stream }: { stream: import('@/types/stream').Stre
               onChange={(e) => {
                 setMaxDisplay(e.target.value)
                 const raw = e.target.value
-                  ? parseTokenAmount(e.target.value, stream.token.decimals).toString()
+                  ? safeParseTokenAmount(e.target.value, stream.token.decimals).toString()
                   : '0'
                 updateSettings({ maxSafetyLimitRaw: raw })
               }}
@@ -704,7 +719,7 @@ function TtlWarning({
 
 function RateDisplay({ stream }: { stream: import('@/types/stream').StreamData }) {
   const [expanded, setExpanded] = useState(false)
-  const rate = formatRate(stream.amountPerSecond, stream.token.decimals, stream.token.symbol)
+  const rate = formatRate(stream.linearAmount, stream.duration, stream.token.decimals, stream.token.symbol)
 
   return (
     <div className="text-right">
