@@ -12,6 +12,12 @@ vi.mock('@/components/providers/network-provider', () => ({
 
 vi.mock('@/hooks/use-streams', () => ({ invalidateStreams: vi.fn() }))
 
+// Issue #1144: the pause flag is its own hook (polling is tested separately
+// in use-contract-paused.test.ts) — stub it here so useContract's tests
+// aren't exercising live polling/timers.
+const mockUseContractPaused = vi.hoisted(() => vi.fn(() => false))
+vi.mock('@/hooks/use-contract-paused', () => ({ useContractPaused: mockUseContractPaused }))
+
 vi.mock('sonner', () => ({
   toast: {
     loading: vi.fn(() => 'toast-id'),
@@ -28,6 +34,8 @@ vi.mock('@/lib/contract', () => ({
   cancelStream: vi.fn(),
   partialCancelStream: vi.fn(),
   estimateCreateStreamFee: vi.fn(),
+  updateStreamMetadata: vi.fn(),
+  transferStream: vi.fn(),
 }))
 
 import {
@@ -37,6 +45,8 @@ import {
   cancelStream,
   partialCancelStream,
   estimateCreateStreamFee,
+  updateStreamMetadata,
+  transferStream,
 } from '@/lib/contract'
 import { useContract } from '@/hooks/use-contract'
 import type { CreateStreamInput, StreamData } from '@/types/stream'
@@ -83,6 +93,7 @@ const makeStream = (id = '1', recipient = 'GRCPT'): StreamData => ({
 describe('useContract', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUseContractPaused.mockReturnValue(false)
     mockUseWallet.mockReturnValue({ address: 'GSENDER', isConnected: true })
     vi.mocked(createStream).mockResolvedValue('new-stream-id')
     vi.mocked(withdrawFromStream).mockResolvedValue('tx-hash-withdraw')
@@ -93,6 +104,8 @@ describe('useContract', () => {
       estimatedFee: 115_000,
       estimatedFeeXlm: '0.0115',
     })
+    vi.mocked(updateStreamMetadata).mockResolvedValue('tx-hash-metadata')
+    vi.mocked(transferStream).mockResolvedValue('tx-hash-transfer')
   })
 
   // ── initial state ──────────────────────────────────────────────────────────
@@ -188,6 +201,51 @@ describe('useContract', () => {
     expect(cancelStream).toHaveBeenCalledWith('55', 'testnet', expect.any(Function))
   })
 
+  // ── updateMetadata (issue #1143) ──────────────────────────────────────────
+
+  it('calls updateStreamMetadata with correct id and metadata', async () => {
+    const { result } = renderHook(() => useContract())
+    const metadata = { name: 'Q3 Salary', category: 'payroll', memo: 'note' }
+    await act(async () => {
+      await result.current.updateMetadata('42', metadata)
+    })
+    expect(updateStreamMetadata).toHaveBeenCalledWith(
+      '42',
+      metadata,
+      'testnet',
+      expect.any(Function),
+    )
+  })
+
+  // ── transfer (issue #1138) ─────────────────────────────────────────────────
+
+  it('calls transferStream with correct id and new recipient', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.transfer('42', 'GNEWRECIPIENT')
+    })
+    expect(transferStream).toHaveBeenCalledWith(
+      '42',
+      'GNEWRECIPIENT',
+      'testnet',
+      expect.any(Function),
+    )
+  })
+
+  // ── paused (issue #1144) ───────────────────────────────────────────────────
+
+  it('exposes paused=false by default', () => {
+    const { result } = renderHook(() => useContract())
+    expect(result.current.paused).toBe(false)
+  })
+
+  it('blocks writes and throws when the contract is paused', async () => {
+    mockUseContractPaused.mockReturnValue(true)
+    const { result } = renderHook(() => useContract())
+    expect(result.current.paused).toBe(true)
+
+    await expect(act(() => result.current.withdraw('1', 100n))).rejects.toThrow(/paused/i)
+    expect(withdrawFromStream).not.toHaveBeenCalled()
   // ── partialCancel ──────────────────────────────────────────────────────────
 
   it('calls partialCancelStream with correct id and amount', async () => {

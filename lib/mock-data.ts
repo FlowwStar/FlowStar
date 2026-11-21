@@ -1,4 +1,4 @@
-import type { CreateStreamInput, StreamData } from '@/types/stream'
+import type { CreateStreamInput, StreamData, StreamMetadata } from '@/types/stream'
 import { NETWORKS } from '@/lib/stellar'
 import { SECONDS_PER_DAY, getUnlockedAmount } from '@/lib/stream-utils'
 
@@ -155,6 +155,14 @@ export const mockStore = {
     streams = streams.map((s) => (s.id === id ? { ...s, cancelled: true } : s))
     emit()
   },
+  /** Issue #1143: update a stream's name/category/memo at any time. */
+  updateMetadata(id: string, metadata: StreamMetadata) {
+    streams = streams.map((s) => (s.id === id ? { ...s, metadata } : s))
+    emit()
+  },
+  /** Issue #1138: reassign a stream's recipient. */
+  transfer(id: string, newRecipient: string) {
+    streams = streams.map((s) => (s.id === id ? { ...s, recipient: newRecipient } : s))
   /**
    * Issue #1139/#1140: reclaim `amount` of a stream's still-locked balance
    * back to the sender while leaving the stream active. Mirrors the

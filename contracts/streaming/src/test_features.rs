@@ -1,4 +1,4 @@
-//! Tests for issues #1099, #1101, #1102, #1103.
+//! Tests for issues #1099, #1101, #1102, #1103, #1133.
 //!
 //! Each section is labelled with its issue number so reviewers can map a
 //! failing test directly back to the requirement it covers.
@@ -12,7 +12,7 @@ use soroban_sdk::{
     vec, Address, BytesN, Env, IntoVal,
 };
 
-use crate::{DataKey, StreamError, StreamingContract, StreamingContractClient};
+use crate::{CreateStreamParams, DataKey, StreamError, StreamingContract, StreamingContractClient};
 
 // ─── Shared test harness ──────────────────────────────────────────────────────
 
@@ -21,6 +21,9 @@ struct Ctx {
     env: Env,
     contract_id: Address,
     admin: Address,
+    token_id: Address,
+    sender: Address,
+    recipient: Address,
 }
 
 impl Ctx {
@@ -35,10 +38,24 @@ impl Ctx {
             .initialize(&admin)
             .unwrap();
 
+        // Deploy a minimal SAC-compatible token and fund `sender` for the
+        // streaming tests (issue #1133).
+        let token_admin = Address::generate(&env);
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        soroban_sdk::token::StellarAssetClient::new(&env, &token_id)
+            .mint(&sender, &10_000_000i128);
+
         Ctx {
             env,
             contract_id,
             admin,
+            token_id,
+            sender,
+            recipient,
         }
     }
 
@@ -46,8 +63,25 @@ impl Ctx {
         StreamingContractClient::new(&self.env, &self.contract_id)
     }
 
+    fn token(&self) -> soroban_sdk::token::TokenClient<'_> {
+        soroban_sdk::token::TokenClient::new(&self.env, &self.token_id)
+    }
+
     fn set_time(&self, ts: u64) {
         self.env.ledger().with_mut(|l| l.timestamp = ts);
+    }
+
+    /// Approve the contract to pull `amount` from `sender`'s token balance.
+    /// `approve` overwrites (does not add to) the existing allowance, so this
+    /// must be called again before every transfer that needs fresh headroom
+    /// (e.g. before both `create_stream` and a later `top_up`).
+    fn approve(&self, amount: i128) {
+        self.token().approve(
+            &self.sender,
+            &self.contract_id,
+            &amount,
+            &(self.env.ledger().sequence() + 500),
+        );
     }
 
     /// Generate a dummy 32-byte WASM hash for upgrade tests.
@@ -317,4 +351,77 @@ fn test_new_admin_can_pause_after_transfer() {
     // New admin can pause.
     ctx.client().pause().unwrap();
     assert!(ctx.client().is_paused());
+}
+
+// ─── Issue #1133 — top_up then partial_cancel preserves unlocked amount ──────
+
+/// Both `top_up` and `partial_cancel` re-anchor the vesting schedule (they
+/// reset `cliff_time`/`start_time` to `now` and fold the already-unlocked
+/// amount into the new `cliff_amount`). Chaining them mid-stream must not
+/// disturb the amount that was already unlocked at that instant, and the
+/// deposited total at `end_time` must reflect both adjustments exactly
+/// (`initial + top_up - partial_cancel`).
+#[test]
+fn test_top_up_then_partial_cancel_preserves_unlocked_amount() {
+    let ctx = Ctx::setup();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+
+    let initial = 1_000_000i128;
+    let top_up_amount = 500_000i128;
+    let cancel_amount = 200_000i128;
+
+    let params = CreateStreamParams {
+        recipient: ctx.recipient.clone(),
+        token: ctx.token_id.clone(),
+        total_amount: initial,
+        start_time: now,
+        end_time: now + 1000,
+        cliff_time: now,
+        cliff_amount: 0,
+    };
+
+    ctx.approve(initial);
+    let id = ctx.client().create_stream(&ctx.sender, &params).unwrap();
+
+    // Mid-stream: record the withdrawable (unlocked - withdrawn) amount
+    // before either operation.
+    ctx.set_time(now + 300);
+    let withdrawable_before = ctx.client().get_withdrawable(&id).unwrap();
+    assert!(withdrawable_before > 0, "sanity: some amount must already be unlocked");
+
+    // Top up — re-anchors the schedule. `approve` overwrites the allowance,
+    // so it must be called again for the new transfer.
+    ctx.approve(top_up_amount);
+    ctx.client().top_up(&id, &top_up_amount).unwrap();
+
+    let withdrawable_after_top_up = ctx.client().get_withdrawable(&id).unwrap();
+    assert_eq!(
+        withdrawable_after_top_up, withdrawable_before,
+        "top_up must not change the amount already unlocked at this instant"
+    );
+
+    // Partial-cancel part of what remains locked — re-anchors again.
+    let stream_after_top_up = ctx.client().get_stream(&id).unwrap();
+    let locked = stream_after_top_up.deposited_amount - withdrawable_after_top_up;
+    assert!(cancel_amount <= locked, "sanity: cancel amount must fit within the locked balance");
+    ctx.client().partial_cancel(&id, &cancel_amount).unwrap();
+
+    let withdrawable_after_cancel = ctx.client().get_withdrawable(&id).unwrap();
+    assert_eq!(
+        withdrawable_after_cancel, withdrawable_before,
+        "partial_cancel must not change the amount already unlocked at this instant"
+    );
+
+    // The deposited total must equal initial + top_up - cancelled.
+    let stream_final = ctx.client().get_stream(&id).unwrap();
+    let expected_deposited = initial + top_up_amount - cancel_amount;
+    assert_eq!(stream_final.deposited_amount, expected_deposited);
+
+    // At end_time, with nothing withdrawn, the withdrawable amount must equal
+    // the full (adjusted) deposited total.
+    ctx.set_time(stream_final.end_time);
+    let withdrawable_at_end = ctx.client().get_withdrawable(&id).unwrap();
+    assert_eq!(withdrawable_at_end, expected_deposited);
+    assert_eq!(withdrawable_at_end, stream_final.deposited_amount);
 }

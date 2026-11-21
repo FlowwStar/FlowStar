@@ -38,6 +38,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { StreamData, TokenInfo } from '@/types/stream'
@@ -48,6 +49,10 @@ import { Suspense } from 'react'
 const SENDER_ADDRESS = 'GSENDER111AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const RECIPIENT_ADDRESS = 'GRCPT222AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const OTHER_ADDRESS = 'GOTHER333AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
+// A syntactically valid-shaped (56-char, G-prefixed) address for the
+// transfer dialog tests — doesn't need to match the mocked `validateStellarAddress`'s
+// real checksum logic, only its mocked shape check below.
+const NEW_RECIPIENT_ADDRESS = 'G' + 'A'.repeat(55)
 const NOW_SEC = 1_700_050_000
 
 const USDC: TokenInfo = { address: 'CUSDC', symbol: 'USDC', decimals: 6 }
@@ -187,10 +192,19 @@ vi.mock('@/lib/contract', () => ({
 
 vi.mock('@/lib/address-book', () => ({
   getFederationNameForAddress: vi.fn(() => null),
+  getAddressBookEntries: vi.fn(() => []),
+}))
+
+vi.mock('@/lib/federation', () => ({
+  isFederationAddress: vi.fn((value: string) => value.includes('*')),
+  resolveFederationAddress: vi.fn(),
 }))
 
 vi.mock('@/lib/stellar', () => ({
   explorerUrl: vi.fn(() => 'https://stellar.expert/testnet/account/test'),
+  validateStellarAddress: vi.fn((value: string) =>
+    /^G[A-Z0-9]{55}$/.test(value) ? { valid: true } : { valid: false, reason: 'format' },
+  ),
 }))
 
 vi.mock('sonner', () => ({
@@ -264,8 +278,11 @@ beforeEach(() => {
     cancel: vi.fn(),
     partialCancel: mockPartialCancel,
     cleanup: vi.fn(),
+    updateMetadata: vi.fn(),
+    transfer: vi.fn(),
     pending: false,
     error: null,
+    paused: false,
   })
 
   mockUseUndoableCancel.mockReturnValue({
@@ -467,6 +484,199 @@ describe('sender actions', () => {
     await renderPage('stream-abc')
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /^withdraw/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it('renders the "Edit details" button for the sender', async () => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /edit details/i })).toBeInTheDocument()
+    })
+  })
+
+  it('does not render the "Transfer" button for the sender', async () => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^transfer$/i })).not.toBeInTheDocument()
+    })
+  })
+})
+
+// ─── Edit metadata dialog (issue #1143) ───────────────────────────────────────
+
+describe('edit metadata dialog', () => {
+  beforeEach(() => {
+    mockUseStream.mockReturnValue({
+      stream: makeStream({
+        sender: SENDER_ADDRESS,
+        recipient: RECIPIENT_ADDRESS,
+        cancelled: false,
+        metadata: { name: 'Existing name', category: 'payroll', memo: 'existing memo' },
+      }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    mockUseWallet.mockReturnValue({
+      address: SENDER_ADDRESS,
+      isConnected: true,
+      reconnecting: false,
+    })
+  })
+
+  it('opens pre-filled with the current metadata and saves the edited values', async () => {
+    const updateMetadata = vi.fn().mockResolvedValue(undefined)
+    mockUseContract.mockReturnValue({
+      withdraw: vi.fn(),
+      cancel: vi.fn(),
+      cleanup: vi.fn(),
+      updateMetadata,
+      transfer: vi.fn(),
+      pending: false,
+      error: null,
+      paused: false,
+    })
+
+    await renderPage('stream-abc')
+    fireEvent.click(await screen.findByRole('button', { name: /edit details/i }))
+
+    const nameInput = await screen.findByLabelText(/^name$/i)
+    expect(nameInput).toHaveValue('Existing name')
+
+    fireEvent.change(nameInput, { target: { value: 'New name' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => {
+      expect(updateMetadata).toHaveBeenCalledWith('stream-abc', {
+        name: 'New name',
+        category: 'payroll',
+        memo: 'existing memo',
+      })
+    })
+  })
+})
+
+// ─── Transfer dialog (issue #1138) ────────────────────────────────────────────
+
+describe('transfer dialog', () => {
+  beforeEach(() => {
+    mockUseStream.mockReturnValue({
+      stream: makeStream({
+        sender: OTHER_ADDRESS,
+        recipient: RECIPIENT_ADDRESS,
+        cancelled: false,
+      }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    mockUseWallet.mockReturnValue({
+      address: RECIPIENT_ADDRESS,
+      isConnected: true,
+      reconnecting: false,
+    })
+  })
+
+  it('renders the "Transfer" button for the recipient of an active stream', async () => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^transfer$/i })).toBeInTheDocument()
+    })
+  })
+
+  it('does not render the "Transfer" button once the stream is cancelled', async () => {
+    mockUseStream.mockReturnValue({
+      stream: makeStream({
+        sender: OTHER_ADDRESS,
+        recipient: RECIPIENT_ADDRESS,
+        cancelled: true,
+      }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^transfer$/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it('validates the address, shows the delegate-clearing confirmation, then transfers', async () => {
+    const transfer = vi.fn().mockResolvedValue(undefined)
+    mockUseContract.mockReturnValue({
+      withdraw: vi.fn(),
+      cancel: vi.fn(),
+      cleanup: vi.fn(),
+      updateMetadata: vi.fn(),
+      transfer,
+      pending: false,
+      error: null,
+      paused: false,
+    })
+
+    await renderPage('stream-abc')
+    fireEvent.click(await screen.findByRole('button', { name: /^transfer$/i }))
+
+    const addressInput = await screen.findByLabelText(/new recipient address/i)
+    fireEvent.change(addressInput, { target: { value: NEW_RECIPIENT_ADDRESS } })
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+
+    // Confirmation step warns that any delegate is cleared.
+    expect(await screen.findByText(/delegate.*cleared/i)).toBeInTheDocument()
+    expect(screen.getByText(NEW_RECIPIENT_ADDRESS)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm transfer/i }))
+
+    await waitFor(() => {
+      expect(transfer).toHaveBeenCalledWith('stream-abc', NEW_RECIPIENT_ADDRESS)
+    })
+  })
+
+  it('shows a validation error for a malformed address and does not advance', async () => {
+    await renderPage('stream-abc')
+    fireEvent.click(await screen.findByRole('button', { name: /^transfer$/i }))
+
+    const addressInput = await screen.findByLabelText(/new recipient address/i)
+    fireEvent.change(addressInput, { target: { value: 'not-an-address' } })
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+
+    expect(await screen.findByText(/not a valid stellar address/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /confirm transfer/i })).not.toBeInTheDocument()
+  })
+})
+
+// ─── Paused contract disables write actions (issue #1144) ────────────────────
+
+describe('paused contract', () => {
+  it('disables the Withdraw button while the contract is paused', async () => {
+    mockUseStream.mockReturnValue({
+      stream: makeStream({
+        sender: OTHER_ADDRESS,
+        recipient: RECIPIENT_ADDRESS,
+        withdrawnAmount: 0n,
+        amountPerSecond: 500_000n,
+        startTime: BigInt(NOW_SEC - 1000),
+        endTime: BigInt(NOW_SEC + 1000),
+      }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    mockUseWallet.mockReturnValue({
+      address: RECIPIENT_ADDRESS,
+      isConnected: true,
+      reconnecting: false,
+    })
+    mockUseContract.mockReturnValue({
+      withdraw: vi.fn(),
+      cancel: vi.fn(),
+      cleanup: vi.fn(),
+      updateMetadata: vi.fn(),
+      transfer: vi.fn(),
+      pending: false,
+      error: null,
+      paused: true,
+    })
+
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /withdraw/i })).toBeDisabled()
     })
   })
 })
