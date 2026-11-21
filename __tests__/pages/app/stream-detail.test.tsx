@@ -279,6 +279,9 @@ beforeEach(() => {
     cancel: vi.fn(),
     partialCancel: mockPartialCancel,
     cleanup: vi.fn(),
+    setDelegate: vi.fn(),
+    removeDelegate: vi.fn(),
+    getDelegate: vi.fn().mockResolvedValue(null),
     topUp: vi.fn(),
     transferStream: vi.fn(),
     updateMetadata: vi.fn(),
@@ -860,6 +863,137 @@ describe('recipient actions', () => {
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /^top up$/i })).not.toBeInTheDocument()
     })
+  })
+})
+
+// ─── Delegate management (issue #1142) ────────────────────────────────────────
+
+describe('delegate management', () => {
+  it('lets the recipient set a delegate when none is registered', async () => {
+    const setDelegate = vi.fn().mockResolvedValue(undefined)
+    mockUseContract.mockReturnValue({
+      withdraw: vi.fn(),
+      cancel: vi.fn(),
+      cleanup: vi.fn(),
+      setDelegate,
+      removeDelegate: vi.fn(),
+      getDelegate: vi.fn().mockResolvedValue(null),
+      pending: false,
+      error: null,
+    })
+    mockUseStream.mockReturnValue({
+      stream: makeStream({ sender: OTHER_ADDRESS, recipient: RECIPIENT_ADDRESS, cancelled: false }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    mockUseWallet.mockReturnValue({
+      address: RECIPIENT_ADDRESS,
+      isConnected: true,
+      reconnecting: false,
+    })
+
+    await renderPage('stream-abc')
+
+    const setButton = await screen.findByRole('button', { name: /^set delegate$/i })
+    fireEvent.click(setButton)
+
+    const input = screen.getByPlaceholderText(/delegate address/i)
+    fireEvent.change(input, { target: { value: 'GDELEGATE999' } })
+    fireEvent.click(screen.getByRole('button', { name: /^set delegate$/i }))
+
+    await waitFor(() => {
+      expect(setDelegate).toHaveBeenCalledWith('stream-abc', 'GDELEGATE999')
+    })
+  })
+
+  it('shows the registered delegate and lock-out warning to the recipient, with a Remove button', async () => {
+    const removeDelegate = vi.fn().mockResolvedValue(undefined)
+    mockUseContract.mockReturnValue({
+      withdraw: vi.fn(),
+      cancel: vi.fn(),
+      cleanup: vi.fn(),
+      setDelegate: vi.fn(),
+      removeDelegate,
+      getDelegate: vi.fn().mockResolvedValue('GDELEGATE999EXISTING'),
+      pending: false,
+      error: null,
+    })
+    mockUseStream.mockReturnValue({
+      stream: makeStream({ sender: OTHER_ADDRESS, recipient: RECIPIENT_ADDRESS, cancelled: false }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    mockUseWallet.mockReturnValue({
+      address: RECIPIENT_ADDRESS,
+      isConnected: true,
+      reconnecting: false,
+    })
+
+    await renderPage('stream-abc')
+
+    await waitFor(() => {
+      expect(screen.getByText(/only the delegate.*can withdraw/i)).toBeInTheDocument()
+    })
+    const removeButton = screen.getByRole('button', { name: /^remove$/i })
+    fireEvent.click(removeButton)
+
+    await waitFor(() => {
+      expect(removeDelegate).toHaveBeenCalledWith('stream-abc')
+    })
+  })
+
+  it('shows the registered delegate to the sender without a Remove button', async () => {
+    mockUseContract.mockReturnValue({
+      withdraw: vi.fn(),
+      cancel: vi.fn(),
+      cleanup: vi.fn(),
+      setDelegate: vi.fn(),
+      removeDelegate: vi.fn(),
+      getDelegate: vi.fn().mockResolvedValue('GDELEGATE999EXISTING'),
+      pending: false,
+      error: null,
+    })
+    mockUseStream.mockReturnValue({
+      stream: makeStream({ sender: SENDER_ADDRESS, recipient: RECIPIENT_ADDRESS, cancelled: false }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    mockUseWallet.mockReturnValue({
+      address: SENDER_ADDRESS,
+      isConnected: true,
+      reconnecting: false,
+    })
+
+    await renderPage('stream-abc')
+
+    await waitFor(() => {
+      expect(screen.getByText(/only the delegate.*can withdraw/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument()
+  })
+
+  it('does not render the delegate card for a cancelled stream', async () => {
+    mockUseStream.mockReturnValue({
+      stream: makeStream({
+        sender: OTHER_ADDRESS,
+        recipient: RECIPIENT_ADDRESS,
+        cancelled: true,
+      }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    mockUseWallet.mockReturnValue({
+      address: RECIPIENT_ADDRESS,
+      isConnected: true,
+      reconnecting: false,
+    })
+
+    await renderPage('stream-abc')
+
+    await waitFor(() => {
+      expect(screen.getByText(/stream #stream-abc/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/withdrawal delegate/i)).not.toBeInTheDocument()
   })
 })
 

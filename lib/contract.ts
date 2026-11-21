@@ -776,6 +776,21 @@ export async function cancelStream(
 }
 
 /**
+ * Set (or replace) the withdrawal delegate for stream `id` (ADR-008). While a
+ * delegate is set, only the delegate — not the recipient directly — can call
+ * `withdraw`; the recipient calls {@link removeDelegateForStream} to regain
+ * direct access. Only the stream's recipient can call this; the contract
+ * also rejects `delegate` equal to the recipient and cancelled streams.
+ *
+ * Live: fetches the stream first and signs as its recipient; throws
+ * `Stream not found` if it can't be loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, records the delegate in the mock store and
+ * returns `null`.
+ */
+export async function setDelegateForStream(
+  id: string,
+  delegate: string,
  * Add `amount` (in the token's base units) to stream `id`'s deposit, signed
  * by `address` (must be the stream's sender, same as `top_up`'s
  * `require_auth`).
@@ -843,6 +858,17 @@ export async function updateStreamMetadata(
 
   if (isMockMode) {
     await new Promise((r) => setTimeout(r, 700))
+    mockStore.setDelegate(id, delegate)
+    return null
+  }
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  return invoke(
+    network,
+    'set_delegate',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), new Address(delegate).toScVal()],
+    stream.recipient,
     mockStore.topUp(id, amount)
     return null
   }
@@ -894,6 +920,18 @@ export async function updateStreamMetadata(
 }
 
 /**
+ * Remove the withdrawal delegate for stream `id`, restoring the recipient's
+ * direct withdrawal access (ADR-008). Only the stream's recipient can call
+ * this.
+ *
+ * Live: fetches the stream first and signs as its recipient; throws
+ * `Stream not found` if it can't be loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, clears the mock store entry and returns
+ * `null`.
+ */
+export async function removeDelegateForStream(
+  id: string,
  * Transfer stream `id`'s recipient rights to `newRecipient`, signed by
  * `address` (must be the stream's current recipient, same as
  * `transfer_stream`'s `require_auth`).
@@ -933,6 +971,7 @@ export async function partialCancelStream(
 
   if (isMockMode) {
     await new Promise((r) => setTimeout(r, 700))
+    mockStore.removeDelegate(id)
     mockStore.transfer(id, newRecipient)
     return null
   }
@@ -945,6 +984,9 @@ export async function partialCancelStream(
 
   return invoke(
     network,
+    'remove_delegate',
+    [nativeToScVal(BigInt(id), { type: 'u64' })],
+    stream.recipient,
     'transfer_stream',
     [nativeToScVal(BigInt(id), { type: 'u64' }), new Address(newRecipient).toScVal()],
     address,
@@ -955,6 +997,37 @@ export async function partialCancelStream(
     config.streamContractId,
     onStep,
   )
+}
+
+/**
+ * Read the withdrawal delegate registered for stream `id`, if any (ADR-008).
+ * Read-only — no signing required.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): reads the mock store.
+ *
+ * Live: returns `null` on any failure (bad ID, RPC error) — never throws.
+ */
+export async function getStreamDelegate(
+  id: string,
+  network: NetworkName = 'testnet',
+): Promise<string | null> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) return mockStore.getDelegate(id)
+
+  try {
+    const result = await query(
+      network,
+      'get_delegate',
+      [nativeToScVal(BigInt(id), { type: 'u64' })],
+      config.streamContractId,
+    )
+    const native = scValToNative(result) as string | null | undefined
+    return native ?? null
+  } catch {
+    return null
+  }
 }
 
 /**

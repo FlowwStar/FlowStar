@@ -68,6 +68,35 @@ describe('streamsToCSV', () => {
     expect(csv).toContain('cancelled')
   })
 
+  // Issue #1149: a cancelled stream refunds the locked remainder to the
+  // sender and pays the unlocked part to the recipient, so nothing remains —
+  // even though depositedAmount - withdrawnAmount is still positive.
+  it('reports 0 remaining for a cancelled stream', () => {
+    const s = makeStream({
+      cancelled: true,
+      depositedAmount: 100_000_000n,
+      withdrawnAmount: 20_000_000n,
+    })
+    const csv = streamsToCSV([s], 1_700_043_200)
+    const header = csv.split('\n')[0].split(',')
+    const remainingIdx = header.indexOf('Remaining Amount')
+    const dataRow = csv.split('\n')[1].split(',')
+    expect(dataRow[remainingIdx]).toBe('0')
+  })
+
+  it('reports positive remaining for a non-cancelled stream with the same amounts', () => {
+    const s = makeStream({
+      cancelled: false,
+      depositedAmount: 100_000_000n,
+      withdrawnAmount: 20_000_000n,
+    })
+    const csv = streamsToCSV([s])
+    const header = csv.split('\n')[0].split(',')
+    const remainingIdx = header.indexOf('Remaining Amount')
+    const dataRow = csv.split('\n')[1].split(',')
+    expect(dataRow[remainingIdx]).toBe('8')
+  })
+
   it('omits cliff date when cliffTime equals startTime', () => {
     const s = makeStream({ cliffTime: 1_700_000_000n, startTime: 1_700_000_000n })
     const csv = streamsToCSV([s])

@@ -34,6 +34,9 @@ vi.mock('@/lib/contract', () => ({
   cancelStream: vi.fn(),
   partialCancelStream: vi.fn(),
   estimateCreateStreamFee: vi.fn(),
+  setDelegateForStream: vi.fn(),
+  removeDelegateForStream: vi.fn(),
+  getStreamDelegate: vi.fn(),
   topUpStream: vi.fn(),
   updateStreamMetadata: vi.fn(),
   transferStream: vi.fn(),
@@ -46,6 +49,9 @@ import {
   cancelStream,
   partialCancelStream,
   estimateCreateStreamFee,
+  setDelegateForStream,
+  removeDelegateForStream,
+  getStreamDelegate,
   topUpStream,
   updateStreamMetadata,
   transferStream,
@@ -100,6 +106,9 @@ describe('useContract', () => {
     vi.mocked(createStream).mockResolvedValue('new-stream-id')
     vi.mocked(withdrawFromStream).mockResolvedValue('tx-hash-withdraw')
     vi.mocked(cancelStream).mockResolvedValue('tx-hash-cancel')
+    vi.mocked(setDelegateForStream).mockResolvedValue('tx-hash-set-delegate')
+    vi.mocked(removeDelegateForStream).mockResolvedValue('tx-hash-remove-delegate')
+    vi.mocked(getStreamDelegate).mockResolvedValue(null)
     vi.mocked(topUpStream).mockResolvedValue('tx-hash-topup')
     vi.mocked(transferStream).mockResolvedValue('tx-hash-transfer')
     vi.mocked(partialCancelStream).mockResolvedValue('tx-hash-partial-cancel')
@@ -205,6 +214,16 @@ describe('useContract', () => {
     expect(cancelStream).toHaveBeenCalledWith('55', 'testnet', expect.any(Function))
   })
 
+  // ── delegate (issue #1141) ──────────────────────────────────────────────────
+
+  it('calls setDelegateForStream with correct id and delegate address', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.setDelegate('42', 'GDELEGATE')
+    })
+    expect(setDelegateForStream).toHaveBeenCalledWith(
+      '42',
+      'GDELEGATE',
   // ── topUp (issue #1135) ────────────────────────────────────────────────────
 
   it('calls topUpStream with correct id, amount, address and network', async () => {
@@ -272,6 +291,31 @@ describe('useContract', () => {
     )
   })
 
+  it('throws when wallet not connected on setDelegate', async () => {
+    mockUseWallet.mockReturnValue({ address: null, isConnected: false } as any)
+    const { result } = renderHook(() => useContract())
+    await expect(result.current.setDelegate('42', 'GDELEGATE')).rejects.toThrow(
+      'Connect a wallet first.',
+    )
+  })
+
+  it('calls removeDelegateForStream with correct id', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.removeDelegate('42')
+    })
+    expect(removeDelegateForStream).toHaveBeenCalledWith('42', 'testnet', expect.any(Function))
+  })
+
+  it('reads the current delegate via getStreamDelegate', async () => {
+    vi.mocked(getStreamDelegate).mockResolvedValueOnce('GDELEGATE')
+    const { result } = renderHook(() => useContract())
+    let delegate: string | null = null
+    await act(async () => {
+      delegate = await result.current.getDelegate('42')
+    })
+    expect(getStreamDelegate).toHaveBeenCalledWith('42', 'testnet')
+    expect(delegate).toBe('GDELEGATE')
   // ── transfer (issue #1138) ─────────────────────────────────────────────────
 
   it('calls transferStream with correct id and new recipient', async () => {

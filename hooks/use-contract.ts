@@ -14,6 +14,9 @@ import {
   updateStreamMetadata as updateStreamMetadataCall,
   transferStream as transferStreamCall,
   estimateCreateStreamFee,
+  setDelegateForStream,
+  removeDelegateForStream,
+  getStreamDelegate,
   type TxStep,
 } from "@/lib/contract";
 import type { FeeEstimate } from "@/lib/contract";
@@ -90,6 +93,9 @@ function showErrorToast(err: unknown, toastId?: string | number) {
  * @returns {Function} transferStream - Transfer a stream's recipient rights to a new address; recipient only
  * @returns {Function} withdrawAll - Withdraw from multiple streams in sequence, with progress tracking
  * @returns {Function} estimateFee - Estimate the fee for creating a stream (returns null if wallet disconnected)
+ * @returns {Function} setDelegate - Set (or replace) the withdrawal delegate for a stream (recipient only)
+ * @returns {Function} removeDelegate - Remove the withdrawal delegate for a stream (recipient only)
+ * @returns {Function} getDelegate - Read the withdrawal delegate for a stream, if any (read-only)
  * @returns {boolean} pending - True while any transaction is being executed
  * @returns {string|null} error - Error message from the last failed operation, or null
  *
@@ -286,6 +292,52 @@ export function useContract() {
   );
 
   /**
+   * Set (or replace) the withdrawal delegate for a stream (ADR-008).
+   * Only the stream's recipient can call this. While a delegate is active,
+   * only the delegate — not the recipient directly — can withdraw.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to set the delegate on
+   * @param {string} delegate - Address to authorize as the withdrawal delegate
+   * @returns {Promise<void>} Resolves when the delegate is confirmed on-chain
+   * @throws {Error} "Not recipient", "Invalid recipient" (delegate === recipient), or "Stream cancelled"
+   */
+  const setDelegate = useCallback(
+    (id: string, delegate: string) =>
+      run("Set delegate", (onStep) =>
+        setDelegateForStream(id, delegate, network, onStep),
+      ),
+    [run, network],
+  );
+
+  /**
+   * Remove the withdrawal delegate for a stream (ADR-008), restoring the
+   * recipient's direct withdrawal access. Only the stream's recipient can
+   * call this. Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to remove the delegate from
+   * @returns {Promise<void>} Resolves when the removal is confirmed on-chain
+   * @throws {Error} "Not recipient" if caller is not the stream's recipient
+   */
+  const removeDelegate = useCallback(
+    (id: string) =>
+      run("Remove delegate", (onStep) =>
+        removeDelegateForStream(id, network, onStep),
+      ),
+    [run, network],
+  );
+
+  /**
+   * Read the withdrawal delegate registered for a stream, if any.
+   * Read-only — does not require a connected wallet and never throws
+   * (resolves to `null` on any failure).
+   *
+   * @param {string} id - Stream ID to look up
+   * @returns {Promise<string | null>} The delegate address, or `null` if none is set
+   */
+  const getDelegate = useCallback(
+    (id: string) => getStreamDelegate(id, network),
+    [network],
    * Add funds to an active stream. Only the sender may top up.
    * Requires prior token approval, which this sends automatically (like
    * `createStream`). Emits toast notifications and invalidates cache on
@@ -429,6 +481,9 @@ export function useContract() {
     transfer,
     withdrawAll,
     estimateFee,
+    setDelegate,
+    removeDelegate,
+    getDelegate,
     pending,
     error,
     paused,
