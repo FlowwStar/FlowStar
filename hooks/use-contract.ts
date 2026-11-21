@@ -6,6 +6,7 @@ import {
   createStream as createStreamCall,
   createStreamsBatch as createStreamsBatchCall,
   withdrawFromStream,
+  withdrawMaxFromStream,
   cancelStream as cancelStreamCall,
   partialCancelStream as partialCancelStreamCall,
   cleanupStream as cleanupStreamCall,
@@ -305,8 +306,12 @@ export function useContract() {
         onProgress?.(i + 1, withdrawable.length);
         const s = withdrawable[i];
         try {
-          const amount = getWithdrawableAmount(s, now);
-          await withdrawFromStream(s.id, amount, network);
+          // `withdrawMaxFromStream` re-fetches the stream and computes the
+          // amount right before submitting, instead of reusing `now`/`s`
+          // from the top of this loop — those get staler with every prior
+          // iteration's confirmation wait, which used to leave dust behind
+          // (#1146).
+          await withdrawMaxFromStream(s.id, network);
           succeeded++;
         } catch (err) {
           failed++;

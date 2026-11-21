@@ -467,8 +467,11 @@ export function CreateForm() {
     if (!form.amount || isNaN(Number(form.amount)) || Number(form.amount) <= 0) {
       newErrors.amount = copy.errors.invalidAmount
     }
-    // Issue #29: validate against balance
-    if (form.amount && tokenBalance !== null) {
+    // Issue #29: validate against balance. Skipped when `newErrors.amount` is
+    // already set above (empty/NaN/negative) — parseTokenAmount now rejects
+    // that input instead of silently mis-parsing it (pre-existing: it could
+    // already throw a raw SyntaxError here for non-numeric input).
+    if (form.amount && !newErrors.amount && tokenBalance !== null) {
       const parsed = parseTokenAmount(form.amount, selectedToken.decimals)
       if (parsed > tokenBalance) {
         newErrors.amount = copy.errors.amountExceedsBalance(
@@ -490,7 +493,14 @@ export function CreateForm() {
       if (!form.cliffDate || cliff < start || cliff > end) {
         newErrors.cliffDate = copy.errors.cliffOutOfRange
       }
-      if (form.cliffAmount && Number(form.cliffAmount) > Number(form.amount)) {
+      if (
+        form.cliffAmount &&
+        (isNaN(Number(form.cliffAmount)) || Number(form.cliffAmount) < 0)
+      ) {
+        // Guards parseTokenAmount in buildInput() below, which now rejects
+        // negative/non-numeric input instead of silently mis-parsing it.
+        newErrors.cliffAmount = copy.errors.invalidAmount
+      } else if (form.cliffAmount && Number(form.cliffAmount) > Number(form.amount)) {
         newErrors.cliffAmount = copy.errors.cliffExceedsTotal
       }
     }
@@ -597,10 +607,10 @@ export function CreateForm() {
   }
 
   const input = showTxPreview || showConfirmation ? buildInput() : null
-  const durationSeconds =
-    (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000
-  const amountPerSecond =
-    input && durationSeconds > 0 ? input.totalAmount / BigInt(Math.floor(durationSeconds)) : 0n
+  // Mirrors the contract's linearAmount/duration split (total minus the
+  // cliff lump sum, over the full start→end window) — see formatRate's docs.
+  const linearAmount = input ? input.totalAmount - input.cliffAmount : 0n
+  const duration = input ? input.endTime - input.startTime : 0n
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -1347,7 +1357,8 @@ export function CreateForm() {
           endTime={input.endTime}
           cliffTime={input.cliffTime}
           cliffAmount={input.cliffAmount}
-          amountPerSecond={amountPerSecond}
+          linearAmount={linearAmount}
+          duration={duration}
         />
       )}
 

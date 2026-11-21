@@ -9,6 +9,7 @@ import {
 } from '@stellar/stellar-sdk'
 import { type NetworkName, getNetworkConfig, getServer, getAllTokens } from '@/lib/stellar'
 import { mockStore } from '@/lib/mock-data'
+import { getWithdrawableAmount } from '@/lib/stream-utils'
 import type { CreateStreamInput, StreamData, TokenInfo } from '@/types/stream'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -687,6 +688,32 @@ export async function withdrawFromStream(
     config.streamContractId,
     onStep,
   )
+}
+
+/**
+ * Withdraw everything currently available from stream `id` — "withdraw all" /
+ * auto-withdraw's `withdrawMax` wrapper around {@link withdrawFromStream}.
+ *
+ * Fetches the stream fresh and computes the withdrawable amount from that
+ * just-fetched snapshot, rather than reusing a value a caller computed
+ * earlier (e.g. at render time, or earlier in a batch loop). That earlier
+ * value is always a little stale by the time the transaction is built —
+ * more unlocks on-chain in the meantime — which left dust behind on every
+ * "withdraw all" (#1146). Resolves to `null` with no transaction when
+ * nothing is withdrawable.
+ */
+export async function withdrawMaxFromStream(
+  id: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  const amount = getWithdrawableAmount(stream)
+  if (amount <= 0n) return null
+
+  return withdrawFromStream(id, amount, network, onStep)
 }
 
 /**

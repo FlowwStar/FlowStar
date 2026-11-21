@@ -12,6 +12,7 @@ import {
   partialCancelStream,
   simulateCreateStreamPreview,
   withdrawFromStream,
+  withdrawMaxFromStream,
 } from '@/lib/contract'
 import { getUnlockedAmount } from '@/lib/stream-utils'
 import type { CreateStreamInput } from '@/types/stream'
@@ -130,6 +131,33 @@ describe('contract mock mode', () => {
     const after = await fetchStream('testnet', id)
     expect(after!.depositedAmount).toBe(before!.depositedAmount - reclaim)
     expect(after!.cancelled).toBe(false)
+  it('withdrawMaxFromStream withdraws everything currently withdrawable, not a stale amount (#1146)', async () => {
+    const id = await createMockStream()
+
+    const withdrawPromise = withdrawMaxFromStream(id, 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await expect(withdrawPromise).resolves.toBeNull()
+    await expect(fetchStream('testnet', id)).resolves.toMatchObject({
+      withdrawnAmount: input.totalAmount,
+    })
+  })
+
+  it('withdrawMaxFromStream resolves to null and withdraws nothing once fully drained', async () => {
+    const id = await createMockStream()
+    const first = withdrawMaxFromStream(id, 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await first
+
+    await expect(withdrawMaxFromStream(id, 'testnet')).resolves.toBeNull()
+    await expect(fetchStream('testnet', id)).resolves.toMatchObject({
+      withdrawnAmount: input.totalAmount,
+    })
+  })
+
+  it('withdrawMaxFromStream throws "Stream not found" for an unknown id', async () => {
+    await expect(withdrawMaxFromStream('does-not-exist', 'testnet')).rejects.toThrow(
+      'Stream not found',
+    )
   })
 
   it('returns archived mock stream IDs for a matching sender', async () => {

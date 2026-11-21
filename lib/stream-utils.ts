@@ -30,6 +30,14 @@ export function getUnlockedAmount(
   stream: StreamData,
   nowSeconds: number = Math.floor(Date.now() / 1000),
 ): bigint {
+  // Cancelled streams stop accruing the instant they're cancelled, but the
+  // contract doesn't record a `cancelled_at` timestamp (tracked separately),
+  // so there's no cliff/linear math we can still run here. The only
+  // known-correct, stable figure left is what the recipient actually
+  // withdrew — using it freezes the displayed total instead of letting the
+  // multiply/divide below keep advancing with wall-clock time (#1147, #1148).
+  if (stream.cancelled) return stream.withdrawnAmount
+
   const now = BigInt(nowSeconds)
   if (now < stream.cliffTime) return 0n
   if (now >= stream.endTime) return stream.depositedAmount
@@ -116,10 +124,31 @@ export function formatCompactAmount(raw: bigint, decimals: number): string {
   }).format(value)
 }
 
-/** Parses a human-typed decimal string into a raw bigint of smallest units. */
+/** Thrown by `parseTokenAmount` for negative, malformed, or otherwise invalid input. */
+export class InvalidTokenAmountError extends Error {
+  constructor(value: string) {
+    super(`Invalid token amount: "${value}"`)
+    this.name = 'InvalidTokenAmountError'
+  }
+}
+
+/**
+ * Parses a human-typed decimal string into a raw bigint of smallest units.
+ *
+ * Strips commas/whitespace, then validates against a strict unsigned-decimal
+ * shape before any `BigInt` conversion — negative signs, scientific notation
+ * (`1e5`), multiple decimal points (`1.2.3`), and other non-numeric input are
+ * rejected with a typed error rather than silently producing a wrongly-signed
+ * amount or throwing a raw `SyntaxError` from `BigInt`.
+ */
 export function parseTokenAmount(value: string, decimals: number): bigint {
   if (!value) return 0n
-  const [whole, frac = ''] = value.replace(/,/g, '').split('.')
+  const normalized = value.replace(/[,\s]/g, '')
+  if (normalized === '' || !/^\d*(\.\d*)?$/.test(normalized) || normalized === '.') {
+    throw new InvalidTokenAmountError(value)
+  }
+
+  const [whole, frac = ''] = normalized.split('.')
   const fracPadded = frac.slice(0, decimals).padEnd(decimals, '0')
   return BigInt(whole || '0') * 10n ** BigInt(decimals) + BigInt(fracPadded || '0')
 }
@@ -138,13 +167,30 @@ export interface FormattedRate {
 /**
  * Calculates and formats streaming unlock rates across multiple timeframes
  * (second, minute, hour, day, month, year) and selects a human-friendly "best" unit.
+ *
+ * Rates are derived from the raw `linearAmount`/`duration` pair — the same
+ * multiply-then-divide bigint math `getUnlockedAmount` uses — rather than the
+ * pre-divided, already-rounded `amountPerSecond`, which drifts from the
+ * on-chain value over long-running streams. The bigint ratio is only
+ * converted to `Number` for the final formatted value, to avoid losing
+ * sub-unit precision.
  */
 export function formatRate(
-  amountPerSecond: bigint,
+  linearAmount: bigint,
+  duration: bigint,
   decimals: number,
   symbol: string,
 ): FormattedRate {
-  const perSecond = Number(amountPerSecond) / 10 ** decimals
+  // Extra fixed-point precision kept through the bigint division so the
+  // conversion to Number at the end doesn't truncate sub-smallest-unit rates.
+  const PRECISION = 1_000_000n
+  const scale = 10n ** BigInt(decimals)
+
+  const rateFor = (unitSeconds: bigint): number => {
+    if (duration <= 0n) return 0
+    const scaled = (linearAmount * unitSeconds * PRECISION) / duration
+    return Number(scaled) / Number(PRECISION) / Number(scale)
+  }
 
   const rates = {
     perSecond,
@@ -153,6 +199,12 @@ export function formatRate(
     perDay: perSecond * SECONDS_PER_DAY,
     perMonth: perSecond * SECONDS_PER_MONTH,
     perYear: perSecond * SECONDS_PER_YEAR,
+    perSecond: rateFor(1n),
+    perMinute: rateFor(60n),
+    perHour: rateFor(3600n),
+    perDay: rateFor(BigInt(SECONDS_PER_DAY)),
+    perMonth: rateFor(2_592_000n),
+    perYear: rateFor(31_536_000n),
   }
 
   const fmt = (n: number) =>

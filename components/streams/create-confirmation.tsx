@@ -35,7 +35,8 @@ interface ConfirmationProps {
   endTime: bigint;
   cliffTime: bigint;
   cliffAmount: bigint;
-  amountPerSecond: bigint;
+  linearAmount: bigint;
+  duration: bigint;
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -60,9 +61,10 @@ export function CreateConfirmation({
   endTime,
   cliffTime,
   cliffAmount,
-  amountPerSecond,
+  linearAmount,
+  duration,
 }: ConfirmationProps) {
-  const rate = formatRate(amountPerSecond, token.decimals, token.symbol);
+  const rate = formatRate(linearAmount, duration, token.decimals, token.symbol);
 
   // Fetch live XLM/USD price for fee USD estimate
   const { usdPrice: xlmPrice } = useTokenPrice("XLM");
