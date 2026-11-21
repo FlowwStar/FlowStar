@@ -8,7 +8,10 @@ import {
   fetchStream,
   fetchStreamsForAddress,
   fetchArchivedSentStreamIds,
+  getStreamDelegate,
   getTokenMetadata,
+  removeDelegateForStream,
+  setDelegateForStream,
   simulateCreateStreamPreview,
   withdrawFromStream,
 } from '@/lib/contract'
@@ -108,6 +111,36 @@ describe('contract mock mode', () => {
     await cancelPromise
 
     await expect(fetchArchivedSentStreamIds('testnet', sender)).resolves.toContain(id)
+  })
+
+  // Issue #1141: setDelegateForStream / removeDelegateForStream / getStreamDelegate
+  it('has no delegate for a fresh stream', async () => {
+    const id = await createMockStream()
+    await expect(getStreamDelegate(id, 'testnet')).resolves.toBeNull()
+  })
+
+  it('sets and reads back a delegate through the delayed mock write path', async () => {
+    const id = await createMockStream()
+
+    const setPromise = setDelegateForStream(id, 'GDELEGATE', 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await expect(setPromise).resolves.toBeNull()
+
+    await expect(getStreamDelegate(id, 'testnet')).resolves.toBe('GDELEGATE')
+  })
+
+  it('removes a delegate through the delayed mock write path', async () => {
+    const id = await createMockStream()
+
+    const setPromise = setDelegateForStream(id, 'GDELEGATE', 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await setPromise
+
+    const removePromise = removeDelegateForStream(id, 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await expect(removePromise).resolves.toBeNull()
+
+    await expect(getStreamDelegate(id, 'testnet')).resolves.toBeNull()
   })
 })
 

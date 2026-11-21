@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState } from 'react'
+import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -733,6 +733,136 @@ function RateDisplay({ stream }: { stream: import('@/types/stream').StreamData }
   )
 }
 
+// ─── Delegate management card (issue #1142, depends on ADR-008 / #1141) ─────
+
+function DelegateCard({
+  stream,
+  isRecipient,
+}: {
+  stream: import('@/types/stream').StreamData
+  isRecipient: boolean
+}) {
+  const { setDelegate, removeDelegate, getDelegate, pending } = useContract()
+  const [delegate, setDelegateValue] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [addressInput, setAddressInput] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    getDelegate(stream.id).then((d) => {
+      if (active) {
+        setDelegateValue(d)
+        setLoading(false)
+      }
+    })
+    return () => {
+      active = false
+    }
+  }, [getDelegate, stream.id])
+
+  async function handleSet() {
+    const trimmed = addressInput.trim()
+    if (!trimmed) return
+    setBusy(true)
+    try {
+      await setDelegate(stream.id, trimmed)
+      setDelegateValue(trimmed)
+      setEditing(false)
+      setAddressInput('')
+    } catch {
+      // useContract already surfaces an error toast.
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRemove() {
+    setBusy(true)
+    try {
+      await removeDelegate(stream.id)
+      setDelegateValue(null)
+    } catch {
+      // useContract already surfaces an error toast.
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (loading) return null
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-6 space-y-4">
+      <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+        {copy.delegate.title}
+      </h2>
+
+      {delegate ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/50 p-3">
+            <span className="font-mono text-sm">{shortenAddress(delegate)}</span>
+            {isRecipient && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRemove}
+                disabled={busy || pending}
+              >
+                {busy ? copy.delegate.removingButton : copy.delegate.removeButton}
+              </Button>
+            )}
+          </div>
+          <div className="flex items-start gap-3 rounded-xl border border-yellow-500/40 bg-yellow-500/10 p-3">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-yellow-500" />
+            <p className="text-xs text-yellow-700 dark:text-yellow-400">
+              {copy.delegate.lockoutWarning}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">{copy.delegate.emptyHelpText}</p>
+          {isRecipient &&
+            (editing ? (
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  value={addressInput}
+                  onChange={(e) => setAddressInput(e.target.value)}
+                  placeholder={copy.delegate.addressPlaceholder}
+                  className="min-w-0 flex-1 font-mono text-sm"
+                  aria-label={copy.delegate.addressPlaceholder}
+                />
+                <Button
+                  size="sm"
+                  onClick={handleSet}
+                  disabled={busy || pending || !addressInput.trim()}
+                >
+                  {busy ? copy.delegate.settingButton : copy.delegate.setButton}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setEditing(false)
+                    setAddressInput('')
+                  }}
+                >
+                  {copy.delegate.cancelButton}
+                </Button>
+              </div>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                {copy.delegate.setButton}
+              </Button>
+            ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Stream detail skeleton ──────────────────────────────────────────────────
 
 function StreamDetailSkeleton() {
@@ -1212,6 +1342,11 @@ function StreamDetail({ id }: { id: string }) {
       {/* Auto-withdraw (recipients only, active streams) */}
       {isRecipient && !stream.cancelled && status !== 'completed' && (
         <AutoWithdrawSection stream={stream} />
+      )}
+
+      {/* Delegate management (issue #1142): visible to both parties, recipient manages it */}
+      {(isSender || isRecipient) && !stream.cancelled && (
+        <DelegateCard stream={stream} isRecipient={isRecipient} />
       )}
 
       {/* Dialogs */}

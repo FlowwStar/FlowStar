@@ -109,6 +109,10 @@ function emit() {
   listeners.forEach((l) => l())
 }
 
+// Issue #1141: mirrors the contract's separate `DataKey::Delegate(id)`
+// storage entry — the delegate is not a field on the stream struct itself.
+const delegates = new Map<string, string>()
+
 export const mockStore = {
   subscribe(listener: Listener) {
     listeners.add(listener)
@@ -168,5 +172,19 @@ export const mockStore = {
   cleanup(id: string) {
     streams = streams.filter((s) => s.id !== id)
     emit()
+  },
+  /** Issue #1141: set (or replace) the withdrawal delegate for a stream. */
+  setDelegate(id: string, delegate: string) {
+    delegates.set(id, delegate)
+    emit()
+  },
+  /** Issue #1141: clear the withdrawal delegate for a stream. */
+  removeDelegate(id: string) {
+    delegates.delete(id)
+    emit()
+  },
+  /** Issue #1141: read the withdrawal delegate for a stream, if any. */
+  getDelegate(id: string): string | null {
+    return delegates.get(id) ?? null
   },
 }
