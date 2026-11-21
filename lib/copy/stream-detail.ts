@@ -38,6 +38,23 @@ export const streamDetailCopy = {
     feeConfirmAction: 'stream cancellation',
   },
 
+  reclaimDialog: {
+    title: 'Reclaim funds',
+    maxPrefix: 'Reclaim part of the locked balance back to your wallet. Max:',
+    amountLabel: (symbol: string) => `Amount to reclaim (${symbol})`,
+    amountPlaceholder: '0.00',
+    maxButton: 'Max',
+    exceedsBalance: 'Amount exceeds locked balance',
+    newRateLabel: 'New rate after reclaim:',
+    cancelButton: 'Cancel',
+    reclaiming: 'Reclaiming…',
+    reclaimButton: 'Confirm reclaim',
+    successToastTitle: 'Funds reclaimed',
+    successToastDescription: (amount: string, symbol: string) =>
+      `${amount} ${symbol} returned to your wallet. The stream is still active.`,
+    viewTransactionAction: 'View transaction',
+  },
+
   cleanupDialog: {
     title: 'Remove from history',
     description:
@@ -139,6 +156,7 @@ export const streamDetailCopy = {
     cancellingNotice: 'Cancelling… you can still undo this from the toast.',
     withdrawButton: 'Withdraw',
     cancelStreamButton: 'Cancel stream',
+    reclaimFundsButton: 'Reclaim funds',
     duplicateStreamButton: 'Duplicate stream',
     removeFromHistoryButton: 'Remove from history',
     unlockProgressLabel: 'Stream unlock progress',

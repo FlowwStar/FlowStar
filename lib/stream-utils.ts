@@ -4,6 +4,19 @@ import type { StreamData, StreamStatus } from '@/types/stream'
 export const SECONDS_PER_DAY = 86400
 
 /**
+ * Seconds in a "month" for display purposes — assumes a 30-day month.
+ * This is an approximation shared by every rate display; it is not a
+ * calendar month and will drift from actual month lengths.
+ */
+export const SECONDS_PER_MONTH = SECONDS_PER_DAY * 30
+
+/**
+ * Seconds in a "year" for display purposes — assumes a 365-day year
+ * (no leap-day adjustment). Shared by every rate display.
+ */
+export const SECONDS_PER_YEAR = SECONDS_PER_DAY * 365
+
+/**
  * Computes how much of the stream has unlocked as of `nowSeconds`.
  *
  * This is the client-side mirror of the contract's unlock math. It must use
@@ -138,8 +151,8 @@ export function formatRate(
     perMinute: perSecond * 60,
     perHour: perSecond * 3600,
     perDay: perSecond * SECONDS_PER_DAY,
-    perMonth: perSecond * 2_592_000,
-    perYear: perSecond * 31_536_000,
+    perMonth: perSecond * SECONDS_PER_MONTH,
+    perYear: perSecond * SECONDS_PER_YEAR,
   }
 
   const fmt = (n: number) =>
@@ -187,6 +200,10 @@ export function shortenAddress(address: string, chars = 4): string {
 
 /**
  * Formats a Unix timestamp in seconds to a human-readable date and time string in en-US locale.
+ *
+ * Includes a short timezone name (e.g. "GMT+1", "EST") so senders and
+ * recipients in different zones don't misread the same instant as the
+ * same local time.
  */
 export function formatDateTime(unixSeconds: bigint | number): string {
   const ms = Number(unixSeconds) * 1000
@@ -196,6 +213,7 @@ export function formatDateTime(unixSeconds: bigint | number): string {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZoneName: 'short',
   })
 }
 

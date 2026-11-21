@@ -25,6 +25,7 @@ vi.mock('@/lib/contract', () => ({
   createStream: vi.fn(),
   withdrawFromStream: vi.fn(),
   cancelStream: vi.fn(),
+  partialCancelStream: vi.fn(),
   estimateCreateStreamFee: vi.fn(),
 }))
 
@@ -32,6 +33,7 @@ import {
   createStream,
   withdrawFromStream,
   cancelStream,
+  partialCancelStream,
   estimateCreateStreamFee,
 } from '@/lib/contract'
 import { useContract } from '@/hooks/use-contract'
@@ -83,6 +85,7 @@ describe('useContract', () => {
     vi.mocked(createStream).mockResolvedValue('new-stream-id')
     vi.mocked(withdrawFromStream).mockResolvedValue('tx-hash-withdraw')
     vi.mocked(cancelStream).mockResolvedValue('tx-hash-cancel')
+    vi.mocked(partialCancelStream).mockResolvedValue('tx-hash-partial-cancel')
     vi.mocked(estimateCreateStreamFee).mockResolvedValue({
       minFee: 100_000,
       estimatedFee: 115_000,
@@ -181,6 +184,31 @@ describe('useContract', () => {
       await result.current.cancel('55')
     })
     expect(cancelStream).toHaveBeenCalledWith('55', 'testnet', expect.any(Function))
+  })
+
+  // ── partialCancel ──────────────────────────────────────────────────────────
+
+  it('calls partialCancelStream with correct id and amount', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.partialCancel('55', 250n)
+    })
+    expect(partialCancelStream).toHaveBeenCalledWith('55', 250n, 'testnet', expect.any(Function))
+  })
+
+  it('sets error on partialCancel failure', async () => {
+    vi.mocked(partialCancelStream).mockRejectedValueOnce(new Error('invalid amount'))
+    const { result } = renderHook(() => useContract())
+    let caught: unknown
+    await act(async () => {
+      try {
+        await result.current.partialCancel('55', 250n)
+      } catch (err) {
+        caught = err
+      }
+    })
+    expect(caught).toBeInstanceOf(Error)
+    expect(result.current.error).toBeTruthy()
   })
 
   // ── estimateFee ────────────────────────────────────────────────────────────

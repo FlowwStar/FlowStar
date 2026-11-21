@@ -1,8 +1,13 @@
 import type { StreamData } from '@/types/stream'
-import { formatTokenAmount, getStreamStatus, SECONDS_PER_DAY } from '@/lib/stream-utils'
+import {
+  formatTokenAmount,
+  getStreamStatus,
+  SECONDS_PER_DAY,
+  SECONDS_PER_MONTH,
+} from '@/lib/stream-utils'
 
 const SECONDS_PER_DAY_BIGINT = BigInt(SECONDS_PER_DAY)
-const DAYS_PER_MONTH = BigInt(30)
+const SECONDS_PER_MONTH_BIGINT = BigInt(SECONDS_PER_MONTH)
 
 function unixToISO(seconds: bigint): string {
   if (seconds === BigInt(0)) return ''
@@ -53,7 +58,7 @@ export function streamsToCSV(
 
     const ratePerDay = formatTokenAmount(s.amountPerSecond * SECONDS_PER_DAY_BIGINT, decimals, 6)
     const ratePerMonth = formatTokenAmount(
-      s.amountPerSecond * SECONDS_PER_DAY_BIGINT * DAYS_PER_MONTH,
+      s.amountPerSecond * SECONDS_PER_MONTH_BIGINT,
       decimals,
       6,
     )
