@@ -59,6 +59,23 @@ export const streamDetailCopy = {
     feeConfirmAction: 'stream cancellation',
   },
 
+  reclaimDialog: {
+    title: 'Reclaim funds',
+    maxPrefix: 'Reclaim part of the locked balance back to your wallet. Max:',
+    amountLabel: (symbol: string) => `Amount to reclaim (${symbol})`,
+    amountPlaceholder: '0.00',
+    maxButton: 'Max',
+    exceedsBalance: 'Amount exceeds locked balance',
+    newRateLabel: 'New rate after reclaim:',
+    cancelButton: 'Cancel',
+    reclaiming: 'Reclaiming…',
+    reclaimButton: 'Confirm reclaim',
+    successToastTitle: 'Funds reclaimed',
+    successToastDescription: (amount: string, symbol: string) =>
+      `${amount} ${symbol} returned to your wallet. The stream is still active.`,
+    viewTransactionAction: 'View transaction',
+  },
+
   cleanupDialog: {
     title: 'Remove from history',
     description:
@@ -66,6 +83,44 @@ export const streamDetailCopy = {
     cancelButton: 'Cancel',
     removing: 'Removing…',
     confirmButton: 'Remove permanently',
+  },
+
+  // Issue #1143: edit stream metadata after creation
+  editMetadataDialog: {
+    title: 'Edit details',
+    description: 'Update this stream’s name, category, and memo. Visible to both parties.',
+    nameLabel: 'Name',
+    namePlaceholder: 'e.g. Q3 Salary',
+    categoryLabel: 'Category',
+    categoryPlaceholder: 'e.g. payroll, grant, vesting',
+    memoLabel: 'Memo',
+    memoPlaceholder: 'Optional note',
+    cancelButton: 'Cancel',
+    saving: 'Saving…',
+    saveButton: 'Save changes',
+    successToastTitle: 'Stream details updated',
+  },
+
+  // Issue #1138: transfer a stream to a new recipient
+  transferDialog: {
+    title: 'Transfer stream',
+    description: 'Reassign this stream to a new recipient. You will no longer be able to withdraw from it.',
+    addressLabel: 'New recipient address',
+    addressPlaceholder: 'G… or name*domain.com',
+    resolving: 'Resolving address…',
+    invalidFormat: 'Not a valid Stellar address.',
+    invalidChecksum: 'This looks like a Stellar address with a typo — check the checksum.',
+    cancelButton: 'Cancel',
+    continueButton: 'Continue',
+    confirmTitle: 'Confirm transfer',
+    confirmDelegateWarning:
+      'Any delegate currently registered on this stream will be cleared. The new recipient will need to set their own delegate if they want one.',
+    confirmTransferringTo: 'Transferring to:',
+    backButton: 'Back',
+    transferring: 'Transferring…',
+    confirmButton: 'Confirm transfer',
+    successToastTitle: 'Stream transferred',
+    successToastDescription: (address: string) => `Recipient is now ${address}.`,
   },
 
   autoWithdraw: {
@@ -161,9 +216,13 @@ export const streamDetailCopy = {
     withdrawButton: 'Withdraw',
     topUpButton: 'Top up',
     cancelStreamButton: 'Cancel stream',
+    reclaimFundsButton: 'Reclaim funds',
     duplicateStreamButton: 'Duplicate stream',
     removeFromHistoryButton: 'Remove from history',
     unlockProgressLabel: 'Stream unlock progress',
+    editDetailsButton: 'Edit details',
+    transferStreamButton: 'Transfer',
+    pausedNotice: 'Paused by admin — writes are temporarily disabled.',
   },
 
   details: {

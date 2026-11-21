@@ -9,11 +9,14 @@ import {
   fetchStreamsForAddress,
   fetchArchivedSentStreamIds,
   getTokenMetadata,
+  partialCancelStream,
   simulateCreateStreamPreview,
   withdrawFromStream,
   topUpStream,
   transferStream,
+  withdrawMaxFromStream,
 } from '@/lib/contract'
+import { getUnlockedAmount } from '@/lib/stream-utils'
 import type { CreateStreamInput } from '@/types/stream'
 import { getServer } from '@/lib/stellar'
 import { Account, nativeToScVal } from '@stellar/stellar-sdk'
@@ -101,6 +104,62 @@ describe('contract mock mode', () => {
     await vi.advanceTimersByTimeAsync(700)
     await expect(cancelPromise).resolves.toBeNull()
     await expect(fetchStream('testnet', id)).resolves.toMatchObject({ cancelled: true })
+  })
+
+  it('partially cancels a stream through the mock store, reclaiming part of the locked balance', async () => {
+    const now = Math.floor(Date.now() / 1000)
+    const partialInput: CreateStreamInput = {
+      ...input,
+      totalAmount: 1_000_000n,
+      startTime: BigInt(now - 1_000),
+      endTime: BigInt(now + 9_000),
+      cliffTime: BigInt(now - 1_000),
+      cliffAmount: 0n,
+    }
+
+    const createPromise = createStream(partialInput, sender, 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    const id = await createPromise
+
+    const before = await fetchStream('testnet', id)
+    const locked = before!.depositedAmount - getUnlockedAmount(before!, now)
+    expect(locked).toBeGreaterThan(0n)
+
+    const reclaim = locked / 2n
+    const partialCancelPromise = partialCancelStream(id, reclaim, 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await expect(partialCancelPromise).resolves.toBeNull()
+
+    const after = await fetchStream('testnet', id)
+    expect(after!.depositedAmount).toBe(before!.depositedAmount - reclaim)
+    expect(after!.cancelled).toBe(false)
+  it('withdrawMaxFromStream withdraws everything currently withdrawable, not a stale amount (#1146)', async () => {
+    const id = await createMockStream()
+
+    const withdrawPromise = withdrawMaxFromStream(id, 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await expect(withdrawPromise).resolves.toBeNull()
+    await expect(fetchStream('testnet', id)).resolves.toMatchObject({
+      withdrawnAmount: input.totalAmount,
+    })
+  })
+
+  it('withdrawMaxFromStream resolves to null and withdraws nothing once fully drained', async () => {
+    const id = await createMockStream()
+    const first = withdrawMaxFromStream(id, 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await first
+
+    await expect(withdrawMaxFromStream(id, 'testnet')).resolves.toBeNull()
+    await expect(fetchStream('testnet', id)).resolves.toMatchObject({
+      withdrawnAmount: input.totalAmount,
+    })
+  })
+
+  it('withdrawMaxFromStream throws "Stream not found" for an unknown id', async () => {
+    await expect(withdrawMaxFromStream('does-not-exist', 'testnet')).rejects.toThrow(
+      'Stream not found',
+    )
   })
 
   it('returns archived mock stream IDs for a matching sender', async () => {

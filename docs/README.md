@@ -6,6 +6,7 @@ Complete documentation for the FlowStar payment streaming smart contract.
 
 - **[FAQ](./FAQ.md)** - Common contributor questions: mock mode, networks, issue assignment, troubleshooting
 - **[API Reference](./api-reference.md)** - Complete function reference with parameters, returns, and gas costs
+- **[Stream Lifecycle](./STREAM_LIFECYCLE.md)** - UI statuses, on-chain states, and the Mermaid state diagram
 - **[Integration Guide](./integration-guide.md)** - Step-by-step guide with 5 practical examples
 - **[CLI Examples](./cli-examples.md)** - Command-line interface examples for contract interaction
 - **[Webhooks](./WEBHOOKS.md)** - Webhook payload format and schema versioning policy
@@ -182,6 +183,17 @@ Query operations (read-only) do not require authorization or fees.
 | 8    | InvalidToken             | Token contract not SEP-41 valid     |
 | 9    | TransferFailed           | Token transfer failed (allowance?)  |
 | 10   | InsufficientWithdrawable | No funds available yet              |
+| 11   | BatchSizeExceeded        | More than 20 streams in batch       |
+| 12   | BatchEmpty               | Batch contains no streams           |
+| 13   | ArithmeticOverflow       | Vesting calculation overflowed i128 |
+| 14   | AlreadyInitialized       | Contract already initialized        |
+| 15   | NotInitialized           | Contract not yet initialized        |
+| 16   | ContractPaused           | All writes are paused               |
+| 17   | DurationExceedsMaximum   | Stream duration exceeds 10-year cap |
+| 18   | InvalidRecipient         | Recipient is the contract itself    |
+| 19   | RateIsZero               | Per-second rate would be zero       |
+| 20   | StreamNotEligibleForCleanup | Stream not yet cancelled or drained |
+| 21   | PastStartTime            | `start_time` is in the past         |
 
 See [API Reference - Error Codes](./api-reference.md#error-codes) for details.
 
