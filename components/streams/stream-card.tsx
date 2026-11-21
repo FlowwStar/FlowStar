@@ -78,7 +78,7 @@ function StreamCardInner({
       ? Number((stream.withdrawnAmount * 10000n) / stream.depositedAmount) / 10000
       : 0
 
-  const rate = formatRate(stream.amountPerSecond, stream.token.decimals, stream.token.symbol)
+  const rate = formatRate(stream.linearAmount, stream.duration, stream.token.decimals, stream.token.symbol)
   const isOutgoing = address === stream.sender
   const counterparty = isOutgoing ? stream.recipient : stream.sender
   // Issue #155: show a known Federation name (e.g. alice*domain.com) for the
