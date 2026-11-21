@@ -9,6 +9,8 @@
  * withdrawable by navigating to it directly).
  */
 
+import { readJSON, writeJSON } from './storage'
+
 const HIDDEN_STREAMS_KEY = 'flowstar:hidden-streams'
 const BLOCKED_SENDERS_KEY = 'flowstar:blocked-senders'
 
@@ -28,20 +30,12 @@ function notify() {
 }
 
 function readSet(key: string): Set<string> {
-  if (typeof window === 'undefined') return new Set()
-  try {
-    const stored = window.localStorage.getItem(key)
-    if (!stored) return new Set()
-    const parsed = JSON.parse(stored)
-    return Array.isArray(parsed) ? new Set(parsed) : new Set()
-  } catch {
-    return new Set()
-  }
+  const parsed = readJSON<unknown>(key, [])
+  return Array.isArray(parsed) ? new Set(parsed) : new Set()
 }
 
 function writeSet(key: string, value: Set<string>) {
-  if (typeof window === 'undefined') return
-  window.localStorage.setItem(key, JSON.stringify(Array.from(value)))
+  writeJSON(key, Array.from(value))
   notify()
 }
 

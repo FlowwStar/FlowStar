@@ -1,3 +1,5 @@
+import { readJSON, writeJSON } from './storage'
+
 export type RecurrenceCadence = 'none' | 'weekly' | 'monthly' | 'quarterly'
 
 export interface RecurringRule {
@@ -21,15 +23,8 @@ const STORAGE_KEY = 'flowstar:recurring-streams'
  * @returns Array of {@link RecurringRule} objects, or `[]` if none are stored.
  */
 export function getRecurringRules(): RecurringRule[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as RecurringRule[]
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
+  const parsed = readJSON<RecurringRule[]>(STORAGE_KEY, [])
+  return Array.isArray(parsed) ? parsed : []
 }
 
 /**
@@ -43,10 +38,9 @@ export function getRecurringRules(): RecurringRule[] {
  *               same `streamId` is overwritten.
  */
 export function saveRecurringRule(rule: RecurringRule): void {
-  if (typeof window === 'undefined') return
   const rules = getRecurringRules().filter((item) => item.streamId !== rule.streamId)
   rules.unshift(rule)
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rules.slice(0, 25)))
+  writeJSON(STORAGE_KEY, rules.slice(0, 25))
 }
 
 /**
@@ -57,9 +51,8 @@ export function saveRecurringRule(rule: RecurringRule): void {
  *                   deleted.
  */
 export function removeRecurringRule(streamId: string): void {
-  if (typeof window === 'undefined') return
   const rules = getRecurringRules().filter((item) => item.streamId !== streamId)
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rules))
+  writeJSON(STORAGE_KEY, rules)
 }
 
 /**
