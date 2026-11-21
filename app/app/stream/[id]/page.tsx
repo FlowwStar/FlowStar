@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useState } from 'react'
+import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -64,7 +64,7 @@ import {
   formatRate,
   SECONDS_PER_DAY,
 } from '@/lib/stream-utils'
-import { explorerUrl } from '@/lib/stellar'
+import { explorerUrl, validateStellarAddress } from '@/lib/stellar'
 import { useNetwork } from '@/components/providers/network-provider'
 import { useAutoWithdraw } from '@/hooks/use-auto-withdraw'
 import { useTokenPrice } from '@/hooks/use-token-price'
@@ -72,9 +72,11 @@ import { UnlockChart } from '@/components/streams/unlock-chart'
 import { StreamTimeline } from '@/components/streams/stream-timeline'
 import { DownloadReceiptButton } from '@/components/streams/download-receipt-button'
 import { bumpStreamTtl } from '@/lib/contract'
-import { getFederationNameForAddress } from '@/lib/address-book'
+import { getFederationNameForAddress, getAddressBookEntries } from '@/lib/address-book'
+import { isFederationAddress, resolveFederationAddress } from '@/lib/federation'
 import { QrShareDialog } from '@/components/streams/qr-share-dialog'
 import { streamDetailCopy as copy } from '@/lib/copy/stream-detail'
+import type { StreamMetadata } from '@/types/stream'
 
 // ─── Address copy button ────────────────────────────────────────────────────
 
@@ -394,6 +396,258 @@ function CleanupDialog({
             {pending ? copy.cleanupDialog.removing : copy.cleanupDialog.confirmButton}
           </Button>
         </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Edit metadata dialog ───────────────────────────────────────────────────
+
+// Issue #1143: lets the sender update a stream's name/category/memo after
+// creation, via the contract's `update_stream_metadata`.
+function EditMetadataDialog({
+  open,
+  onClose,
+  streamId,
+  metadata,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  metadata?: StreamMetadata
+}) {
+  const { updateMetadata, pending, error } = useContract()
+  const [name, setName] = useState(metadata?.name ?? '')
+  const [category, setCategory] = useState(metadata?.category ?? '')
+  const [memo, setMemo] = useState(metadata?.memo ?? '')
+
+  // Re-sync local fields whenever the dialog is (re)opened, so a stale edit
+  // from a previous open doesn't linger.
+  useEffect(() => {
+    if (open) {
+      setName(metadata?.name ?? '')
+      setCategory(metadata?.category ?? '')
+      setMemo(metadata?.memo ?? '')
+    }
+  }, [open, metadata])
+
+  async function handleSave() {
+    try {
+      await updateMetadata(streamId, {
+        name: name.trim(),
+        category: category.trim(),
+        memo: memo.trim(),
+      })
+      toast.success(copy.editMetadataDialog.successToastTitle)
+      onClose()
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{copy.editMetadataDialog.title}</DialogTitle>
+          <DialogDescription>{copy.editMetadataDialog.description}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="metadata-name">{copy.editMetadataDialog.nameLabel}</Label>
+            <Input
+              id="metadata-name"
+              value={name}
+              maxLength={64}
+              placeholder={copy.editMetadataDialog.namePlaceholder}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="metadata-category">{copy.editMetadataDialog.categoryLabel}</Label>
+            <Input
+              id="metadata-category"
+              value={category}
+              maxLength={32}
+              placeholder={copy.editMetadataDialog.categoryPlaceholder}
+              onChange={(e) => setCategory(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="metadata-memo">{copy.editMetadataDialog.memoLabel}</Label>
+            <Input
+              id="metadata-memo"
+              value={memo}
+              maxLength={256}
+              placeholder={copy.editMetadataDialog.memoPlaceholder}
+              onChange={(e) => setMemo(e.target.value)}
+            />
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={pending}>
+              {copy.editMetadataDialog.cancelButton}
+            </Button>
+            <Button onClick={handleSave} disabled={pending}>
+              {pending ? copy.editMetadataDialog.saving : copy.editMetadataDialog.saveButton}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Transfer dialog ─────────────────────────────────────────────────────────
+
+// Issue #1138: lets the recipient reassign the stream to a new address, via
+// the contract's `transfer_stream`. Two steps: resolve/validate the address,
+// then an explicit confirmation warning that any delegate is cleared.
+function TransferDialog({
+  open,
+  onClose,
+  streamId,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+}) {
+  const { transfer, pending, error } = useContract()
+  const [input, setInput] = useState('')
+  const [resolving, setResolving] = useState(false)
+  const [resolveError, setResolveError] = useState<string | null>(null)
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null)
+  const [step, setStep] = useState<'input' | 'confirm'>('input')
+
+  function reset() {
+    setInput('')
+    setResolving(false)
+    setResolveError(null)
+    setResolvedAddress(null)
+    setStep('input')
+  }
+
+  function handleClose() {
+    reset()
+    onClose()
+  }
+
+  async function handleContinue() {
+    const trimmed = input.trim()
+    setResolveError(null)
+
+    if (isFederationAddress(trimmed)) {
+      setResolving(true)
+      try {
+        const result = await resolveFederationAddress(trimmed)
+        setResolvedAddress(result.accountId)
+        setStep('confirm')
+      } catch (err) {
+        setResolveError(err instanceof Error ? err.message : copy.transferDialog.invalidFormat)
+      } finally {
+        setResolving(false)
+      }
+      return
+    }
+
+    const check = validateStellarAddress(trimmed)
+    if (!check.valid) {
+      setResolveError(
+        check.reason === 'checksum'
+          ? copy.transferDialog.invalidChecksum
+          : copy.transferDialog.invalidFormat,
+      )
+      return
+    }
+    setResolvedAddress(trimmed)
+    setStep('confirm')
+  }
+
+  async function handleConfirm() {
+    if (!resolvedAddress) return
+    try {
+      await transfer(streamId, resolvedAddress)
+      toast.success(copy.transferDialog.successToastTitle, {
+        description: copy.transferDialog.successToastDescription(
+          shortenAddress(resolvedAddress, 6),
+        ),
+      })
+      handleClose()
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  const addressBookEntries = open ? getAddressBookEntries() : []
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="sm:max-w-sm">
+        {step === 'input' ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{copy.transferDialog.title}</DialogTitle>
+              <DialogDescription>{copy.transferDialog.description}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-1">
+              <div className="space-y-1.5">
+                <Label htmlFor="transfer-address">{copy.transferDialog.addressLabel}</Label>
+                <Input
+                  id="transfer-address"
+                  list="transfer-address-book"
+                  value={input}
+                  placeholder={copy.transferDialog.addressPlaceholder}
+                  onChange={(e) => {
+                    setInput(e.target.value)
+                    setResolveError(null)
+                  }}
+                  aria-invalid={!!resolveError}
+                />
+                <datalist id="transfer-address-book">
+                  {addressBookEntries.map((entry) => (
+                    <option key={entry.id} value={entry.address}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </datalist>
+                {resolving && (
+                  <p className="text-xs text-muted-foreground">{copy.transferDialog.resolving}</p>
+                )}
+                {resolveError && <p className="text-xs text-destructive">{resolveError}</p>}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={handleClose}>
+                  {copy.transferDialog.cancelButton}
+                </Button>
+                <Button onClick={handleContinue} disabled={!input.trim() || resolving}>
+                  {copy.transferDialog.continueButton}
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>{copy.transferDialog.confirmTitle}</DialogTitle>
+              <DialogDescription>{copy.transferDialog.confirmDelegateWarning}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-1">
+              <p className="text-sm">
+                {copy.transferDialog.confirmTransferringTo}{' '}
+                <span className="font-mono font-medium">{resolvedAddress}</span>
+              </p>
+              {error && <p className="text-xs text-destructive">{error}</p>}
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setStep('input')} disabled={pending}>
+                  {copy.transferDialog.backButton}
+                </Button>
+                <Button variant="destructive" onClick={handleConfirm} disabled={pending}>
+                  {pending ? copy.transferDialog.transferring : copy.transferDialog.confirmButton}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -881,7 +1135,11 @@ function StreamDetail({ id }: { id: string }) {
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [editMetadataOpen, setEditMetadataOpen] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
   const isCancelling = useIsStreamCancelling(id)
+  // Issue #1144: contract-wide pause flag, shared with every write action.
+  const { paused } = useContract()
 
   if (loading) {
     return <StreamDetailSkeleton />
@@ -918,6 +1176,12 @@ function StreamDetail({ id }: { id: string }) {
     (isSender || isRecipient) &&
     (stream.cancelled ||
       (status === 'completed' && stream.withdrawnAmount >= stream.depositedAmount))
+  // Issue #1143: the sender can edit metadata at any time, paused or not
+  // excluded (the write itself is blocked while paused; see useContract).
+  const canEditDetails = isSender
+  // Issue #1138: only the current recipient, and only while the stream is
+  // still active, can reassign it.
+  const canTransfer = isRecipient && !stream.cancelled
 
   function handleDuplicate() {
     if (!stream) return
@@ -1073,10 +1337,14 @@ function StreamDetail({ id }: { id: string }) {
         )}
 
         {/* Actions */}
-        {(canWithdraw || canCancel || canCleanup || isSender) && (
+        {(canWithdraw || canCancel || canCleanup || canTransfer || isSender) && (
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
             {canWithdraw && (
-              <Button onClick={() => setWithdrawOpen(true)} className="gap-1.5">
+              <Button
+                onClick={() => setWithdrawOpen(true)}
+                disabled={paused}
+                className="gap-1.5"
+              >
                 <ArrowDownLeft className="size-4" />
                 {copy.header.withdrawButton}{' '}
                 <span className="font-mono">
@@ -1085,8 +1353,18 @@ function StreamDetail({ id }: { id: string }) {
               </Button>
             )}
             {canCancel && (
-              <Button variant="secondary" onClick={() => setCancelOpen(true)}>
+              <Button variant="secondary" onClick={() => setCancelOpen(true)} disabled={paused}>
                 {copy.header.cancelStreamButton}
+              </Button>
+            )}
+            {canTransfer && (
+              <Button variant="secondary" onClick={() => setTransferOpen(true)} disabled={paused}>
+                {copy.header.transferStreamButton}
+              </Button>
+            )}
+            {canEditDetails && (
+              <Button variant="outline" onClick={() => setEditMetadataOpen(true)} disabled={paused}>
+                {copy.header.editDetailsButton}
               </Button>
             )}
             <DownloadReceiptButton stream={stream} />
@@ -1107,6 +1385,9 @@ function StreamDetail({ id }: { id: string }) {
               </Button>
             )}
           </div>
+        )}
+        {paused && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">{copy.header.pausedNotice}</p>
         )}
       </div>
 
@@ -1228,6 +1509,17 @@ function StreamDetail({ id }: { id: string }) {
         onClose={() => setCleanupOpen(false)}
         streamId={stream.id}
         onCleaned={() => router.push('/app')}
+      />
+      <EditMetadataDialog
+        open={editMetadataOpen}
+        onClose={() => setEditMetadataOpen(false)}
+        streamId={stream.id}
+        metadata={stream.metadata}
+      />
+      <TransferDialog
+        open={transferOpen}
+        onClose={() => setTransferOpen(false)}
+        streamId={stream.id}
       />
     </div>
   )

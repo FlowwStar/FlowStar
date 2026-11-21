@@ -8,6 +8,8 @@ import {
   withdrawFromStream,
   cancelStream as cancelStreamCall,
   cleanupStream as cleanupStreamCall,
+  updateStreamMetadata as updateStreamMetadataCall,
+  transferStream as transferStreamCall,
   estimateCreateStreamFee,
   type TxStep,
 } from "@/lib/contract";
@@ -15,9 +17,10 @@ import type { FeeEstimate } from "@/lib/contract";
 import { invalidateStreams } from "@/hooks/use-streams";
 import { useWallet } from "@/hooks/use-wallet";
 import { useNetwork } from "@/components/providers/network-provider";
+import { useContractPaused } from "@/hooks/use-contract-paused";
 import { getWithdrawableAmount } from "@/lib/stream-utils";
 import { mapError, categoryLabel } from "@/lib/error-messages";
-import type { CreateStreamInput, StreamData } from "@/types/stream";
+import type { CreateStreamInput, StreamData, StreamMetadata } from "@/types/stream";
 
 /**
  * Result of a batch withdrawal operation.
@@ -93,6 +96,7 @@ function showErrorToast(err: unknown, toastId?: string | number) {
 export function useContract() {
   const { address, isConnected } = useWallet();
   const { network } = useNetwork();
+  const paused = useContractPaused();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +113,11 @@ export function useContract() {
       fn: (onStep: (step: TxStep) => void) => Promise<T>,
     ): Promise<T> => {
       if (!isConnected || !address) throw new Error("Connect a wallet first.");
+      if (paused) {
+        throw new Error(
+          "FlowStar is paused by its admin right now — writes are temporarily disabled.",
+        );
+      }
       setPending(true);
       setError(null);
       const toastId = toast.loading("Simulating transaction…");
@@ -130,7 +139,7 @@ export function useContract() {
         setPending(false);
       }
     },
-    [address, isConnected],
+    [address, isConnected, paused],
   );
 
   /**
@@ -197,6 +206,43 @@ export function useContract() {
   const cancel = useCallback(
     (id: string) =>
       run("Cancel stream", (onStep) => cancelStreamCall(id, network, onStep)),
+    [run, network],
+  );
+
+  /**
+   * Update a stream's metadata (name, category, memo). Only the sender can
+   * call this, and unlike at creation it can be done at any time.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to update
+   * @param {StreamMetadata} metadata - New name/category/memo values
+   * @returns {Promise<void>} Resolves when the update is confirmed on-chain
+   * @throws {Error} "Not sender" if caller is not the stream's sender
+   */
+  const updateMetadata = useCallback(
+    (id: string, metadata: StreamMetadata) =>
+      run("Update details", (onStep) =>
+        updateStreamMetadataCall(id, metadata, network, onStep),
+      ),
+    [run, network],
+  );
+
+  /**
+   * Transfer a stream to a new recipient. Only the current recipient can
+   * call this; any delegate registered on the stream is cleared as a side
+   * effect, since it was authorized by the old recipient.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to transfer
+   * @param {string} newRecipient - Address of the new recipient
+   * @returns {Promise<void>} Resolves when the transfer is confirmed on-chain
+   * @throws {Error} "Not recipient" if caller is not the current recipient
+   */
+  const transfer = useCallback(
+    (id: string, newRecipient: string) =>
+      run("Transfer stream", (onStep) =>
+        transferStreamCall(id, newRecipient, network, onStep),
+      ),
     [run, network],
   );
 
@@ -314,9 +360,12 @@ export function useContract() {
     withdraw,
     cancel,
     cleanup,
+    updateMetadata,
+    transfer,
     withdrawAll,
     estimateFee,
     pending,
     error,
+    paused,
   };
 }

@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { Navbar } from '@/components/layout/navbar'
 import { Breadcrumb } from '@/components/layout/breadcrumb'
 import { MockModeBanner } from '@/components/layout/mock-mode-banner'
+import { PausedBanner } from '@/components/layout/paused-banner'
 import { PageErrorBoundary } from '@/components/error-boundary/page-error-boundary'
 
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <PageErrorBoundary>
       <div className="flex min-h-svh flex-col">
+        <PausedBanner />
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm focus:font-medium focus:outline-none"
