@@ -43,6 +43,36 @@ export function getLockedAmount(stream: StreamData, nowSeconds?: number): bigint
 }
 
 /**
+ * Previews the stream's new `amountPerSecond` after topping up by `amount`,
+ * mirroring the rate recalculation in the contract's `top_up` (see
+ * `contracts/streaming/src/lib.rs`). Does not mutate `stream`. Used by the
+ * top-up dialog (issue #1136) to show a "new rate" preview before submitting.
+ *
+ * - On/after the cliff: the new deposit minus what's already unlocked is
+ *   spread evenly over the remaining time until `endTime`.
+ * - Before the cliff: the extra amount is simply added to the linear
+ *   portion and spread over the stream's full duration.
+ */
+export function previewTopUpRate(
+  stream: StreamData,
+  amount: bigint,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): bigint {
+  const now = BigInt(nowSeconds)
+  const depositedAmount = stream.depositedAmount + amount
+
+  if (now >= stream.cliffTime) {
+    const remainingSeconds = stream.endTime > now ? stream.endTime - now : 0n
+    const alreadyUnlocked = getUnlockedAmount(stream, nowSeconds)
+    const remaining = depositedAmount - alreadyUnlocked
+    return remainingSeconds > 0n ? remaining / remainingSeconds : 0n
+  }
+
+  const linearAmount = stream.linearAmount + amount
+  return stream.duration > 0n ? linearAmount / stream.duration : 0n
+}
+
+/**
  * Derives the current lifecycle status of a stream (cancelled, scheduled, completed, or streaming)
  * based on its start/end times and cancelled flag relative to `nowSeconds`.
  */
@@ -199,14 +229,16 @@ export function formatDateTime(unixSeconds: bigint | number): string {
   })
 }
 
-/** Returns "just now", "Xm ago", "Xh ago", "Xd ago", or a locale date for timestamps older than 7 days. */
+/** Returns "just now", "Xm ago", "Xh ago", "Xd ago", or an en-US date for timestamps older than 7 days. */
 export function formatTimeAgo(timestamp: number): string {
   const diff = Date.now() - timestamp
   if (diff < 60_000) return 'just now'
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
   if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d ago`
-  return new Date(timestamp).toLocaleDateString()
+  // Pin 'en-US' so output is consistent regardless of browser locale,
+  // matching formatDateTime and formatTokenAmount (issue #1154).
+  return new Date(timestamp).toLocaleDateString('en-US')
 }
 
 /** Returns a compact "2d 4h 13m" style duration from now until `target`. */

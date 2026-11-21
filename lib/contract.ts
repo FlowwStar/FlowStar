@@ -726,6 +726,110 @@ export async function cancelStream(
 }
 
 /**
+ * Add `amount` (in the token's base units) to stream `id`'s deposit, signed
+ * by `address` (must be the stream's sender, same as `top_up`'s
+ * `require_auth`).
+ *
+ * Live: fetches the stream first to find its token; throws `Stream not
+ * found` if it can't be loaded. Sends two signed transactions — a token
+ * `approve` letting the stream contract pull `amount` (valid for ~500
+ * ledgers), then `top_up` — so `onStep` cycles twice, mirroring
+ * {@link createStream}. Returns the transaction hash of the `top_up` call.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, adds `amount` to the stream's deposit in the
+ * mock store and returns `null`.
+ */
+export async function topUpStream(
+  id: string,
+  amount: bigint,
+  address: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    await new Promise((r) => setTimeout(r, 700))
+    mockStore.topUp(id, amount)
+    return null
+  }
+
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  // Step 1: approve the streaming contract to pull `amount` from `address`.
+  // The allowance needs to outlast the simulation ledger — set it to current + 500 ledgers.
+  const server = getServer(network)
+  const currentLedger = (await withRetry(() => server.getLatestLedger())).sequence
+  const expirationLedger = currentLedger + 500
+
+  await invoke(
+    network,
+    'approve',
+    [
+      new Address(address).toScVal(), // from
+      new Address(config.streamContractId).toScVal(), // spender
+      nativeToScVal(amount, { type: 'i128' }), // amount
+      nativeToScVal(expirationLedger, { type: 'u32' }), // expiration_ledger
+    ],
+    address,
+    stream.token.address, // invoke on the token contract, not the streaming contract
+    onStep,
+  )
+
+  // Step 2: top up the stream.
+  return invoke(
+    network,
+    'top_up',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), nativeToScVal(amount, { type: 'i128' })],
+    address,
+    config.streamContractId,
+    onStep,
+  )
+}
+
+/**
+ * Transfer stream `id`'s recipient rights to `newRecipient`, signed by
+ * `address` (must be the stream's current recipient, same as
+ * `transfer_stream`'s `require_auth`).
+ *
+ * Live: fetches the stream first; throws `Stream not found` if it can't be
+ * loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, updates the recipient in the mock store and
+ * returns `null`.
+ */
+export async function transferStream(
+  id: string,
+  newRecipient: string,
+  address: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    await new Promise((r) => setTimeout(r, 700))
+    mockStore.transfer(id, newRecipient)
+    return null
+  }
+
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  return invoke(
+    network,
+    'transfer_stream',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), new Address(newRecipient).toScVal()],
+    address,
+    config.streamContractId,
+    onStep,
+  )
+}
+
+/**
  * Look up a token contract's `symbol` and `decimals` via read-only simulation.
  *
  * Always queries the network, even in mock mode. Returns `null` on any

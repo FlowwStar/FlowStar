@@ -8,6 +8,8 @@ import {
   withdrawFromStream,
   cancelStream as cancelStreamCall,
   cleanupStream as cleanupStreamCall,
+  topUpStream as topUpStreamCall,
+  transferStream as transferStreamCall,
   estimateCreateStreamFee,
   type TxStep,
 } from "@/lib/contract";
@@ -79,6 +81,8 @@ function showErrorToast(err: unknown, toastId?: string | number) {
  * @returns {Function} withdraw - Withdraw unlocked funds from a stream by ID
  * @returns {Function} cancel - Cancel a stream; sender gets remainder, recipient keeps unlocked
  * @returns {Function} cleanup - Permanently remove a completed or cancelled stream from history
+ * @returns {Function} topUp - Add funds to an active stream; sender only
+ * @returns {Function} transferStream - Transfer a stream's recipient rights to a new address; recipient only
  * @returns {Function} withdrawAll - Withdraw from multiple streams in sequence, with progress tracking
  * @returns {Function} estimateFee - Estimate the fee for creating a stream (returns null if wallet disconnected)
  * @returns {boolean} pending - True while any transaction is being executed
@@ -219,6 +223,43 @@ export function useContract() {
   );
 
   /**
+   * Add funds to an active stream. Only the sender may top up.
+   * Requires prior token approval, which this sends automatically (like
+   * `createStream`). Emits toast notifications and invalidates cache on
+   * success.
+   *
+   * @param {string} id - Stream ID to top up
+   * @param {bigint} amount - Additional amount to deposit, in the token's base units
+   * @returns {Promise<string | null>} Resolves with the transaction hash (or `null` in mock mode) when confirmed
+   * @throws {Error} "Stream not found", "StreamCancelled", "StreamEnded", or network/signing errors
+   */
+  const topUp = useCallback(
+    (id: string, amount: bigint) =>
+      run("Top up stream", (onStep) =>
+        topUpStreamCall(id, amount, address!, network, onStep),
+      ),
+    [run, address, network],
+  );
+
+  /**
+   * Transfer a stream's recipient rights to a new address. Only the current
+   * recipient may transfer. Emits toast notifications and invalidates cache
+   * on success.
+   *
+   * @param {string} id - Stream ID to transfer
+   * @param {string} newRecipient - Address to transfer recipient rights to
+   * @returns {Promise<string | null>} Resolves with the transaction hash (or `null` in mock mode) when confirmed
+   * @throws {Error} "Stream not found", "SameRecipient", "SelfStream", "StreamCancelled", "StreamEnded", or network/signing errors
+   */
+  const transferStream = useCallback(
+    (id: string, newRecipient: string) =>
+      run("Transfer stream", (onStep) =>
+        transferStreamCall(id, newRecipient, address!, network, onStep),
+      ),
+    [run, address, network],
+  );
+
+  /**
    * Estimate the fee for creating a stream.
    * Returns null if wallet is disconnected or estimation fails (graceful degradation).
    * Useful for displaying fee warnings or confirming budget availability before creation.
@@ -314,6 +355,8 @@ export function useContract() {
     withdraw,
     cancel,
     cleanup,
+    topUp,
+    transferStream,
     withdrawAll,
     estimateFee,
     pending,

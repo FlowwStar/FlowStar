@@ -39,6 +39,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { StreamData, TokenInfo } from '@/types/stream'
 import { Suspense } from 'react'
 
@@ -181,6 +182,7 @@ vi.mock('@/components/layout/connect-wallet-button', () => ({
 
 vi.mock('@/lib/contract', () => ({
   bumpStreamTtl: vi.fn(),
+  getTokenBalance: vi.fn().mockResolvedValue(0n),
 }))
 
 vi.mock('@/lib/address-book', () => ({
@@ -259,6 +261,8 @@ beforeEach(() => {
     withdraw: vi.fn(),
     cancel: vi.fn(),
     cleanup: vi.fn(),
+    topUp: vi.fn(),
+    transferStream: vi.fn(),
     pending: false,
     error: null,
   })
@@ -464,6 +468,36 @@ describe('sender actions', () => {
       expect(screen.queryByRole('button', { name: /^withdraw/i })).not.toBeInTheDocument()
     })
   })
+
+  // Issue #1136
+  it('renders the "Top up" button for the sender on an active stream', async () => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^top up$/i })).toBeInTheDocument()
+    })
+  })
+
+  it('does not render the "Top up" button once the stream is cancelled', async () => {
+    mockUseStream.mockReturnValue({
+      stream: makeStream({ sender: SENDER_ADDRESS, recipient: RECIPIENT_ADDRESS, cancelled: true }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^top up$/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it('opens the top-up dialog when "Top up" is clicked', async () => {
+    const user = userEvent.setup()
+    await renderPage('stream-abc')
+    const button = await screen.findByRole('button', { name: /^top up$/i })
+    await user.click(button)
+    await waitFor(() => {
+      expect(screen.getByText('Top up stream')).toBeInTheDocument()
+    })
+  })
 })
 
 // ─── Recipient-specific actions ───────────────────────────────────────────────
@@ -501,6 +535,14 @@ describe('recipient actions', () => {
     await renderPage('stream-abc')
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /cancel stream/i })).not.toBeInTheDocument()
+    })
+  })
+
+  // Issue #1136: top-up is sender-only
+  it('does not render the "Top up" button for the recipient', async () => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^top up$/i })).not.toBeInTheDocument()
     })
   })
 })
