@@ -24,6 +24,7 @@ vi.mock('sonner', () => ({
 vi.mock('@/lib/contract', () => ({
   createStream: vi.fn(),
   withdrawFromStream: vi.fn(),
+  withdrawMaxFromStream: vi.fn(),
   cancelStream: vi.fn(),
   estimateCreateStreamFee: vi.fn(),
 }))
@@ -31,6 +32,7 @@ vi.mock('@/lib/contract', () => ({
 import {
   createStream,
   withdrawFromStream,
+  withdrawMaxFromStream,
   cancelStream,
   estimateCreateStreamFee,
 } from '@/lib/contract'
@@ -232,12 +234,12 @@ describe('useContract', () => {
       res = await result.current.withdrawAll([makeStream()])
     })
     expect(res).toEqual({ succeeded: 0, failed: 0 })
-    expect(withdrawFromStream).not.toHaveBeenCalled()
+    expect(withdrawMaxFromStream).not.toHaveBeenCalled()
   })
 
   it('counts succeeded and failed withdrawals correctly', async () => {
     vi.mocked(getWithdrawableAmount).mockReturnValue(500n)
-    vi.mocked(withdrawFromStream)
+    vi.mocked(withdrawMaxFromStream)
       .mockResolvedValueOnce('tx1')
       .mockRejectedValueOnce(new Error('timeout'))
     const { result } = renderHook(() => useContract())
@@ -251,7 +253,7 @@ describe('useContract', () => {
 
   it('calls onProgress callback with current/total counts', async () => {
     vi.mocked(getWithdrawableAmount).mockReturnValue(500n)
-    vi.mocked(withdrawFromStream).mockResolvedValue('tx1')
+    vi.mocked(withdrawMaxFromStream).mockResolvedValue('tx1')
     const onProgress = vi.fn()
     const { result } = renderHook(() => useContract())
     await act(async () => {
@@ -259,5 +261,17 @@ describe('useContract', () => {
     })
     expect(onProgress).toHaveBeenCalledWith(1, 2)
     expect(onProgress).toHaveBeenCalledWith(2, 2)
+  })
+
+  it('withdrawAll delegates each withdrawal to withdrawMaxFromStream (fresh on-chain amount, not a stale snapshot) — #1146', async () => {
+    vi.mocked(getWithdrawableAmount).mockReturnValue(500n)
+    vi.mocked(withdrawMaxFromStream).mockResolvedValue('tx1')
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.withdrawAll([makeStream('1'), makeStream('2')])
+    })
+    expect(withdrawMaxFromStream).toHaveBeenCalledWith('1', 'testnet')
+    expect(withdrawMaxFromStream).toHaveBeenCalledWith('2', 'testnet')
+    expect(withdrawFromStream).not.toHaveBeenCalled()
   })
 })

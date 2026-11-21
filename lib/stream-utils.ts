@@ -17,6 +17,14 @@ export function getUnlockedAmount(
   stream: StreamData,
   nowSeconds: number = Math.floor(Date.now() / 1000),
 ): bigint {
+  // Cancelled streams stop accruing the instant they're cancelled, but the
+  // contract doesn't record a `cancelled_at` timestamp (tracked separately),
+  // so there's no cliff/linear math we can still run here. The only
+  // known-correct, stable figure left is what the recipient actually
+  // withdrew — using it freezes the displayed total instead of letting the
+  // multiply/divide below keep advancing with wall-clock time (#1147, #1148).
+  if (stream.cancelled) return stream.withdrawnAmount
+
   const now = BigInt(nowSeconds)
   if (now < stream.cliffTime) return 0n
   if (now >= stream.endTime) return stream.depositedAmount
