@@ -166,23 +166,48 @@ describe('parseTokenAmount', () => {
 
 describe('formatRate', () => {
   it('returns best rate with unit', () => {
-    // 0.1 USDC/s = 6/min → picks /min (first unit >= 0.01)
-    const r = formatRate(1_000_000n, 7, 'USDC')
+    // linearAmount/duration = 1_000_000_000n / 1000n = 1_000_000 raw/s
+    // = 0.1 USDC/s = 6/min → picks /min (first unit >= 0.01)
+    const r = formatRate(1_000_000_000n, 1000n, 7, 'USDC')
     expect(r.best).toContain('USDC')
     expect(r.bestUnit).toBe('/min')
   })
 
   it('picks the first unit where value >= 0.01', () => {
     // 1 stroop/s = 0.0000001 USDC/s = 0.26/mo → picks /mo
-    const r = formatRate(1n, 7, 'USDC')
+    const r = formatRate(1n, 1n, 7, 'USDC')
     expect(r.bestUnit).toBe('/mo')
   })
 
   it('contains all unit fields', () => {
-    const r = formatRate(1_000_000n, 7, 'USDC')
+    const r = formatRate(1_000_000_000n, 1000n, 7, 'USDC')
     expect(r.perSecond).toBeTruthy()
     expect(r.perHour).toBeTruthy()
     expect(r.perYear).toBeTruthy()
+  })
+
+  it('returns 0-valued rates for a zero duration instead of dividing by zero', () => {
+    const r = formatRate(1_000_000n, 0n, 7, 'USDC')
+    expect(r.perSecond).toBe('0 USDC/s')
+    expect(r.perYear).toBe('0 USDC/yr')
+  })
+
+  it('computes precise rates from linearAmount/duration rather than a pre-rounded amountPerSecond', () => {
+    // linearAmount/duration = 100/3 = 33.333...; a pre-divided integer
+    // amountPerSecond (bigint 100n / 3n = 33n) would truncate this to a flat
+    // "33" instead of the true "33.33".
+    const r = formatRate(100n, 3n, 0, 'USDC')
+    expect(r.perSecond).toBe('33.33 USDC/s')
+  })
+
+  it('matches getUnlockedAmount-style bigint math for a long-running stream (no float drift)', () => {
+    // A 10-year stream (in seconds) streaming 1 token (7 decimals) total.
+    // amountPerSecond would be floor(10_000_000n / duration) = 0n, hiding the
+    // rate entirely; deriving from linearAmount/duration keeps the precision.
+    const duration = 315_360_000n // 10 years in seconds
+    const r = formatRate(10_000_000n, duration, 7, 'USDC')
+    expect(r.perYear).not.toBe('0 USDC/yr')
+    expect(r.perYear).toBe('0.1 USDC/yr')
   })
 })
 

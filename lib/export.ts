@@ -51,12 +51,22 @@ export function streamsToCSV(
     const status = getStreamStatus(s, nowSeconds)
     const remaining = s.depositedAmount - s.withdrawnAmount
 
-    const ratePerDay = formatTokenAmount(s.amountPerSecond * SECONDS_PER_DAY_BIGINT, decimals, 6)
-    const ratePerMonth = formatTokenAmount(
-      s.amountPerSecond * SECONDS_PER_DAY_BIGINT * DAYS_PER_MONTH,
-      decimals,
-      6,
-    )
+    // Derive from linearAmount/duration (multiply-then-divide, like
+    // getUnlockedAmount) rather than s.amountPerSecond, which is a
+    // pre-divided, already-rounded rate that drifts from the true value —
+    // especially once multiplied out to a day/month span (issue #1151).
+    const ratePerDay =
+      s.duration > BigInt(0)
+        ? formatTokenAmount((s.linearAmount * SECONDS_PER_DAY_BIGINT) / s.duration, decimals, 6)
+        : formatTokenAmount(BigInt(0), decimals, 6)
+    const ratePerMonth =
+      s.duration > BigInt(0)
+        ? formatTokenAmount(
+            (s.linearAmount * SECONDS_PER_DAY_BIGINT * DAYS_PER_MONTH) / s.duration,
+            decimals,
+            6,
+          )
+        : formatTokenAmount(BigInt(0), decimals, 6)
 
     lines.push(
       row([
