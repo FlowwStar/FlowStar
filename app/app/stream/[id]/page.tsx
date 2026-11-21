@@ -4,6 +4,7 @@ import { use, useState, useEffect } from 'react'
 import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { ArrowLeft, ArrowDownLeft, Copy, Trash2 } from 'lucide-react'
 import {
   ArrowLeft,
   ArrowDownLeft,
@@ -28,30 +29,11 @@ import { SITE_URL } from '@/lib/site'
 import { StreamStatusBadge } from '@/components/streams/stream-status-badge'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { TokenAmount } from '@/components/ui/token-amount'
-import { CountdownTimer } from '@/components/ui/countdown-timer'
 import { AccessibleCountdownTimer } from '@/components/ui/accessible-countdown-timer'
 import { AccessibleUnlockAmount } from '@/components/ui/accessible-unlock-amount'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { FeeEstimateDialog } from '@/components/ui/fee-estimate-dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog'
-import { calculateFeeBreakdown, TYPICAL_FEES, isHighFee } from '@/lib/fee-utils'
 import { useStream } from '@/hooks/use-streams'
-import { useContract } from '@/hooks/use-contract'
-import { useUndoableCancel, useIsStreamCancelling } from '@/hooks/use-undo-cancel'
+import { useIsStreamCancelling } from '@/hooks/use-undo-cancel'
 import { useWallet } from '@/hooks/use-wallet'
 import { useNow } from '@/hooks/use-now'
 import {
@@ -61,6 +43,7 @@ import {
   getWithdrawableAmount,
   getLockedAmount,
   formatTokenAmount,
+} from '@/lib/stream-utils'
   formatDateTime,
   parseTokenAmount,
   shortenAddress,
@@ -72,11 +55,19 @@ import { explorerUrl, validateStellarAddress } from '@/lib/stellar'
 import type { StreamData } from '@/types/stream'
 import { explorerUrl } from '@/lib/stellar'
 import { useNetwork } from '@/components/providers/network-provider'
-import { useAutoWithdraw } from '@/hooks/use-auto-withdraw'
-import { useTokenPrice } from '@/hooks/use-token-price'
 import { UnlockChart } from '@/components/streams/unlock-chart'
 import { StreamTimeline } from '@/components/streams/stream-timeline'
 import { DownloadReceiptButton } from '@/components/streams/download-receipt-button'
+import { streamDetailCopy as copy } from '@/lib/copy/stream-detail'
+import { ShareButtons } from '@/components/stream-detail/share-buttons'
+import { ConnectPrompt } from '@/components/stream-detail/connect-prompt'
+import { StreamDetailSkeleton } from '@/components/stream-detail/stream-detail-skeleton'
+import { TtlWarning } from '@/components/stream-detail/ttl-warning'
+import { StreamDetails } from '@/components/stream-detail/stream-details'
+import { AutoWithdrawSection } from '@/components/stream-detail/auto-withdraw-section'
+import { WithdrawDialog } from '@/components/stream-detail/withdraw-dialog'
+import { CancelDialog } from '@/components/stream-detail/cancel-dialog'
+import { CleanupDialog } from '@/components/stream-detail/cleanup-dialog'
 import { bumpStreamTtl, getTokenBalance } from '@/lib/contract'
 import type { StreamData } from '@/types/stream'
 import { getFederationNameForAddress } from '@/lib/address-book'
@@ -1572,7 +1563,7 @@ function ConnectPrompt() {
 function StreamDetail({ id }: { id: string }) {
   const { stream, loading } = useStream(id)
   const { address, isConnected } = useWallet()
-  const { network, config } = useNetwork()
+  const { network } = useNetwork()
   const router = useRouter()
   const now = useNow(stream?.cancelled ? null : 1000)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
@@ -1869,90 +1860,7 @@ function StreamDetail({ id }: { id: string }) {
       </div>
 
       {/* Details */}
-      <div className="rounded-2xl border border-border bg-card p-6">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide mb-1">
-          {copy.details.sectionTitle}
-        </h2>
-        <DetailRow label={copy.details.sender}>
-          <CopyableAddress
-            address={stream.sender}
-            href={explorerUrl(network, 'account', stream.sender)}
-          />
-        </DetailRow>
-        <DetailRow label={copy.details.recipient}>
-          <CopyableAddress
-            address={stream.recipient}
-            href={explorerUrl(network, 'account', stream.recipient)}
-            federationName={getFederationNameForAddress(stream.recipient)}
-          />
-        </DetailRow>
-        <DetailRow label={copy.details.token}>
-          <div className="flex items-center gap-2">
-            <span className="font-mono font-medium">{stream.token.symbol}</span>
-            <CopyableAddress
-              address={stream.token.address}
-              href={explorerUrl(network, 'contract', stream.token.address)}
-            />
-          </div>
-        </DetailRow>
-        {config.streamContractId && (
-          <DetailRow label={copy.details.streamContract}>
-            <CopyableAddress
-              address={config.streamContractId}
-              href={explorerUrl(network, 'contract', config.streamContractId)}
-            />
-          </DetailRow>
-        )}
-        <DetailRow label={copy.details.totalDeposited}>
-          <TokenAmount amount={stream.depositedAmount} token={stream.token} maxFractionDigits={4} />
-        </DetailRow>
-        <DetailRow label={copy.details.withdrawn}>
-          <TokenAmount amount={stream.withdrawnAmount} token={stream.token} maxFractionDigits={4} />
-        </DetailRow>
-        <DetailRow label={copy.details.withdrawableNow}>
-          <span className={withdrawable > 0n ? 'text-primary font-medium' : ''}>
-            <TokenAmount amount={withdrawable} token={stream.token} maxFractionDigits={4} />
-          </span>
-        </DetailRow>
-        <DetailRow label={copy.details.rate}>
-          <RateDisplay stream={stream} />
-        </DetailRow>
-        <DetailRow label={copy.details.start}>
-          <span>
-            {formatDateTime(stream.startTime)}
-            <span className="ml-1.5 text-xs text-muted-foreground">
-              ({new Date(Number(stream.startTime) * 1000).toUTCString().replace(' GMT', ' UTC')})
-            </span>
-          </span>
-        </DetailRow>
-        {stream.cliffTime > stream.startTime && (
-          <DetailRow label={copy.details.cliff}>
-            {formatDateTime(stream.cliffTime)}
-            {stream.cliffAmount > 0n && (
-              <span className="text-muted-foreground ml-1">
-                (+
-                <TokenAmount
-                  amount={stream.cliffAmount}
-                  token={stream.token}
-                  maxFractionDigits={2}
-                />
-                )
-              </span>
-            )}
-          </DetailRow>
-        )}
-        <DetailRow label={copy.details.end}>
-          <span>
-            {formatDateTime(stream.endTime)}
-            <span className="ml-1.5 text-xs text-muted-foreground">
-              ({new Date(Number(stream.endTime) * 1000).toUTCString().replace(' GMT', ' UTC')})
-            </span>
-          </span>
-        </DetailRow>
-        <DetailRow label={copy.details.network}>
-          <span className="capitalize">{network}</span>
-        </DetailRow>
-      </div>
+      <StreamDetails stream={stream} withdrawable={withdrawable} network={network} />
 
       {/* Transaction history timeline */}
       <StreamTimeline streamId={stream.id} />
