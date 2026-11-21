@@ -6,8 +6,13 @@ import {
   createStream as createStreamCall,
   createStreamsBatch as createStreamsBatchCall,
   withdrawFromStream,
+  withdrawMaxFromStream,
   cancelStream as cancelStreamCall,
+  partialCancelStream as partialCancelStreamCall,
   cleanupStream as cleanupStreamCall,
+  topUpStream as topUpStreamCall,
+  updateStreamMetadata as updateStreamMetadataCall,
+  transferStream as transferStreamCall,
   estimateCreateStreamFee,
   setDelegateForStream,
   removeDelegateForStream,
@@ -18,9 +23,10 @@ import type { FeeEstimate } from "@/lib/contract";
 import { invalidateStreams } from "@/hooks/use-streams";
 import { useWallet } from "@/hooks/use-wallet";
 import { useNetwork } from "@/components/providers/network-provider";
+import { useContractPaused } from "@/hooks/use-contract-paused";
 import { getWithdrawableAmount } from "@/lib/stream-utils";
 import { mapError, categoryLabel } from "@/lib/error-messages";
-import type { CreateStreamInput, StreamData } from "@/types/stream";
+import type { CreateStreamInput, StreamData, StreamMetadata } from "@/types/stream";
 
 /**
  * Result of a batch withdrawal operation.
@@ -81,7 +87,10 @@ function showErrorToast(err: unknown, toastId?: string | number) {
  * @returns {Function} createStreamsBatch - Create multiple streams in one atomic transaction (up to 20)
  * @returns {Function} withdraw - Withdraw unlocked funds from a stream by ID
  * @returns {Function} cancel - Cancel a stream; sender gets remainder, recipient keeps unlocked
+ * @returns {Function} partialCancel - Reclaim part of a stream's locked balance back to the sender; stream stays active
  * @returns {Function} cleanup - Permanently remove a completed or cancelled stream from history
+ * @returns {Function} topUp - Add funds to an active stream; sender only
+ * @returns {Function} transferStream - Transfer a stream's recipient rights to a new address; recipient only
  * @returns {Function} withdrawAll - Withdraw from multiple streams in sequence, with progress tracking
  * @returns {Function} estimateFee - Estimate the fee for creating a stream (returns null if wallet disconnected)
  * @returns {Function} setDelegate - Set (or replace) the withdrawal delegate for a stream (recipient only)
@@ -99,6 +108,7 @@ function showErrorToast(err: unknown, toastId?: string | number) {
 export function useContract() {
   const { address, isConnected } = useWallet();
   const { network } = useNetwork();
+  const paused = useContractPaused();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -115,6 +125,11 @@ export function useContract() {
       fn: (onStep: (step: TxStep) => void) => Promise<T>,
     ): Promise<T> => {
       if (!isConnected || !address) throw new Error("Connect a wallet first.");
+      if (paused) {
+        throw new Error(
+          "FlowStar is paused by its admin right now — writes are temporarily disabled.",
+        );
+      }
       setPending(true);
       setError(null);
       const toastId = toast.loading("Simulating transaction…");
@@ -136,7 +151,7 @@ export function useContract() {
         setPending(false);
       }
     },
-    [address, isConnected],
+    [address, isConnected, paused],
   );
 
   /**
@@ -207,6 +222,58 @@ export function useContract() {
   );
 
   /**
+   * Update a stream's metadata (name, category, memo). Only the sender can
+   * call this, and unlike at creation it can be done at any time.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to update
+   * @param {StreamMetadata} metadata - New name/category/memo values
+   * @returns {Promise<void>} Resolves when the update is confirmed on-chain
+   * @throws {Error} "Not sender" if caller is not the stream's sender
+   */
+  const updateMetadata = useCallback(
+    (id: string, metadata: StreamMetadata) =>
+      run("Update details", (onStep) =>
+        updateStreamMetadataCall(id, metadata, network, onStep),
+      ),
+    [run, network],
+  );
+
+  /**
+   * Transfer a stream to a new recipient. Only the current recipient can
+   * call this; any delegate registered on the stream is cleared as a side
+   * effect, since it was authorized by the old recipient.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to transfer
+   * @param {string} newRecipient - Address of the new recipient
+   * @returns {Promise<void>} Resolves when the transfer is confirmed on-chain
+   * @throws {Error} "Not recipient" if caller is not the current recipient
+   */
+  const transfer = useCallback(
+    (id: string, newRecipient: string) =>
+      run("Transfer stream", (onStep) =>
+        transferStreamCall(id, newRecipient, network, onStep),
+   * Partially cancel a stream. Only the sender can call this.
+   * Reclaims `amount` of the stream's still-locked (unvested) balance back
+   * to the sender while leaving the stream active — the recipient keeps
+   * all previously unlocked tokens and the remainder keeps streaming.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to partially cancel
+   * @param {bigint} amount - Amount of the locked balance to reclaim (must not exceed it)
+   * @returns {Promise<void>} Resolves when the partial cancellation is confirmed
+   * @throws {Error} "Not sender" if caller is not the original sender, or "Invalid amount" if amount exceeds the locked balance
+   */
+  const partialCancel = useCallback(
+    (id: string, amount: bigint) =>
+      run("Reclaim funds", (onStep) =>
+        partialCancelStreamCall(id, amount, network, onStep),
+      ),
+    [run, network],
+  );
+
+  /**
    * Permanently remove a completed or cancelled stream from ledger storage.
    * Only callable when stream is fully drained (withdrawn) or cancelled.
    * Frees up ledger space and reduces storage fees.
@@ -271,6 +338,40 @@ export function useContract() {
   const getDelegate = useCallback(
     (id: string) => getStreamDelegate(id, network),
     [network],
+   * Add funds to an active stream. Only the sender may top up.
+   * Requires prior token approval, which this sends automatically (like
+   * `createStream`). Emits toast notifications and invalidates cache on
+   * success.
+   *
+   * @param {string} id - Stream ID to top up
+   * @param {bigint} amount - Additional amount to deposit, in the token's base units
+   * @returns {Promise<string | null>} Resolves with the transaction hash (or `null` in mock mode) when confirmed
+   * @throws {Error} "Stream not found", "StreamCancelled", "StreamEnded", or network/signing errors
+   */
+  const topUp = useCallback(
+    (id: string, amount: bigint) =>
+      run("Top up stream", (onStep) =>
+        topUpStreamCall(id, amount, address!, network, onStep),
+      ),
+    [run, address, network],
+  );
+
+  /**
+   * Transfer a stream's recipient rights to a new address. Only the current
+   * recipient may transfer. Emits toast notifications and invalidates cache
+   * on success.
+   *
+   * @param {string} id - Stream ID to transfer
+   * @param {string} newRecipient - Address to transfer recipient rights to
+   * @returns {Promise<string | null>} Resolves with the transaction hash (or `null` in mock mode) when confirmed
+   * @throws {Error} "Stream not found", "SameRecipient", "SelfStream", "StreamCancelled", "StreamEnded", or network/signing errors
+   */
+  const transferStream = useCallback(
+    (id: string, newRecipient: string) =>
+      run("Transfer stream", (onStep) =>
+        transferStreamCall(id, newRecipient, address!, network, onStep),
+      ),
+    [run, address, network],
   );
 
   /**
@@ -338,8 +439,12 @@ export function useContract() {
         onProgress?.(i + 1, withdrawable.length);
         const s = withdrawable[i];
         try {
-          const amount = getWithdrawableAmount(s, now);
-          await withdrawFromStream(s.id, amount, network);
+          // `withdrawMaxFromStream` re-fetches the stream and computes the
+          // amount right before submitting, instead of reusing `now`/`s`
+          // from the top of this loop — those get staler with every prior
+          // iteration's confirmation wait, which used to leave dust behind
+          // (#1146).
+          await withdrawMaxFromStream(s.id, network);
           succeeded++;
         } catch (err) {
           failed++;
@@ -368,7 +473,12 @@ export function useContract() {
     createStreamsBatch,
     withdraw,
     cancel,
+    partialCancel,
     cleanup,
+    topUp,
+    transferStream,
+    updateMetadata,
+    transfer,
     withdrawAll,
     estimateFee,
     setDelegate,
@@ -376,5 +486,6 @@ export function useContract() {
     getDelegate,
     pending,
     error,
+    paused,
   };
 }

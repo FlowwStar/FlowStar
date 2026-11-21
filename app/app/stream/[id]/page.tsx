@@ -1,5 +1,6 @@
 'use client'
 
+import { use, useState, useEffect } from 'react'
 import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -19,6 +20,7 @@ import {
   Send,
   QrCode,
   Trash2,
+  Plus,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConnectWalletButton } from '@/components/layout/connect-wallet-button'
@@ -57,13 +59,17 @@ import {
   getStreamProgress,
   getUnlockedAmount,
   getWithdrawableAmount,
+  getLockedAmount,
   formatTokenAmount,
   formatDateTime,
   parseTokenAmount,
   shortenAddress,
   formatRate,
+  previewTopUpRate,
   SECONDS_PER_DAY,
 } from '@/lib/stream-utils'
+import { explorerUrl, validateStellarAddress } from '@/lib/stellar'
+import type { StreamData } from '@/types/stream'
 import { explorerUrl } from '@/lib/stellar'
 import { useNetwork } from '@/components/providers/network-provider'
 import { useAutoWithdraw } from '@/hooks/use-auto-withdraw'
@@ -71,10 +77,30 @@ import { useTokenPrice } from '@/hooks/use-token-price'
 import { UnlockChart } from '@/components/streams/unlock-chart'
 import { StreamTimeline } from '@/components/streams/stream-timeline'
 import { DownloadReceiptButton } from '@/components/streams/download-receipt-button'
-import { bumpStreamTtl } from '@/lib/contract'
+import { bumpStreamTtl, getTokenBalance } from '@/lib/contract'
+import type { StreamData } from '@/types/stream'
 import { getFederationNameForAddress } from '@/lib/address-book'
+import { bumpStreamTtl } from '@/lib/contract'
+import { getFederationNameForAddress, getAddressBookEntries } from '@/lib/address-book'
+import { isFederationAddress, resolveFederationAddress } from '@/lib/federation'
 import { QrShareDialog } from '@/components/streams/qr-share-dialog'
 import { streamDetailCopy as copy } from '@/lib/copy/stream-detail'
+import type { StreamMetadata } from '@/types/stream'
+
+/**
+ * Parses user-typed amount input, treating anything `parseTokenAmount`
+ * rejects (negative, malformed, e.g. a lone "-" mid-typing) as `0n` instead
+ * of throwing — these inputs are live-typed values, not submitted forms, so
+ * a bad keystroke should fall back to "invalid amount" (handled by the
+ * existing `parsed <= 0n` checks) rather than crash the component.
+ */
+function safeParseTokenAmount(value: string, decimals: number): bigint {
+  try {
+    return parseTokenAmount(value, decimals)
+  } catch {
+    return 0n
+  }
+}
 
 // ─── Address copy button ────────────────────────────────────────────────────
 
@@ -163,7 +189,7 @@ function WithdrawDialog({
   const [showFeeEstimate, setShowFeeEstimate] = useState(false)
 
   const max = formatTokenAmount(withdrawable, token.decimals, token.decimals)
-  const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
+  const parsed = inputAmount ? safeParseTokenAmount(inputAmount, token.decimals) : 0n
   const invalid = parsed <= 0n || parsed > withdrawable
 
   // Calculate estimated fees
@@ -279,6 +305,164 @@ function WithdrawDialog({
   )
 }
 
+// ─── Top-up dialog ──────────────────────────────────────────────────────────
+
+// Issue #1136: lets the sender add funds to an active stream from the UI.
+// Depends on the topUpStream() wrapper added for issue #1135.
+function TopUpDialog({
+  open,
+  onClose,
+  streamId,
+  stream,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  stream: StreamData
+}) {
+  const { topUp, pending, error } = useContract()
+  const { network } = useNetwork()
+  const { address } = useWallet()
+  const { usdPrice: xlmPrice } = useTokenPrice('XLM')
+  const now = useNow(5000)
+  const [inputAmount, setInputAmount] = useState('')
+  const [showFeeEstimate, setShowFeeEstimate] = useState(false)
+  const [balance, setBalance] = useState<bigint | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+
+  const token = stream.token
+
+  useEffect(() => {
+    if (!open || !address) return
+    setBalance(null)
+    setBalanceLoading(true)
+    getTokenBalance(token.address, address, network)
+      .then(setBalance)
+      .catch(() => setBalance(null))
+      .finally(() => setBalanceLoading(false))
+  }, [open, address, token.address, network])
+
+  const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
+  const exceedsBalance = balance !== null && parsed > balance
+  const invalid = parsed <= 0n || exceedsBalance
+
+  const newRate = parsed > 0n ? previewTopUpRate(stream, parsed, now) : stream.amountPerSecond
+  const newRateFormatted = formatRate(newRate, token.decimals, token.symbol)
+
+  const estimatedFee = TYPICAL_FEES.topUp.typical
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined)
+  const topUpFeeHigh = isHighFee(feeBreakdown.totalEstimated, TYPICAL_FEES.topUp.typical)
+
+  async function handleTopUp() {
+    try {
+      const hash = await topUp(streamId, parsed)
+      toast.success(copy.topUpDialog.successToastTitle, {
+        description: copy.topUpDialog.successToastDescription(
+          formatTokenAmount(parsed, token.decimals, 4),
+          token.symbol,
+        ),
+        ...(hash && {
+          action: {
+            label: copy.topUpDialog.viewTransactionAction,
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
+          },
+        }),
+      })
+      onClose()
+      setInputAmount('')
+    } catch {
+      // error shown inline
+    }
+  }
+
+  return (
+    <>
+      <Dialog open={open && !showFeeEstimate} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{copy.topUpDialog.title}</DialogTitle>
+            <DialogDescription>{copy.topUpDialog.description}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="topup-amount">{copy.topUpDialog.amountLabel(token.symbol)}</Label>
+              <Input
+                id="topup-amount"
+                type="number"
+                min="0"
+                step="any"
+                placeholder={copy.topUpDialog.amountPlaceholder}
+                value={inputAmount}
+                onChange={(e) => setInputAmount(e.target.value)}
+                aria-invalid={!!inputAmount && invalid}
+              />
+              <p className="text-xs text-muted-foreground">
+                {copy.topUpDialog.availableBalancePrefix}{' '}
+                <span className="font-mono">
+                  {balanceLoading
+                    ? '…'
+                    : balance !== null
+                      ? `${formatTokenAmount(balance, token.decimals, token.decimals)} ${token.symbol}`
+                      : '—'}
+                </span>
+              </p>
+              {inputAmount && exceedsBalance && (
+                <p className="text-xs text-destructive">{copy.topUpDialog.exceedsBalance}</p>
+              )}
+            </div>
+
+            {parsed > 0n && (
+              <div className="rounded-lg bg-secondary/50 p-3">
+                <p className="text-xs text-muted-foreground">
+                  {copy.topUpDialog.newRateLabel}{' '}
+                  <span className="font-mono text-foreground">{newRateFormatted.best}</span>
+                </p>
+              </div>
+            )}
+
+            {/* Fee info */}
+            <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                {copy.topUpDialog.estimatedFeeLabel}{' '}
+                <span className="font-mono text-foreground">
+                  {(estimatedFee / 1e7).toFixed(7)} XLM
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {copy.topUpDialog.feeShownAgainNote}
+              </p>
+            </div>
+
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={onClose} disabled={pending}>
+                {copy.topUpDialog.cancelButton}
+              </Button>
+              <Button
+                onClick={() => setShowFeeEstimate(true)}
+                disabled={pending || invalid || !inputAmount}
+              >
+                {pending ? copy.topUpDialog.toppingUp : copy.topUpDialog.reviewFeesButton}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <FeeEstimateDialog
+        open={showFeeEstimate}
+        onConfirm={handleTopUp}
+        onCancel={() => setShowFeeEstimate(false)}
+        fees={feeBreakdown}
+        action={copy.topUpDialog.feeConfirmAction}
+        averageFee={TYPICAL_FEES.topUp.typical}
+        isHighFee={topUpFeeHigh}
+        loading={pending}
+      />
+    </>
+  )
+}
+
 // ─── Cancel dialog ───────────────────────────────────────────────────────────
 
 function CancelDialog({
@@ -351,6 +535,139 @@ function CancelDialog({
   )
 }
 
+// ─── Reclaim funds (partial cancel) dialog ─────────────────────────────────
+
+// Issue #1139/#1140: mirrors the contract's `partial_cancel` re-basing of the
+// unlock curve (contracts/streaming/src/lib.rs) so the dialog can preview the
+// new per-second rate before the sender submits the transaction.
+function previewRateAfterReclaim(
+  stream: StreamData,
+  amount: bigint,
+  nowSeconds: number,
+): bigint {
+  if (amount <= 0n) return stream.amountPerSecond
+  const now = BigInt(nowSeconds)
+  const unlocked = getUnlockedAmount(stream, nowSeconds)
+  const depositedAmount = stream.depositedAmount - amount
+  const remainingSeconds = stream.endTime - now
+
+  if (now >= stream.cliffTime) {
+    const remaining = depositedAmount - unlocked
+    return remainingSeconds > 0n ? remaining / remainingSeconds : 0n
+  }
+  const linearAmount = stream.linearAmount - amount
+  return stream.duration > 0n ? linearAmount / stream.duration : 0n
+}
+
+function ReclaimDialog({
+  open,
+  onClose,
+  streamId,
+  stream,
+  nowSeconds,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  stream: StreamData
+  nowSeconds: number
+}) {
+  const { partialCancel, pending, error } = useContract()
+  const { network } = useNetwork()
+  const [inputAmount, setInputAmount] = useState('')
+
+  const token = stream.token
+  const locked = getLockedAmount(stream, nowSeconds)
+  const max = formatTokenAmount(locked, token.decimals, token.decimals)
+  const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
+  const invalid = parsed <= 0n || parsed > locked
+
+  const newRate =
+    !invalid && parsed > 0n ? previewRateAfterReclaim(stream, parsed, nowSeconds) : null
+  const newRateFormatted =
+    newRate !== null ? formatRate(newRate, token.decimals, token.symbol).best : null
+
+  async function handleReclaim() {
+    try {
+      const hash = await partialCancel(streamId, parsed)
+      toast.success(copy.reclaimDialog.successToastTitle, {
+        description: copy.reclaimDialog.successToastDescription(
+          formatTokenAmount(parsed, token.decimals, 4),
+          token.symbol,
+        ),
+        ...(hash && {
+          action: {
+            label: copy.reclaimDialog.viewTransactionAction,
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
+          },
+        }),
+      })
+      onClose()
+      setInputAmount('')
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{copy.reclaimDialog.title}</DialogTitle>
+          <DialogDescription>
+            {copy.reclaimDialog.maxPrefix}{' '}
+            <span className="font-mono font-medium text-foreground">
+              {max} {token.symbol}
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="reclaim-amount">{copy.reclaimDialog.amountLabel(token.symbol)}</Label>
+            <div className="flex gap-2">
+              <Input
+                id="reclaim-amount"
+                type="number"
+                min="0"
+                step="any"
+                placeholder={copy.reclaimDialog.amountPlaceholder}
+                value={inputAmount}
+                onChange={(e) => setInputAmount(e.target.value)}
+                aria-invalid={!!inputAmount && invalid}
+              />
+              <Button type="button" variant="secondary" size="sm" onClick={() => setInputAmount(max)}>
+                {copy.reclaimDialog.maxButton}
+              </Button>
+            </div>
+            {inputAmount && invalid && (
+              <p className="text-xs text-destructive">{copy.reclaimDialog.exceedsBalance}</p>
+            )}
+          </div>
+
+          {newRateFormatted && (
+            <div className="rounded-lg bg-secondary/50 p-3">
+              <p className="text-xs text-muted-foreground">
+                {copy.reclaimDialog.newRateLabel}{' '}
+                <span className="font-mono text-foreground">{newRateFormatted}</span>
+              </p>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={pending}>
+              {copy.reclaimDialog.cancelButton}
+            </Button>
+            <Button onClick={handleReclaim} disabled={pending || invalid || !inputAmount}>
+              {pending ? copy.reclaimDialog.reclaiming : copy.reclaimDialog.reclaimButton}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ─── Cleanup (remove from history) dialog ───────────────────────────────────
 
 // Issue #689: wires the contract's `cleanup_stream` into the UI — lets either
@@ -394,6 +711,258 @@ function CleanupDialog({
             {pending ? copy.cleanupDialog.removing : copy.cleanupDialog.confirmButton}
           </Button>
         </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Edit metadata dialog ───────────────────────────────────────────────────
+
+// Issue #1143: lets the sender update a stream's name/category/memo after
+// creation, via the contract's `update_stream_metadata`.
+function EditMetadataDialog({
+  open,
+  onClose,
+  streamId,
+  metadata,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  metadata?: StreamMetadata
+}) {
+  const { updateMetadata, pending, error } = useContract()
+  const [name, setName] = useState(metadata?.name ?? '')
+  const [category, setCategory] = useState(metadata?.category ?? '')
+  const [memo, setMemo] = useState(metadata?.memo ?? '')
+
+  // Re-sync local fields whenever the dialog is (re)opened, so a stale edit
+  // from a previous open doesn't linger.
+  useEffect(() => {
+    if (open) {
+      setName(metadata?.name ?? '')
+      setCategory(metadata?.category ?? '')
+      setMemo(metadata?.memo ?? '')
+    }
+  }, [open, metadata])
+
+  async function handleSave() {
+    try {
+      await updateMetadata(streamId, {
+        name: name.trim(),
+        category: category.trim(),
+        memo: memo.trim(),
+      })
+      toast.success(copy.editMetadataDialog.successToastTitle)
+      onClose()
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{copy.editMetadataDialog.title}</DialogTitle>
+          <DialogDescription>{copy.editMetadataDialog.description}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="metadata-name">{copy.editMetadataDialog.nameLabel}</Label>
+            <Input
+              id="metadata-name"
+              value={name}
+              maxLength={64}
+              placeholder={copy.editMetadataDialog.namePlaceholder}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="metadata-category">{copy.editMetadataDialog.categoryLabel}</Label>
+            <Input
+              id="metadata-category"
+              value={category}
+              maxLength={32}
+              placeholder={copy.editMetadataDialog.categoryPlaceholder}
+              onChange={(e) => setCategory(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="metadata-memo">{copy.editMetadataDialog.memoLabel}</Label>
+            <Input
+              id="metadata-memo"
+              value={memo}
+              maxLength={256}
+              placeholder={copy.editMetadataDialog.memoPlaceholder}
+              onChange={(e) => setMemo(e.target.value)}
+            />
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={pending}>
+              {copy.editMetadataDialog.cancelButton}
+            </Button>
+            <Button onClick={handleSave} disabled={pending}>
+              {pending ? copy.editMetadataDialog.saving : copy.editMetadataDialog.saveButton}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Transfer dialog ─────────────────────────────────────────────────────────
+
+// Issue #1138: lets the recipient reassign the stream to a new address, via
+// the contract's `transfer_stream`. Two steps: resolve/validate the address,
+// then an explicit confirmation warning that any delegate is cleared.
+function TransferDialog({
+  open,
+  onClose,
+  streamId,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+}) {
+  const { transfer, pending, error } = useContract()
+  const [input, setInput] = useState('')
+  const [resolving, setResolving] = useState(false)
+  const [resolveError, setResolveError] = useState<string | null>(null)
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null)
+  const [step, setStep] = useState<'input' | 'confirm'>('input')
+
+  function reset() {
+    setInput('')
+    setResolving(false)
+    setResolveError(null)
+    setResolvedAddress(null)
+    setStep('input')
+  }
+
+  function handleClose() {
+    reset()
+    onClose()
+  }
+
+  async function handleContinue() {
+    const trimmed = input.trim()
+    setResolveError(null)
+
+    if (isFederationAddress(trimmed)) {
+      setResolving(true)
+      try {
+        const result = await resolveFederationAddress(trimmed)
+        setResolvedAddress(result.accountId)
+        setStep('confirm')
+      } catch (err) {
+        setResolveError(err instanceof Error ? err.message : copy.transferDialog.invalidFormat)
+      } finally {
+        setResolving(false)
+      }
+      return
+    }
+
+    const check = validateStellarAddress(trimmed)
+    if (!check.valid) {
+      setResolveError(
+        check.reason === 'checksum'
+          ? copy.transferDialog.invalidChecksum
+          : copy.transferDialog.invalidFormat,
+      )
+      return
+    }
+    setResolvedAddress(trimmed)
+    setStep('confirm')
+  }
+
+  async function handleConfirm() {
+    if (!resolvedAddress) return
+    try {
+      await transfer(streamId, resolvedAddress)
+      toast.success(copy.transferDialog.successToastTitle, {
+        description: copy.transferDialog.successToastDescription(
+          shortenAddress(resolvedAddress, 6),
+        ),
+      })
+      handleClose()
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  const addressBookEntries = open ? getAddressBookEntries() : []
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="sm:max-w-sm">
+        {step === 'input' ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>{copy.transferDialog.title}</DialogTitle>
+              <DialogDescription>{copy.transferDialog.description}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-1">
+              <div className="space-y-1.5">
+                <Label htmlFor="transfer-address">{copy.transferDialog.addressLabel}</Label>
+                <Input
+                  id="transfer-address"
+                  list="transfer-address-book"
+                  value={input}
+                  placeholder={copy.transferDialog.addressPlaceholder}
+                  onChange={(e) => {
+                    setInput(e.target.value)
+                    setResolveError(null)
+                  }}
+                  aria-invalid={!!resolveError}
+                />
+                <datalist id="transfer-address-book">
+                  {addressBookEntries.map((entry) => (
+                    <option key={entry.id} value={entry.address}>
+                      {entry.label}
+                    </option>
+                  ))}
+                </datalist>
+                {resolving && (
+                  <p className="text-xs text-muted-foreground">{copy.transferDialog.resolving}</p>
+                )}
+                {resolveError && <p className="text-xs text-destructive">{resolveError}</p>}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={handleClose}>
+                  {copy.transferDialog.cancelButton}
+                </Button>
+                <Button onClick={handleContinue} disabled={!input.trim() || resolving}>
+                  {copy.transferDialog.continueButton}
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle>{copy.transferDialog.confirmTitle}</DialogTitle>
+              <DialogDescription>{copy.transferDialog.confirmDelegateWarning}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-1">
+              <p className="text-sm">
+                {copy.transferDialog.confirmTransferringTo}{' '}
+                <span className="font-mono font-medium">{resolvedAddress}</span>
+              </p>
+              {error && <p className="text-xs text-destructive">{error}</p>}
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setStep('input')} disabled={pending}>
+                  {copy.transferDialog.backButton}
+                </Button>
+                <Button variant="destructive" onClick={handleConfirm} disabled={pending}>
+                  {pending ? copy.transferDialog.transferring : copy.transferDialog.confirmButton}
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -545,7 +1114,7 @@ function AutoWithdrawSection({ stream }: { stream: import('@/types/stream').Stre
               onChange={(e) => {
                 setMinDisplay(e.target.value)
                 const raw = e.target.value
-                  ? parseTokenAmount(e.target.value, stream.token.decimals).toString()
+                  ? safeParseTokenAmount(e.target.value, stream.token.decimals).toString()
                   : '0'
                 updateSettings({ minAmountRaw: raw })
               }}
@@ -568,7 +1137,7 @@ function AutoWithdrawSection({ stream }: { stream: import('@/types/stream').Stre
               onChange={(e) => {
                 setMaxDisplay(e.target.value)
                 const raw = e.target.value
-                  ? parseTokenAmount(e.target.value, stream.token.decimals).toString()
+                  ? safeParseTokenAmount(e.target.value, stream.token.decimals).toString()
                   : '0'
                 updateSettings({ maxSafetyLimitRaw: raw })
               }}
@@ -704,7 +1273,7 @@ function TtlWarning({
 
 function RateDisplay({ stream }: { stream: import('@/types/stream').StreamData }) {
   const [expanded, setExpanded] = useState(false)
-  const rate = formatRate(stream.amountPerSecond, stream.token.decimals, stream.token.symbol)
+  const rate = formatRate(stream.linearAmount, stream.duration, stream.token.decimals, stream.token.symbol)
 
   return (
     <div className="text-right">
@@ -1009,9 +1578,15 @@ function StreamDetail({ id }: { id: string }) {
   const router = useRouter()
   const now = useNow(1000)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [topUpOpen, setTopUpOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [reclaimOpen, setReclaimOpen] = useState(false)
   const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [editMetadataOpen, setEditMetadataOpen] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
   const isCancelling = useIsStreamCancelling(id)
+  // Issue #1144: contract-wide pause flag, shared with every write action.
+  const { paused } = useContract()
 
   if (loading) {
     return <StreamDetailSkeleton />
@@ -1042,12 +1617,29 @@ function StreamDetail({ id }: { id: string }) {
   const isSender = address === stream.sender
   const canWithdraw = isRecipient && !stream.cancelled && withdrawable > 0n
   const canCancel = isSender && !stream.cancelled && status !== 'completed' && !isCancelling
+  // Issue #1136: sender can top up any stream that isn't cancelled or ended.
+  const canTopUp = isSender && !stream.cancelled && status !== 'completed'
+  // Issue #1140: reclaim ("partial cancel") is only meaningful while there's
+  // still a locked balance to pull back and the stream hasn't been
+  // fully/cancel-terminated.
+  const canPartialCancel =
+    isSender &&
+    !stream.cancelled &&
+    status !== 'completed' &&
+    !isCancelling &&
+    getLockedAmount(stream, now) > 0n
   // Issue #689: eligible for cleanup once terminal — cancelled, or fully
   // withdrawn past end_time — mirroring the contract's own eligibility check.
   const canCleanup =
     (isSender || isRecipient) &&
     (stream.cancelled ||
       (status === 'completed' && stream.withdrawnAmount >= stream.depositedAmount))
+  // Issue #1143: the sender can edit metadata at any time, paused or not
+  // excluded (the write itself is blocked while paused; see useContract).
+  const canEditDetails = isSender
+  // Issue #1138: only the current recipient, and only while the stream is
+  // still active, can reassign it.
+  const canTransfer = isRecipient && !stream.cancelled
 
   function handleDuplicate() {
     if (!stream) return
@@ -1203,10 +1795,16 @@ function StreamDetail({ id }: { id: string }) {
         )}
 
         {/* Actions */}
-        {(canWithdraw || canCancel || canCleanup || isSender) && (
+        {(canWithdraw || canCancel || canTopUp || canCleanup || isSender) && (
+        {(canWithdraw || canCancel || canCleanup || canTransfer || isSender) && (
+        {(canWithdraw || canCancel || canPartialCancel || canCleanup || isSender) && (
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
             {canWithdraw && (
-              <Button onClick={() => setWithdrawOpen(true)} className="gap-1.5">
+              <Button
+                onClick={() => setWithdrawOpen(true)}
+                disabled={paused}
+                className="gap-1.5"
+              >
                 <ArrowDownLeft className="size-4" />
                 {copy.header.withdrawButton}{' '}
                 <span className="font-mono">
@@ -1214,9 +1812,28 @@ function StreamDetail({ id }: { id: string }) {
                 </span>
               </Button>
             )}
+            {canTopUp && (
+              <Button variant="outline" onClick={() => setTopUpOpen(true)} className="gap-1.5">
+                <Plus className="size-4" />
+                {copy.header.topUpButton}
+              </Button>
+            )}
             {canCancel && (
-              <Button variant="secondary" onClick={() => setCancelOpen(true)}>
+              <Button variant="secondary" onClick={() => setCancelOpen(true)} disabled={paused}>
                 {copy.header.cancelStreamButton}
+              </Button>
+            )}
+            {canTransfer && (
+              <Button variant="secondary" onClick={() => setTransferOpen(true)} disabled={paused}>
+                {copy.header.transferStreamButton}
+              </Button>
+            )}
+            {canEditDetails && (
+              <Button variant="outline" onClick={() => setEditMetadataOpen(true)} disabled={paused}>
+                {copy.header.editDetailsButton}
+            {canPartialCancel && (
+              <Button variant="outline" onClick={() => setReclaimOpen(true)}>
+                {copy.header.reclaimFundsButton}
               </Button>
             )}
             <DownloadReceiptButton stream={stream} />
@@ -1237,6 +1854,9 @@ function StreamDetail({ id }: { id: string }) {
               </Button>
             )}
           </div>
+        )}
+        {paused && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">{copy.header.pausedNotice}</p>
         )}
       </div>
 
@@ -1357,12 +1977,36 @@ function StreamDetail({ id }: { id: string }) {
         withdrawable={withdrawable}
         token={stream.token}
       />
+      <TopUpDialog
+        open={topUpOpen}
+        onClose={() => setTopUpOpen(false)}
+        streamId={stream.id}
+        stream={stream}
+      />
       <CancelDialog open={cancelOpen} onClose={() => setCancelOpen(false)} streamId={stream.id} />
+      <ReclaimDialog
+        open={reclaimOpen}
+        onClose={() => setReclaimOpen(false)}
+        streamId={stream.id}
+        stream={stream}
+        nowSeconds={now}
+      />
       <CleanupDialog
         open={cleanupOpen}
         onClose={() => setCleanupOpen(false)}
         streamId={stream.id}
         onCleaned={() => router.push('/app')}
+      />
+      <EditMetadataDialog
+        open={editMetadataOpen}
+        onClose={() => setEditMetadataOpen(false)}
+        streamId={stream.id}
+        metadata={stream.metadata}
+      />
+      <TransferDialog
+        open={transferOpen}
+        onClose={() => setTransferOpen(false)}
+        streamId={stream.id}
       />
     </div>
   )

@@ -6,8 +6,8 @@ import type { TokenInfo } from '@/types/stream'
 vi.mock('@/lib/stream-utils', () => ({
   formatDateTime: (t: bigint) => `DATE(${t})`,
   formatTokenAmount: (raw: bigint, decimals: number) => `${raw}@${decimals}`,
-  formatRate: (amountPerSecond: bigint, decimals: number, symbol: string) => ({
-    perDay: `${amountPerSecond}@${decimals} ${symbol}/day`,
+  formatRate: (linearAmount: bigint, duration: bigint, decimals: number, symbol: string) => ({
+    perDay: `${linearAmount}/${duration}@${decimals} ${symbol}/day`,
   }),
   shortenAddress: (address: string) => `SHORT(${address})`,
 }))
@@ -28,6 +28,10 @@ vi.mock('@/hooks/use-token-price', () => ({
 const TOKEN: TokenInfo = { address: 'CUSDC', symbol: 'USDC', decimals: 7 }
 
 function baseProps(overrides?: Partial<React.ComponentProps<typeof CreateConfirmation>>) {
+  const totalAmount = overrides?.totalAmount ?? 1_000_000_000n
+  const startTime = overrides?.startTime ?? 1_700_000_000n
+  const endTime = overrides?.endTime ?? 1_700_086_400n
+  const cliffAmount = overrides?.cliffAmount ?? 0n
   return {
     open: true,
     onConfirm: vi.fn(),
@@ -36,12 +40,13 @@ function baseProps(overrides?: Partial<React.ComponentProps<typeof CreateConfirm
     feeEstimate: null,
     recipient: 'GRECIPIENT222222222222222222222222222222222222',
     token: TOKEN,
-    totalAmount: 1_000_000_000n,
-    startTime: 1_700_000_000n,
-    endTime: 1_700_086_400n,
+    totalAmount,
+    startTime,
+    endTime,
     cliffTime: 1_700_000_000n,
-    cliffAmount: 0n,
-    amountPerSecond: 11_574n,
+    cliffAmount,
+    linearAmount: totalAmount - cliffAmount,
+    duration: endTime - startTime,
     ...overrides,
   }
 }
@@ -56,7 +61,7 @@ describe('CreateConfirmation', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('USDC')).toBeInTheDocument()
     expect(screen.getByText('1000000000@7 USDC')).toBeInTheDocument()
-    expect(screen.getByText('11574@7 USDC/day')).toBeInTheDocument()
+    expect(screen.getByText('1000000000/86400@7 USDC/day')).toBeInTheDocument()
     expect(screen.getByText('DATE(1700000000)')).toBeInTheDocument()
     expect(screen.getByText('DATE(1700086400)')).toBeInTheDocument()
   })

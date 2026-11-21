@@ -9,6 +9,8 @@ import {
 } from '@stellar/stellar-sdk'
 import { type NetworkName, getNetworkConfig, getServer, getAllTokens } from '@/lib/stellar'
 import { mockStore } from '@/lib/mock-data'
+import type { CreateStreamInput, StreamData, StreamMetadata, TokenInfo } from '@/types/stream'
+import { getWithdrawableAmount } from '@/lib/stream-utils'
 import type { CreateStreamInput, StreamData, TokenInfo } from '@/types/stream'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -476,6 +478,28 @@ export function buildCreateStreamParamsScVal(input: CreateStreamInput): xdr.ScVa
 }
 
 /**
+ * Build the ScVal map for a `StreamMetadata` contract argument. Soroban
+ * decodes a `#[contracttype] struct` passed as a map by field name, and
+ * requires the entries sorted alphabetically by key — hence `category`,
+ * `memo`, `name` in that order (not declaration order).
+ */
+export function buildStreamMetadataScVal(metadata: StreamMetadata): xdr.ScVal {
+  return xdr.ScVal.scvMap(
+    [
+      ['category', nativeToScVal(metadata.category, { type: 'string' })],
+      ['memo', nativeToScVal(metadata.memo, { type: 'string' })],
+      ['name', nativeToScVal(metadata.name, { type: 'string' })],
+    ].map(
+      ([k, v]) =>
+        new xdr.ScMapEntry({
+          key: xdr.ScVal.scvSymbol(k as string),
+          val: v as xdr.ScVal,
+        }),
+    ),
+  )
+}
+
+/**
  * Create a single stream funded by `sender` and return its ID.
  *
  * Live: sends two signed transactions — a token `approve` letting the stream
@@ -690,6 +714,32 @@ export async function withdrawFromStream(
 }
 
 /**
+ * Withdraw everything currently available from stream `id` — "withdraw all" /
+ * auto-withdraw's `withdrawMax` wrapper around {@link withdrawFromStream}.
+ *
+ * Fetches the stream fresh and computes the withdrawable amount from that
+ * just-fetched snapshot, rather than reusing a value a caller computed
+ * earlier (e.g. at render time, or earlier in a batch loop). That earlier
+ * value is always a little stale by the time the transaction is built —
+ * more unlocks on-chain in the meantime — which left dust behind on every
+ * "withdraw all" (#1146). Resolves to `null` with no transaction when
+ * nothing is withdrawable.
+ */
+export async function withdrawMaxFromStream(
+  id: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  const amount = getWithdrawableAmount(stream)
+  if (amount <= 0n) return null
+
+  return withdrawFromStream(id, amount, network, onStep)
+}
+
+/**
  * Cancel stream `id`: funds unlocked so far go to the recipient and the
  * still-locked remainder is refunded to the sender.
  *
@@ -741,6 +791,65 @@ export async function cancelStream(
 export async function setDelegateForStream(
   id: string,
   delegate: string,
+ * Add `amount` (in the token's base units) to stream `id`'s deposit, signed
+ * by `address` (must be the stream's sender, same as `top_up`'s
+ * `require_auth`).
+ *
+ * Live: fetches the stream first to find its token; throws `Stream not
+ * found` if it can't be loaded. Sends two signed transactions — a token
+ * `approve` letting the stream contract pull `amount` (valid for ~500
+ * ledgers), then `top_up` — so `onStep` cycles twice, mirroring
+ * {@link createStream}. Returns the transaction hash of the `top_up` call.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, adds `amount` to the stream's deposit in the
+ * mock store and returns `null`.
+ */
+export async function topUpStream(
+  id: string,
+  amount: bigint,
+  address: string,
+ * Whether the streaming contract is currently paused by its admin. Frontends
+ * poll this to warn users and disable writes before a transaction fails
+ * on-chain with `ContractPaused` (code 16).
+ *
+ * Mock mode (no `streamContractId` configured for `network`): always returns
+ * `false` — the mock store has no pause concept.
+ *
+ * Never throws: an RPC/network failure is treated the same as "not paused"
+ * so a transient outage doesn't surface a misleading pause banner — the
+ * actual write attempt will still fail with its own, more specific error.
+ *
+ * # Issue \#1144
+ */
+export async function isPaused(network: NetworkName = 'testnet'): Promise<boolean> {
+  const config = getNetworkConfig(network)
+  if (!config.streamContractId) return false
+
+  try {
+    const result = await query(network, 'is_paused', [], config.streamContractId)
+    return Boolean(scValToNative(result))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Update a stream's metadata (name, category, memo). Unlike at creation, the
+ * sender may call this at any time for the life of the stream.
+ * Partially cancel stream `id`: reclaims `amount` of the still-locked
+ * (unvested) balance back to the sender while leaving the stream active.
+ *
+ * Live: fetches the stream first and signs as its sender; throws
+ * `Stream not found` if it can't be loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~500ms, updates the metadata in the mock store and
+ * returns `null`.
+ *
+ * # Issue \#1143
+ */
+export async function updateStreamMetadata(
+  id: string,
+  metadata: StreamMetadata,
   network: NetworkName = 'testnet',
   onStep?: (step: TxStep) => void,
 ): Promise<string | null> {
@@ -760,6 +869,51 @@ export async function setDelegateForStream(
     'set_delegate',
     [nativeToScVal(BigInt(id), { type: 'u64' }), new Address(delegate).toScVal()],
     stream.recipient,
+    mockStore.topUp(id, amount)
+    return null
+  }
+
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  // Step 1: approve the streaming contract to pull `amount` from `address`.
+  // The allowance needs to outlast the simulation ledger — set it to current + 500 ledgers.
+  const server = getServer(network)
+  const currentLedger = (await withRetry(() => server.getLatestLedger())).sequence
+  const expirationLedger = currentLedger + 500
+
+  await invoke(
+    network,
+    'approve',
+    [
+      new Address(address).toScVal(), // from
+      new Address(config.streamContractId).toScVal(), // spender
+      nativeToScVal(amount, { type: 'i128' }), // amount
+      nativeToScVal(expirationLedger, { type: 'u32' }), // expiration_ledger
+    ],
+    address,
+    stream.token.address, // invoke on the token contract, not the streaming contract
+    onStep,
+  )
+
+  // Step 2: top up the stream.
+  return invoke(
+    network,
+    'top_up',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), nativeToScVal(amount, { type: 'i128' })],
+    address,
+    await new Promise((r) => setTimeout(r, 500))
+    mockStore.updateMetadata(id, metadata)
+    return null
+  }
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  return invoke(
+    network,
+    'update_stream_metadata',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), buildStreamMetadataScVal(metadata)],
+    stream.sender,
     config.streamContractId,
     onStep,
   )
@@ -778,6 +932,37 @@ export async function setDelegateForStream(
  */
 export async function removeDelegateForStream(
   id: string,
+ * Transfer stream `id`'s recipient rights to `newRecipient`, signed by
+ * `address` (must be the stream's current recipient, same as
+ * `transfer_stream`'s `require_auth`).
+ *
+ * Live: fetches the stream first; throws `Stream not found` if it can't be
+ * loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, updates the recipient in the mock store and
+ * returns `null`.
+ * Transfer stream `id` to `newRecipient`. Only the current recipient may
+ * call this; the contract clears any registered delegate as a side effect
+ * of the transfer, since a delegate authorized by the old recipient should
+ * not retain withdrawal rights over the new one's funds.
+ *
+ * Live: fetches the stream first and signs as its current recipient; throws
+ * `Stream not found` if it can't be loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, reassigns the recipient in the mock store and
+ * returns `null`.
+ *
+ * # Issue \#1138
+ */
+export async function transferStream(
+  id: string,
+  newRecipient: string,
+  address: string,
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, updates the mock store and returns `null`.
+ */
+export async function partialCancelStream(
+  id: string,
+  amount: bigint,
   network: NetworkName = 'testnet',
   onStep?: (step: TxStep) => void,
 ): Promise<string | null> {
@@ -787,6 +972,11 @@ export async function removeDelegateForStream(
   if (isMockMode) {
     await new Promise((r) => setTimeout(r, 700))
     mockStore.removeDelegate(id)
+    mockStore.transfer(id, newRecipient)
+    return null
+  }
+
+    mockStore.partialCancel(id, amount)
     return null
   }
   const stream = await fetchStream(network, id)
@@ -797,6 +987,13 @@ export async function removeDelegateForStream(
     'remove_delegate',
     [nativeToScVal(BigInt(id), { type: 'u64' })],
     stream.recipient,
+    'transfer_stream',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), new Address(newRecipient).toScVal()],
+    address,
+    stream.recipient,
+    'partial_cancel',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), nativeToScVal(amount, { type: 'i128' })],
+    stream.sender,
     config.streamContractId,
     onStep,
   )

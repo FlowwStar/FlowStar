@@ -38,6 +38,14 @@ const STORAGE_KEY = 'flowstar_webhooks'
 const HISTORY_KEY = 'flowstar_webhook_history'
 const MAX_HISTORY = 50
 
+/**
+ * Issue #1157: per-attempt request timeout for webhook deliveries. Without
+ * this, a slow or hanging endpoint stalls the delivery loop indefinitely.
+ * A timeout aborts the fetch, which surfaces as a thrown error and is
+ * recorded as a failed attempt (see `deliverWithRetry`).
+ */
+export const WEBHOOK_TIMEOUT_MS = 10_000
+
 // Issue #821: version of the delivered payload shape, so integrators can
 // detect a future breaking change instead of guessing from field presence.
 // Bump only for breaking changes — see docs/WEBHOOKS.md for the policy.
@@ -175,6 +183,9 @@ async function deliverWithRetry(
           [WEBHOOK_SIGNATURE_HEADER]: signature,
         },
         body,
+        // Issue #1157: abort a hanging request so it counts as a failed
+        // attempt instead of stalling the delivery loop forever.
+        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
       })
       if (res.ok) return { statusCode: res.status, success: true }
       if (attempt < retries - 1) await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))

@@ -1749,17 +1749,6 @@ impl StreamingContract {
         soroban_sdk::String::from_str(&env, CONTRACT_NAME)
     }
 
-    /// Returns `true` if write operations are currently paused.
-    ///
-    /// Useful for off-chain tooling and tests to inspect the pause state
-    /// without attempting a write.
-    pub fn is_paused(env: Env) -> bool {
-        env.storage()
-            .instance()
-            .get(&DataKey::Paused)
-            .unwrap_or(false)
-    }
-
     // ── Delegation ────────────────────────────────────────────────────────────
 
     /// Set a delegate who can withdraw on behalf of the recipient.
