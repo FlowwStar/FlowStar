@@ -66,6 +66,18 @@ describe('getUnlockedAmount', () => {
     const s = makeStream({ linearAmount: 999_999_999_000n })
     expect(getUnlockedAmount(s, 1100)).toBe(s.depositedAmount)
   })
+
+  it('freezes at withdrawnAmount once cancelled, ignoring elapsed time (#1147, #1148)', () => {
+    const s = makeStream({ cancelled: true, withdrawnAmount: 30_000_000n })
+    expect(getUnlockedAmount(s, 1100)).toBe(30_000_000n)
+    // Totals must stay stable even long after cancellation / past endTime.
+    expect(getUnlockedAmount(s, 9999)).toBe(30_000_000n)
+  })
+
+  it('reports 0 for a cancelled stream with nothing withdrawn', () => {
+    const s = makeStream({ cancelled: true, withdrawnAmount: 0n })
+    expect(getUnlockedAmount(s, 1500)).toBe(0n)
+  })
 })
 
 describe('getWithdrawableAmount', () => {
@@ -121,6 +133,12 @@ describe('getStreamProgress', () => {
 
   it('returns 0 for zero depositedAmount', () => {
     expect(getStreamProgress(makeStream({ depositedAmount: 0n }))).toBe(0)
+  })
+
+  it('stays fixed at the withdrawn fraction for a cancelled stream instead of climbing toward endTime (#1147)', () => {
+    const s = makeStream({ cancelled: true, withdrawnAmount: 250_000_000n }) // 25%
+    expect(getStreamProgress(s, 1500)).toBeCloseTo(0.25)
+    expect(getStreamProgress(s, 9999)).toBeCloseTo(0.25)
   })
 })
 
