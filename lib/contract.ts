@@ -753,6 +753,42 @@ export async function cancelStream(
 }
 
 /**
+ * Partially cancel stream `id`: reclaims `amount` of the still-locked
+ * (unvested) balance back to the sender while leaving the stream active.
+ *
+ * Live: fetches the stream first and signs as its sender; throws
+ * `Stream not found` if it can't be loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, updates the mock store and returns `null`.
+ */
+export async function partialCancelStream(
+  id: string,
+  amount: bigint,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    await new Promise((r) => setTimeout(r, 700))
+    mockStore.partialCancel(id, amount)
+    return null
+  }
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  return invoke(
+    network,
+    'partial_cancel',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), nativeToScVal(amount, { type: 'i128' })],
+    stream.sender,
+    config.streamContractId,
+    onStep,
+  )
+}
+
+/**
  * Look up a token contract's `symbol` and `decimals` via read-only simulation.
  *
  * Always queries the network, even in mock mode. Returns `null` on any

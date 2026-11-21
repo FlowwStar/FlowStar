@@ -39,6 +39,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { StreamData, TokenInfo } from '@/types/stream'
 import { Suspense } from 'react'
 
@@ -61,6 +62,7 @@ const mockUseUndoableCancel = vi.fn()
 const mockUseIsStreamCancelling = vi.fn()
 const mockUseAutoWithdraw = vi.fn()
 const mockUseTokenPrice = vi.fn()
+const mockPartialCancel = vi.fn()
 
 const mockRouterPush = vi.fn()
 
@@ -255,9 +257,12 @@ beforeEach(() => {
     config: { streamContractId: 'CCONTRACT123' },
   })
 
+  mockPartialCancel.mockResolvedValue(null)
+
   mockUseContract.mockReturnValue({
     withdraw: vi.fn(),
     cancel: vi.fn(),
+    partialCancel: mockPartialCancel,
     cleanup: vi.fn(),
     pending: false,
     error: null,
@@ -462,6 +467,111 @@ describe('sender actions', () => {
     await renderPage('stream-abc')
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /^withdraw/i })).not.toBeInTheDocument()
+    })
+  })
+})
+
+// ─── Reclaim funds (partial cancel) action ────────────────────────────────────
+
+describe('reclaim funds (partial cancel) action', () => {
+  beforeEach(() => {
+    // Active stream, half-way unlocked — sender has a locked balance to reclaim.
+    mockUseStream.mockReturnValue({
+      stream: makeStream({
+        sender: SENDER_ADDRESS,
+        recipient: RECIPIENT_ADDRESS,
+        cancelled: false,
+      }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    mockUseWallet.mockReturnValue({
+      address: SENDER_ADDRESS,
+      isConnected: true,
+      reconnecting: false,
+    })
+  })
+
+  it('renders the "Reclaim funds" button for the sender when there is a locked balance', async () => {
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /reclaim funds/i })).toBeInTheDocument()
+    })
+  })
+
+  it('does not render the "Reclaim funds" button for the recipient', async () => {
+    mockUseStream.mockReturnValue({
+      stream: makeStream({
+        sender: OTHER_ADDRESS,
+        recipient: RECIPIENT_ADDRESS,
+        cancelled: false,
+      }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    mockUseWallet.mockReturnValue({
+      address: RECIPIENT_ADDRESS,
+      isConnected: true,
+      reconnecting: false,
+    })
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /reclaim funds/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it('does not render the "Reclaim funds" button once the stream is cancelled', async () => {
+    mockUseStream.mockReturnValue({
+      stream: makeStream({
+        sender: SENDER_ADDRESS,
+        recipient: RECIPIENT_ADDRESS,
+        cancelled: true,
+      }),
+      loading: false,
+      refetch: vi.fn(),
+    })
+    await renderPage('stream-abc')
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /reclaim funds/i })).not.toBeInTheDocument()
+    })
+  })
+
+  it('opens the reclaim dialog showing the locked balance as the max when clicked', async () => {
+    const user = userEvent.setup()
+    await renderPage('stream-abc')
+
+    const openButton = await screen.findByRole('button', { name: /reclaim funds/i })
+    await act(async () => {
+      await user.click(openButton)
+    })
+
+    await waitFor(() => {
+      // Half-way through a 1_000_000_000n (6-decimal) stream → 500 tokens locked.
+      expect(screen.getByText(/500 USDC/)).toBeInTheDocument()
+    })
+  })
+
+  it('calls partialCancel with the entered amount in mock mode', async () => {
+    const user = userEvent.setup()
+    await renderPage('stream-abc')
+
+    const openButton = await screen.findByRole('button', { name: /reclaim funds/i })
+    await act(async () => {
+      await user.click(openButton)
+    })
+
+    const amountInput = await screen.findByLabelText(/amount to reclaim/i)
+    await act(async () => {
+      await user.type(amountInput, '100')
+    })
+
+    const submitButton = screen.getByRole('button', { name: /confirm reclaim/i })
+    await act(async () => {
+      await user.click(submitButton)
+    })
+
+    await waitFor(() => {
+      expect(mockPartialCancel).toHaveBeenCalledWith('stream-abc', 100_000_000n)
     })
   })
 })

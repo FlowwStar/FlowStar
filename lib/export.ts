@@ -1,8 +1,13 @@
 import type { StreamData } from '@/types/stream'
-import { formatTokenAmount, getStreamStatus, SECONDS_PER_DAY } from '@/lib/stream-utils'
+import {
+  formatTokenAmount,
+  getStreamStatus,
+  SECONDS_PER_DAY,
+  SECONDS_PER_MONTH,
+} from '@/lib/stream-utils'
 
 const SECONDS_PER_DAY_BIGINT = BigInt(SECONDS_PER_DAY)
-const DAYS_PER_MONTH = BigInt(30)
+const SECONDS_PER_MONTH_BIGINT = BigInt(SECONDS_PER_MONTH)
 
 function unixToISO(seconds: bigint): string {
   if (seconds === BigInt(0)) return ''
@@ -51,6 +56,12 @@ export function streamsToCSV(
     const status = getStreamStatus(s, nowSeconds)
     const remaining = s.depositedAmount - s.withdrawnAmount
 
+    const ratePerDay = formatTokenAmount(s.amountPerSecond * SECONDS_PER_DAY_BIGINT, decimals, 6)
+    const ratePerMonth = formatTokenAmount(
+      s.amountPerSecond * SECONDS_PER_MONTH_BIGINT,
+      decimals,
+      6,
+    )
     // Derive from linearAmount/duration (multiply-then-divide, like
     // getUnlockedAmount) rather than s.amountPerSecond, which is a
     // pre-divided, already-rounded rate that drifts from the true value —

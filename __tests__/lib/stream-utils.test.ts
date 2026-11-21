@@ -13,6 +13,9 @@ import {
   formatTimeRemaining,
   formatDateTime,
   formatTimeAgo,
+  SECONDS_PER_DAY,
+  SECONDS_PER_MONTH,
+  SECONDS_PER_YEAR,
 } from '@/lib/stream-utils'
 import type { StreamData } from '@/types/stream'
 
@@ -204,6 +207,20 @@ describe('formatRate', () => {
     expect(r.perYear).toBeTruthy()
   })
 
+  it('uses the named SECONDS_PER_MONTH/SECONDS_PER_YEAR constants (30/365-day assumption)', () => {
+    expect(SECONDS_PER_MONTH).toBe(SECONDS_PER_DAY * 30)
+    expect(SECONDS_PER_YEAR).toBe(SECONDS_PER_DAY * 365)
+
+    const perSecond = 1_000_000
+    const r = formatRate(BigInt(perSecond), 7, 'USDC')
+    const expectedPerMonth = ((perSecond / 10 ** 7) * SECONDS_PER_MONTH).toLocaleString('en-US', {
+      maximumFractionDigits: 2,
+    })
+    const expectedPerYear = ((perSecond / 10 ** 7) * SECONDS_PER_YEAR).toLocaleString('en-US', {
+      maximumFractionDigits: 2,
+    })
+    expect(r.perMonth).toBe(`${expectedPerMonth} USDC/mo`)
+    expect(r.perYear).toBe(`${expectedPerYear} USDC/yr`)
   it('returns 0-valued rates for a zero duration instead of dividing by zero', () => {
     const r = formatRate(1_000_000n, 0n, 7, 'USDC')
     expect(r.perSecond).toBe('0 USDC/s')
@@ -387,6 +404,14 @@ describe('formatDateTime', () => {
     // Any valid output must contain ":<two digits>" before AM/PM
     const result = formatDateTime(1705323900)
     expect(result).toMatch(/:\d{2}/)
+  })
+
+  it('includes a short timezone name after the time (e.g. "GMT+1", "EST", "UTC")', () => {
+    // timeZoneName: 'short' appends an abbreviation or a GMT offset at the
+    // end of the string — exact value is environment-dependent (local TZ),
+    // so we assert the shape rather than a specific zone.
+    const result = formatDateTime(1705323900)
+    expect(result).toMatch(/(?:[A-Za-z]{2,5}|GMT[+-]\d{1,2}(?::\d{2})?)\s*$/)
   })
 
   it('contains a short month abbreviation (3 letters)', () => {
