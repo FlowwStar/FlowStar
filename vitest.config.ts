@@ -7,12 +7,14 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     globals: true,
     exclude: ["e2e/**", "node_modules/**"],
+    // Tests must live in __tests__/**/*.{test,spec}.{ts,tsx}.
+    // Files placed elsewhere (e.g. components/, lib/) are not collected.
     include: ["__tests__/**/*.{test,spec}.{ts,tsx}"],
     coverage: {
       provider: "v8",
       enabled: true,
       reporter: ["text", "lcov"],
-      include: ["hooks/**", "lib/**", "components/**"],
+      include: ["hooks/**", "lib/**", "components/**", "utils/**"],
       exclude: ["**/*.d.ts", "**/index.ts"],
       // Baseline from current coverage (`npm run test:coverage` on 2026-07-18).
       // Ratchet these up over time as more tests are added; never lower them

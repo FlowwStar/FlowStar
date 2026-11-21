@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { formatTokenAmount } from '@/lib/stream-utils'
+import { formatTokenAmount, formatCompactAmount } from '@/lib/stream-utils'
 import type { TokenInfo } from '@/types/stream'
 
 interface TokenAmountProps {
@@ -9,6 +9,10 @@ interface TokenAmountProps {
   symbolClassName?: string
   maxFractionDigits?: number
   showSymbol?: boolean
+  /** Display amount in compact notation (e.g., "1.2K"). @default false */
+  compact?: boolean
+  /** Truncate the display with ellipsis. @default false */
+  truncate?: boolean
 }
 
 /** Formats a raw bigint token amount with correct decimals + symbol. */
@@ -19,10 +23,21 @@ export function TokenAmount({
   symbolClassName,
   maxFractionDigits = 4,
   showSymbol = true,
+  compact = false,
+  truncate = false,
 }: TokenAmountProps) {
+  const formattedAmount = compact
+    ? formatCompactAmount(amount, token.decimals)
+    : formatTokenAmount(amount, token.decimals, maxFractionDigits)
+
+  const fullValue = `${formattedAmount}${showSymbol ? ` ${token.symbol}` : ''}`
+
   return (
-    <span className={cn('font-mono tabular-nums', className)}>
-      {formatTokenAmount(amount, token.decimals, maxFractionDigits)}
+    <span
+      className={cn('font-mono tabular-nums', truncate && 'truncate', className)}
+      title={truncate ? fullValue : undefined}
+    >
+      {formattedAmount}
       {showSymbol && (
         <span className={cn('ml-1 text-muted-foreground', symbolClassName)}>
           {token.symbol}

@@ -1,7 +1,10 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Analytics',
+  title: {
+    template: '%s | FlowStar',
+    default: 'Analytics',
+  },
   description: 'Explore aggregate FlowStar stream metrics and traction signals.',
 }
 

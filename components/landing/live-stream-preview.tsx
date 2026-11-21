@@ -7,8 +7,6 @@ import { getUnlockedAmount, getStreamProgress, formatTokenAmount } from '@/lib/s
 import { ProgressBar } from '@/components/ui/progress-bar'
 import type { StreamData } from '@/types/stream'
 
-const NOW = Math.floor(Date.now() / 1000)
-
 const STREAM_DURATION = 30 * 24 * 60 * 60
 
 function buildDemoStream(now: number): StreamData {
@@ -37,7 +35,7 @@ function buildDemoStream(now: number): StreamData {
 
 export function LiveStreamPreview() {
   const now = useNow(1000)
-  const [demoStream] = useState(() => buildDemoStream(NOW))
+  const [demoStream] = useState(() => buildDemoStream(Math.floor(Date.now() / 1000)))
   const unlocked = getUnlockedAmount(demoStream, now)
   const progress = getStreamProgress(demoStream, now)
 
@@ -78,7 +76,11 @@ export function LiveStreamPreview() {
       </div>
 
       <div className="mt-5">
-        <ProgressBar value={progress} indeterminateShimmer />
+        <ProgressBar
+          value={progress}
+          indeterminateShimmer
+          label="Stream unlock progress"
+        />
         <div className="mt-2 flex justify-between text-xs text-muted-foreground">
           <span>{(progress * 100).toFixed(2)}% unlocked</span>
           <span className="font-mono">

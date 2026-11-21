@@ -2,7 +2,10 @@ import type { ReactNode } from 'react'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Create Stream',
+  title: {
+    template: '%s | FlowStar',
+    default: 'Create Stream',
+  },
   description: 'Set up a new token stream with vesting schedules, cliffs, and continuous unlocking on Stellar.',
 }
 

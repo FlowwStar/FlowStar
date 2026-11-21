@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
   getUnlockedAmount,
   getWithdrawableAmount,
@@ -6,10 +6,16 @@ import {
   getStreamStatus,
   getStreamProgress,
   formatTokenAmount,
+  formatCompactAmount,
   parseTokenAmount,
   formatRate,
   shortenAddress,
   formatTimeRemaining,
+  formatDateTime,
+  formatTimeAgo,
+  SECONDS_PER_DAY,
+  SECONDS_PER_MONTH,
+  SECONDS_PER_YEAR,
 } from '@/lib/stream-utils'
 import type { StreamData } from '@/types/stream'
 
@@ -62,6 +68,18 @@ describe('getUnlockedAmount', () => {
   it('never exceeds depositedAmount', () => {
     const s = makeStream({ linearAmount: 999_999_999_000n })
     expect(getUnlockedAmount(s, 1100)).toBe(s.depositedAmount)
+  })
+
+  it('freezes at withdrawnAmount once cancelled, ignoring elapsed time (#1147, #1148)', () => {
+    const s = makeStream({ cancelled: true, withdrawnAmount: 30_000_000n })
+    expect(getUnlockedAmount(s, 1100)).toBe(30_000_000n)
+    // Totals must stay stable even long after cancellation / past endTime.
+    expect(getUnlockedAmount(s, 9999)).toBe(30_000_000n)
+  })
+
+  it('reports 0 for a cancelled stream with nothing withdrawn', () => {
+    const s = makeStream({ cancelled: true, withdrawnAmount: 0n })
+    expect(getUnlockedAmount(s, 1500)).toBe(0n)
   })
 })
 
@@ -119,6 +137,12 @@ describe('getStreamProgress', () => {
   it('returns 0 for zero depositedAmount', () => {
     expect(getStreamProgress(makeStream({ depositedAmount: 0n }))).toBe(0)
   })
+
+  it('stays fixed at the withdrawn fraction for a cancelled stream instead of climbing toward endTime (#1147)', () => {
+    const s = makeStream({ cancelled: true, withdrawnAmount: 250_000_000n }) // 25%
+    expect(getStreamProgress(s, 1500)).toBeCloseTo(0.25)
+    expect(getStreamProgress(s, 9999)).toBeCloseTo(0.25)
+  })
 })
 
 describe('formatTokenAmount', () => {
@@ -163,23 +187,62 @@ describe('parseTokenAmount', () => {
 
 describe('formatRate', () => {
   it('returns best rate with unit', () => {
-    // 0.1 USDC/s = 6/min → picks /min (first unit >= 0.01)
-    const r = formatRate(1_000_000n, 7, 'USDC')
+    // linearAmount/duration = 1_000_000_000n / 1000n = 1_000_000 raw/s
+    // = 0.1 USDC/s = 6/min → picks /min (first unit >= 0.01)
+    const r = formatRate(1_000_000_000n, 1000n, 7, 'USDC')
     expect(r.best).toContain('USDC')
     expect(r.bestUnit).toBe('/min')
   })
 
   it('picks the first unit where value >= 0.01', () => {
     // 1 stroop/s = 0.0000001 USDC/s = 0.26/mo → picks /mo
-    const r = formatRate(1n, 7, 'USDC')
+    const r = formatRate(1n, 1n, 7, 'USDC')
     expect(r.bestUnit).toBe('/mo')
   })
 
   it('contains all unit fields', () => {
-    const r = formatRate(1_000_000n, 7, 'USDC')
+    const r = formatRate(1_000_000_000n, 1000n, 7, 'USDC')
     expect(r.perSecond).toBeTruthy()
     expect(r.perHour).toBeTruthy()
     expect(r.perYear).toBeTruthy()
+  })
+
+  it('uses the named SECONDS_PER_MONTH/SECONDS_PER_YEAR constants (30/365-day assumption)', () => {
+    expect(SECONDS_PER_MONTH).toBe(SECONDS_PER_DAY * 30)
+    expect(SECONDS_PER_YEAR).toBe(SECONDS_PER_DAY * 365)
+
+    const perSecond = 1_000_000
+    const r = formatRate(BigInt(perSecond), 7, 'USDC')
+    const expectedPerMonth = ((perSecond / 10 ** 7) * SECONDS_PER_MONTH).toLocaleString('en-US', {
+      maximumFractionDigits: 2,
+    })
+    const expectedPerYear = ((perSecond / 10 ** 7) * SECONDS_PER_YEAR).toLocaleString('en-US', {
+      maximumFractionDigits: 2,
+    })
+    expect(r.perMonth).toBe(`${expectedPerMonth} USDC/mo`)
+    expect(r.perYear).toBe(`${expectedPerYear} USDC/yr`)
+  it('returns 0-valued rates for a zero duration instead of dividing by zero', () => {
+    const r = formatRate(1_000_000n, 0n, 7, 'USDC')
+    expect(r.perSecond).toBe('0 USDC/s')
+    expect(r.perYear).toBe('0 USDC/yr')
+  })
+
+  it('computes precise rates from linearAmount/duration rather than a pre-rounded amountPerSecond', () => {
+    // linearAmount/duration = 100/3 = 33.333...; a pre-divided integer
+    // amountPerSecond (bigint 100n / 3n = 33n) would truncate this to a flat
+    // "33" instead of the true "33.33".
+    const r = formatRate(100n, 3n, 0, 'USDC')
+    expect(r.perSecond).toBe('33.33 USDC/s')
+  })
+
+  it('matches getUnlockedAmount-style bigint math for a long-running stream (no float drift)', () => {
+    // A 10-year stream (in seconds) streaming 1 token (7 decimals) total.
+    // amountPerSecond would be floor(10_000_000n / duration) = 0n, hiding the
+    // rate entirely; deriving from linearAmount/duration keeps the precision.
+    const duration = 315_360_000n // 10 years in seconds
+    const r = formatRate(10_000_000n, duration, 7, 'USDC')
+    expect(r.perYear).not.toBe('0 USDC/yr')
+    expect(r.perYear).toBe('0.1 USDC/yr')
   })
 })
 
@@ -202,5 +265,273 @@ describe('formatTimeRemaining', () => {
   it('returns days/hours for long duration', () => {
     const result = formatTimeRemaining(BigInt(Math.floor(Date.now() / 1000) + 90061))
     expect(result).toMatch(/\d+d/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatCompactAmount
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalise a compact-notation string so that assertions work regardless of
+ * whether the runtime uses a regular space, thin space (\u2009), or narrow
+ * no-break space (\u202f) between the number and the suffix.  Intl output is
+ * implementation-dependent; stripping all whitespace makes comparisons stable.
+ */
+function normalizeCompact(s: string): string {
+  // Remove every kind of whitespace/separator that Intl may inject
+  return s.replace(/[\s\u00a0\u2009\u202f]/g, '')
+}
+
+describe('formatCompactAmount', () => {
+  // 1 token at 7 decimals = 10_000_000n raw units
+  const D = 7
+
+  it('formats zero as "0"', () => {
+    expect(normalizeCompact(formatCompactAmount(0n, D))).toBe('0')
+  })
+
+  it('formats values under 1 000 with no K/M suffix', () => {
+    // 999 tokens
+    expect(normalizeCompact(formatCompactAmount(9_990_000_000n, D))).toBe('999')
+  })
+
+  it('formats exactly 1 000 tokens as "1K"', () => {
+    expect(normalizeCompact(formatCompactAmount(10_000_000_000n, D))).toBe('1K')
+  })
+
+  it('formats 1 200 tokens as "1.2K"', () => {
+    expect(normalizeCompact(formatCompactAmount(12_000_000_000n, D))).toBe('1.2K')
+  })
+
+  it('formats 999 900 tokens as "999.9K"', () => {
+    expect(normalizeCompact(formatCompactAmount(9_999_000_000_000n, D))).toBe('999.9K')
+  })
+
+  it('formats exactly 1 000 000 tokens as "1M"', () => {
+    expect(normalizeCompact(formatCompactAmount(10_000_000_000_000n, D))).toBe('1M')
+  })
+
+  it('formats 3 400 000 tokens as "3.4M"', () => {
+    expect(normalizeCompact(formatCompactAmount(34_000_000_000_000n, D))).toBe('3.4M')
+  })
+
+  it('rounds to 1 decimal place — rounds up', () => {
+    // 1 250 tokens → 1.3K
+    expect(normalizeCompact(formatCompactAmount(12_500_000_000n, D))).toBe('1.3K')
+  })
+
+  it('rounds to 1 decimal place — rounds down', () => {
+    // 1 240 tokens → 1.2K
+    expect(normalizeCompact(formatCompactAmount(12_400_000_000n, D))).toBe('1.2K')
+  })
+
+  it('handles negative values', () => {
+    // -1 000 tokens → "-1K"
+    expect(normalizeCompact(formatCompactAmount(-10_000_000_000n, D))).toBe('-1K')
+  })
+
+  it('works with 2-decimal precision', () => {
+    // 100 tokens at 2 decimals = 10 000 raw
+    expect(normalizeCompact(formatCompactAmount(10_000n, 2))).toBe('100')
+    // 1 000 tokens at 2 decimals = 100 000 raw
+    expect(normalizeCompact(formatCompactAmount(100_000n, 2))).toBe('1K')
+  })
+
+  it('boundary: value just below 1 000 000 is either "999.9K" or "1M" (Intl rounding)', () => {
+    // 999 999.9 tokens — Intl may round up to 1M
+    const result = normalizeCompact(formatCompactAmount(9_999_999_000_000n, D))
+    expect(['999.9K', '1000K', '1M']).toContain(result)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatDateTime
+// ---------------------------------------------------------------------------
+
+/**
+ * toLocaleString('en-US', ...) output is stable across Node/jsdom when the
+ * locale is explicitly pinned, but punctuation details (comma after year,
+ * narrow-no-break space before AM/PM) can vary by ICU version.  We use
+ * targeted regex patterns against individual parts rather than full-string
+ * equality to stay robust.
+ */
+describe('formatDateTime', () => {
+  it('accepts a plain number timestamp and returns a non-empty string', () => {
+    const result = formatDateTime(1705323900)
+    expect(typeof result).toBe('string')
+    expect(result.length).toBeGreaterThan(0)
+  })
+
+  it('accepts a bigint timestamp and produces the same output as the number equivalent', () => {
+    expect(formatDateTime(1705323900n)).toBe(formatDateTime(1705323900))
+  })
+
+  it('formats epoch 0 — contains Jan, 1, and 1970', () => {
+    const result = formatDateTime(0)
+    expect(result).toMatch(/Jan/)
+    expect(result).toMatch(/1/)
+    expect(result).toMatch(/1970/)
+  })
+
+  it('formats epoch 0 as bigint without throwing', () => {
+    expect(() => formatDateTime(0n)).not.toThrow()
+    const result = formatDateTime(0n)
+    expect(result).toMatch(/1970/)
+  })
+
+  it('formats a known mid-range timestamp — Jan 15, 2024', () => {
+    // 1 705 323 900 = 2024-01-15 (UTC)
+    const result = formatDateTime(1705323900)
+    expect(result).toMatch(/Jan/)
+    expect(result).toMatch(/15/)
+    expect(result).toMatch(/2024/)
+  })
+
+  it('formats a far-future timestamp (year 2100)', () => {
+    // 4 107 542 400 = 2100-03-14 00:00:00 UTC
+    const result = formatDateTime(4107542400)
+    expect(result).toMatch(/2100/)
+    expect(result).toMatch(/Mar/)
+  })
+
+  it('includes an AM or PM marker (12-hour format)', () => {
+    const result = formatDateTime(1705323900)
+    expect(result).toMatch(/AM|PM/)
+  })
+
+  it('includes 2-digit minutes', () => {
+    // Any valid output must contain ":<two digits>" before AM/PM
+    const result = formatDateTime(1705323900)
+    expect(result).toMatch(/:\d{2}/)
+  })
+
+  it('includes a short timezone name after the time (e.g. "GMT+1", "EST", "UTC")', () => {
+    // timeZoneName: 'short' appends an abbreviation or a GMT offset at the
+    // end of the string — exact value is environment-dependent (local TZ),
+    // so we assert the shape rather than a specific zone.
+    const result = formatDateTime(1705323900)
+    expect(result).toMatch(/(?:[A-Za-z]{2,5}|GMT[+-]\d{1,2}(?::\d{2})?)\s*$/)
+  })
+
+  it('contains a short month abbreviation (3 letters)', () => {
+    const result = formatDateTime(1685608200) // 2023-06-01
+    expect(result).toMatch(/\b[A-Z][a-z]{2}\b/)
+  })
+
+  it('contains the 4-digit year', () => {
+    const result = formatDateTime(1685608200)
+    expect(result).toMatch(/2023/)
+  })
+
+  it('output is consistent — same input always produces same output', () => {
+    const ts = 1700000000
+    expect(formatDateTime(ts)).toBe(formatDateTime(ts))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatTimeAgo
+// ---------------------------------------------------------------------------
+
+/**
+ * formatTimeAgo compares a millisecond timestamp against Date.now().
+ * We pin the system clock with fake timers so every assertion is deterministic.
+ */
+describe('formatTimeAgo', () => {
+  const NOW = 1_700_000_000_000 // fixed reference point in ms
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function pinNow() {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  }
+
+  it('returns "just now" for a timestamp equal to now', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW)).toBe('just now')
+  })
+
+  it('returns "just now" for a few seconds ago', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 5_000)).toBe('just now')
+  })
+
+  it('boundary: 59s ago is still "just now"', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 59_000)).toBe('just now')
+  })
+
+  it('boundary: 60s ago is "1m ago"', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 60_000)).toBe('1m ago')
+  })
+
+  it('formats minutes', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 5 * 60_000)).toBe('5m ago')
+  })
+
+  it('formats 59 minutes as minutes', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 59 * 60_000)).toBe('59m ago')
+  })
+
+  it('boundary: 1h ago is "1h ago"', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 3_600_000)).toBe('1h ago')
+  })
+
+  it('formats hours', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 5 * 3_600_000)).toBe('5h ago')
+  })
+
+  it('formats 23 hours as hours', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 23 * 3_600_000)).toBe('23h ago')
+  })
+
+  it('boundary: 24h ago is "1d ago"', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 86_400_000)).toBe('1d ago')
+  })
+
+  it('formats days', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 3 * 86_400_000)).toBe('3d ago')
+  })
+
+  it('formats 6 days as days', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW - 6 * 86_400_000)).toBe('6d ago')
+  })
+
+  it('boundary: 7 days ago falls through to a locale date string', () => {
+    pinNow()
+    const result = formatTimeAgo(NOW - 7 * 86_400_000)
+    expect(result).not.toMatch(/ago/)
+    expect(result).not.toBe('just now')
+    // Should be a date string for the timestamp 7 days before NOW
+    expect(result).toBe(new Date(NOW - 7 * 86_400_000).toLocaleDateString())
+  })
+
+  it('returns a locale date string for timestamps older than 7 days', () => {
+    pinNow()
+    const ts = NOW - 30 * 86_400_000
+    expect(formatTimeAgo(ts)).toBe(new Date(ts).toLocaleDateString())
+  })
+
+  it('returns "just now" for future timestamps', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW + 60_000)).toBe('just now')
+  })
+
+  it('returns "just now" for far-future timestamps', () => {
+    pinNow()
+    expect(formatTimeAgo(NOW + 86_400_000)).toBe('just now')
   })
 })

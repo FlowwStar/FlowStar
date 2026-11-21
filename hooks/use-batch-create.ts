@@ -17,6 +17,19 @@ export interface BatchStreamInput {
   cliffAmount: bigint
 }
 
+/**
+ * Snapshot of a batch-create run, exposed via the hook's `progress` state and
+ * passed to the `onProgress` callback after each update.
+ *
+ * - `total`: number of streams in the current run (all streams for
+ *   `createBatch`, only the retried subset for `retryFailed`).
+ * - `completed`: number of streams successfully created so far.
+ * - `failed`: number of streams that failed in the current run.
+ * - `current`: index of the stream currently being processed.
+ * - `successIds`: on-chain ids of the streams created so far.
+ * - `errors`: map of stream index to error message for failed streams.
+ * - `isRunning`: `true` while the run is in flight, `false` once it settles.
+ */
 export interface BatchCreateProgress {
   total: number
   completed: number
@@ -29,6 +42,24 @@ export interface BatchCreateProgress {
 
 const DEFAULT_BATCH_DELAY = 2000 // 2 seconds between streams to avoid rate limiting
 
+/**
+ * Hook for creating streams in batches.
+ *
+ * Streams are executed sequentially, one at a time and in the order provided,
+ * rather than in parallel, to avoid rate limiting and nonce collisions. The
+ * `batchDelay` option (defaulting to {@link DEFAULT_BATCH_DELAY}) is applied
+ * between streams.
+ *
+ * Progress is tracked through the {@link BatchCreateProgress} contract: the
+ * hook keeps the latest snapshot in `progress` state and also reports each
+ * update through the optional `onProgress` callback, so callers can render
+ * live progress without subscribing to state. When a run finishes, the streams
+ * cache is invalidated to refresh the UI.
+ *
+ * @returns `progress` (latest {@link BatchCreateProgress}), `createBatch`
+ *   (create all provided streams), `retryFailed` (re-run only the given failed
+ *   indices), and `cancel` (abort the in-flight run).
+ */
 export function useBatchCreate() {
   const { address, isConnected } = useWallet()
   const { network } = useNetwork()

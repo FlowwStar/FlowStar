@@ -3,7 +3,8 @@
 import { useMemo } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { TokenInfo } from '@/types/stream'
-import { formatTokenAmount } from '@/lib/stream-utils'
+import { formatTokenAmount, SECONDS_PER_DAY } from '@/lib/stream-utils'
+import { createFormCopy as copy } from '@/lib/copy/create-form'
 
 interface StreamPreviewProps {
   amount: string
@@ -21,15 +22,16 @@ function toUnix(dt: string): number {
 }
 
 function formatDuration(seconds: number): string {
-  if (seconds <= 0) return '—'
-  const days = Math.floor(seconds / 86400)
-  const hours = Math.floor((seconds % 86400) / 3600)
+  const { duration } = copy.streamPreview
+  if (seconds <= 0) return duration.none
+  const days = Math.floor(seconds / SECONDS_PER_DAY)
+  const hours = Math.floor((seconds % SECONDS_PER_DAY) / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
   const parts: string[] = []
-  if (days > 0) parts.push(`${days} day${days !== 1 ? 's' : ''}`)
-  if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`)
-  if (minutes > 0 && days === 0) parts.push(`${minutes} min`)
-  return parts.join(', ') || '< 1 min'
+  if (days > 0) parts.push(duration.days(days))
+  if (hours > 0) parts.push(duration.hours(hours))
+  if (minutes > 0 && days === 0) parts.push(duration.minutes(minutes))
+  return parts.join(', ') || duration.belowOneMinute
 }
 
 const SVG_W = 280
@@ -60,7 +62,7 @@ export function StreamPreview({
     const linearAmount = totalNum - cliffAmt
 
     const perSecond = durationSec > 0 ? linearAmount / durationSec : 0
-    const perDay = perSecond * 86400
+    const perDay = perSecond * SECONDS_PER_DAY
     const perMonth = perSecond * 2592000
     const perHour = perSecond * 3600
 
@@ -103,7 +105,7 @@ export function StreamPreview({
   if (!preview) {
     return (
       <div className="rounded-2xl border border-dashed border-border bg-card/50 p-5 text-center text-sm text-muted-foreground">
-        Fill in the form to see a preview of your stream.
+        {copy.streamPreview.emptyState}
       </div>
     )
   }
@@ -111,16 +113,14 @@ export function StreamPreview({
   return (
     <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
       <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-        Stream preview
+        {copy.streamPreview.title}
       </h2>
 
       {/* Low rate warning */}
       {preview.isLowRate && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-          <span>
-            Unlock rate is very low ({preview.perHour.toFixed(6)} {token.symbol}/hour). Consider increasing the amount or reducing the duration.
-          </span>
+          <span>{copy.streamPreview.lowRateWarning(preview.perHour.toFixed(6), token.symbol)}</span>
         </div>
       )}
 
@@ -144,29 +144,29 @@ export function StreamPreview({
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div>
-          <p className="text-xs text-muted-foreground">Total duration</p>
+          <p className="text-xs text-muted-foreground">{copy.streamPreview.totalDurationLabel}</p>
           <p className="font-medium">{formatDuration(preview.durationSec)}</p>
         </div>
         <div>
-          <p className="text-xs text-muted-foreground">Unlock rate</p>
+          <p className="text-xs text-muted-foreground">{copy.streamPreview.unlockRateLabel}</p>
           <p className="font-mono font-medium">
             {preview.perHour < 0.01
-              ? `${preview.perMonth.toFixed(4)} /mo`
+              ? `${preview.perMonth.toFixed(4)} ${copy.streamPreview.perMonthSuffix}`
               : preview.perDay < 0.01
-                ? `${preview.perHour.toFixed(4)} /hr`
-                : `${preview.perDay.toFixed(2)} /day`}
+                ? `${preview.perHour.toFixed(4)} ${copy.streamPreview.perHourSuffix}`
+                : `${preview.perDay.toFixed(2)} ${copy.streamPreview.perDaySuffix}`}
           </p>
         </div>
         {preview.cliffAmt > 0 && (
           <>
             <div>
-              <p className="text-xs text-muted-foreground">Cliff amount</p>
+              <p className="text-xs text-muted-foreground">{copy.streamPreview.cliffAmountLabel}</p>
               <p className="font-mono font-medium">
                 {preview.cliffAmt.toLocaleString()} {token.symbol}
               </p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Cliff wait</p>
+              <p className="text-xs text-muted-foreground">{copy.streamPreview.cliffWaitLabel}</p>
               <p className="font-medium">{formatDuration(preview.cliffDurationSec)}</p>
             </div>
           </>
@@ -175,20 +175,22 @@ export function StreamPreview({
 
       {/* Timeline */}
       <div className="space-y-1.5">
-        <p className="text-xs text-muted-foreground">Timeline</p>
+        <p className="text-xs text-muted-foreground">{copy.streamPreview.timelineLabel}</p>
         <div className="flex items-center gap-2 text-xs">
-          <span className="rounded bg-secondary px-2 py-0.5 font-medium">Start</span>
+          <span className="rounded bg-secondary px-2 py-0.5 font-medium">
+            {copy.streamPreview.startLabel}
+          </span>
           {preview.cliffAmt > 0 && (
             <>
               <span className="text-muted-foreground">→</span>
               <span className="rounded bg-secondary px-2 py-0.5 font-medium">
-                Cliff ({formatDuration(preview.cliffDurationSec)})
+                {copy.streamPreview.cliffLabel(formatDuration(preview.cliffDurationSec))}
               </span>
             </>
           )}
           <span className="text-muted-foreground">→</span>
           <span className="rounded bg-primary/10 text-primary px-2 py-0.5 font-medium">
-            End ({formatDuration(preview.durationSec)})
+            {copy.streamPreview.endLabel(formatDuration(preview.durationSec))}
           </span>
         </div>
       </div>

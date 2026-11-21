@@ -11,6 +11,7 @@ export default [
       'contracts/**',
       'e2e/**',
       'public/**',
+      'coverage/**',
     ],
   },
   js.configs.recommended,
@@ -31,6 +32,13 @@ export default [
         ...globals.node,
         ...globals.es2021,
       },
+    },
+  },
+  {
+    files: ['scripts/**/*.mjs'],
+    rules: {
+      'no-console': 'off',
+      'security/detect-non-literal-fs-filename': 'off',
     },
   },
 ]

@@ -7,7 +7,7 @@ async function withWallet(page: Page) {
     localStorage.setItem('walletId', 'xbull')
     ;(window as any).xBullSDK = {
       connect: async () => ({
-        publicKey: 'GBQTESTWALLETADDRESS000000000000000000000000000000000000',
+        publicKey: 'GA4M5Y74MXREPXU6LGRR7WOC6VLXJBLKJHZBJGDBKOFIP7GBM3MHF3G5',
       }),
       signXDR: async () => 'AAAAAgAAAAA...dummy-signature...',
     }
@@ -15,16 +15,8 @@ async function withWallet(page: Page) {
 }
 
 // ─── Axe helper: run scan and assert no violations ───────────────────────────
-async function checkA11y(
-  page: Page,
-  options?: { disableRules?: string[] },
-) {
-  const builder = new AxeBuilder({ page }).withTags([
-    'wcag2a',
-    'wcag2aa',
-    'wcag21a',
-    'wcag21aa',
-  ])
+async function checkA11y(page: Page, options?: { disableRules?: string[] }) {
+  const builder = new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
   if (options?.disableRules?.length) {
     builder.disableRules(options.disableRules)
   }
@@ -59,9 +51,7 @@ test.describe('Structural landmarks & skip-link', () => {
     await expect(page.locator('main#main-content')).toBeVisible()
   })
 
-  test('landing page has a single h1 with no broken hierarchy', async ({
-    page,
-  }) => {
+  test('landing page has a single h1 with no broken hierarchy', async ({ page }) => {
     await page.goto('/')
     const h1s = page.locator('h1')
     await expect(h1s.first()).toBeVisible()
@@ -79,15 +69,10 @@ test.describe('Axe automated scans', () => {
     await checkA11y(page)
   })
 
-  test('dashboard (unauthenticated) passes axe wcag2a/2aa', async ({
-    page,
-  }) => {
+  test('dashboard (unauthenticated) passes axe wcag2a/2aa', async ({ page }) => {
     await page.goto('/app')
     await expect(
-      page
-        .locator('text=Connect your wallet')
-        .or(page.locator('text=Connect wallet'))
-        .first(),
+      page.locator('text=Connect your wallet').or(page.locator('text=Connect wallet')).first(),
     ).toBeVisible()
     await checkA11y(page)
   })
@@ -102,8 +87,9 @@ test.describe('Axe automated scans', () => {
   test('stream-detail page passes axe wcag2a/2aa', async ({ page }) => {
     await withWallet(page)
     await page.goto('/app/stream/test-id')
-    // wait for any async content to settle
-    await page.waitForLoadState('networkidle')
+    // The stream detail page polls, so the network never goes idle — wait for
+    // the loading skeleton to disappear instead of waitForLoadState('networkidle').
+    await page.waitForSelector('div.space-y-6.animate-pulse', { state: 'detached' })
     await checkA11y(page)
   })
 
@@ -131,15 +117,15 @@ test.describe('Cancel-stream dialog — keyboard & focus', () => {
   test.beforeEach(async ({ page }) => {
     await withWallet(page)
     await page.goto('/app/stream/1')
-    await page.waitForLoadState('networkidle')
+    // The stream detail page polls, so the network never goes idle — wait for
+    // the loading skeleton to disappear instead of waitForLoadState('networkidle').
+    await page.waitForSelector('div.space-y-6.animate-pulse', { state: 'detached' })
   })
 
-  test('Cancel button opens dialog; dialog has role=dialog and aria-modal', async ({
-    page,
-  }) => {
-    const cancelBtn = page.locator('button:has-text("Cancel stream")').or(
-      page.locator('button:has-text("Cancel")').first(),
-    )
+  test('Cancel button opens dialog; dialog has role=dialog and aria-modal', async ({ page }) => {
+    const cancelBtn = page
+      .locator('button:has-text("Cancel stream")')
+      .or(page.locator('button:has-text("Cancel")').first())
     const isPresent = (await cancelBtn.count()) > 0
     if (!isPresent) {
       test.skip()
@@ -152,9 +138,9 @@ test.describe('Cancel-stream dialog — keyboard & focus', () => {
   })
 
   test('Cancel dialog: Escape key closes the dialog', async ({ page }) => {
-    const cancelBtn = page.locator('button:has-text("Cancel stream")').or(
-      page.locator('button:has-text("Cancel")').first(),
-    )
+    const cancelBtn = page
+      .locator('button:has-text("Cancel stream")')
+      .or(page.locator('button:has-text("Cancel")').first())
     if ((await cancelBtn.count()) === 0) {
       test.skip()
       return
@@ -165,12 +151,10 @@ test.describe('Cancel-stream dialog — keyboard & focus', () => {
     await expect(page.locator('[role="dialog"]')).not.toBeVisible()
   })
 
-  test('Cancel dialog: focus returns to trigger element after close', async ({
-    page,
-  }) => {
-    const cancelBtn = page.locator('button:has-text("Cancel stream")').or(
-      page.locator('button:has-text("Cancel")').first(),
-    )
+  test('Cancel dialog: focus returns to trigger element after close', async ({ page }) => {
+    const cancelBtn = page
+      .locator('button:has-text("Cancel stream")')
+      .or(page.locator('button:has-text("Cancel")').first())
     if ((await cancelBtn.count()) === 0) {
       test.skip()
       return
@@ -184,12 +168,10 @@ test.describe('Cancel-stream dialog — keyboard & focus', () => {
     expect(focused).toMatch(/cancel/i)
   })
 
-  test('Cancel dialog: Tab key cycles focus within the dialog (focus trap)', async ({
-    page,
-  }) => {
-    const cancelBtn = page.locator('button:has-text("Cancel stream")').or(
-      page.locator('button:has-text("Cancel")').first(),
-    )
+  test('Cancel dialog: Tab key cycles focus within the dialog (focus trap)', async ({ page }) => {
+    const cancelBtn = page
+      .locator('button:has-text("Cancel stream")')
+      .or(page.locator('button:has-text("Cancel")').first())
     if ((await cancelBtn.count()) === 0) {
       test.skip()
       return
@@ -200,7 +182,9 @@ test.describe('Cancel-stream dialog — keyboard & focus', () => {
 
     // Collect all focusable elements inside dialog
     const focusableCount = await dialog
-      .locator('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      .locator(
+        'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )
       .count()
 
     // Tab through all focusable elements + one extra to confirm wrap-around
@@ -217,9 +201,9 @@ test.describe('Cancel-stream dialog — keyboard & focus', () => {
   })
 
   test('Cancel dialog passes axe scan while open', async ({ page }) => {
-    const cancelBtn = page.locator('button:has-text("Cancel stream")').or(
-      page.locator('button:has-text("Cancel")').first(),
-    )
+    const cancelBtn = page
+      .locator('button:has-text("Cancel stream")')
+      .or(page.locator('button:has-text("Cancel")').first())
     if ((await cancelBtn.count()) === 0) {
       test.skip()
       return
@@ -242,15 +226,15 @@ test.describe('Transaction-preview dialog — keyboard & focus', () => {
 
   async function openTxPreview(page: Page): Promise<boolean> {
     // Fill the minimum valid form fields to reach the tx-preview dialog
-    const recipientInput = page.locator('#recipient').or(
-      page.locator('input[placeholder*="ecipient"]').first(),
-    )
-    const amountInput = page.locator('#amount').or(
-      page.locator('input[placeholder*="mount"]').first(),
-    )
+    const recipientInput = page
+      .locator('#recipient')
+      .or(page.locator('input[placeholder*="ecipient"]').first())
+    const amountInput = page
+      .locator('#amount')
+      .or(page.locator('input[placeholder*="mount"]').first())
     if ((await recipientInput.count()) === 0) return false
 
-    await recipientInput.fill('GBQTESTWALLETADDRESS000000000000000000000000000000000000')
+    await recipientInput.fill('GA4M5Y74MXREPXU6LGRR7WOC6VLXJBLKJHZBJGDBKOFIP7GBM3MHF3G5')
     await amountInput.fill('100')
 
     // Fill dates if present
@@ -261,9 +245,9 @@ test.describe('Transaction-preview dialog — keyboard & focus', () => {
       await endDate.fill('2025-12-31T23:59')
     }
 
-    const submitBtn = page.locator('button:has-text("Create stream")').or(
-      page.locator('button[type="submit"]').first(),
-    )
+    const submitBtn = page
+      .locator('button:has-text("Create stream")')
+      .or(page.locator('button[type="submit"]').first())
     if ((await submitBtn.count()) === 0) return false
     await submitBtn.first().click()
 
@@ -300,9 +284,7 @@ test.describe('Transaction-preview dialog — keyboard & focus', () => {
     await expect(page.locator('[role="dialog"]')).not.toBeVisible()
   })
 
-  test('Tx-preview dialog: focus returns to trigger after close via Escape', async ({
-    page,
-  }) => {
+  test('Tx-preview dialog: focus returns to trigger after close via Escape', async ({ page }) => {
     const opened = await openTxPreview(page)
     if (!opened) {
       test.skip()
@@ -311,16 +293,12 @@ test.describe('Transaction-preview dialog — keyboard & focus', () => {
     await expect(page.locator('[role="dialog"]')).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.locator('[role="dialog"]')).not.toBeVisible()
-    const focused = await page.evaluate(() =>
-      document.activeElement?.tagName?.toLowerCase(),
-    )
+    const focused = await page.evaluate(() => document.activeElement?.tagName?.toLowerCase())
     // Focus returns to an interactive element (button or input), not body
     expect(focused).not.toBe('body')
   })
 
-  test('Tx-preview dialog: Tab key cycles focus within dialog (focus trap)', async ({
-    page,
-  }) => {
+  test('Tx-preview dialog: Tab key cycles focus within dialog (focus trap)', async ({ page }) => {
     const opened = await openTxPreview(page)
     if (!opened) {
       test.skip()
@@ -330,7 +308,9 @@ test.describe('Transaction-preview dialog — keyboard & focus', () => {
     await expect(dialog).toBeVisible()
 
     const focusableCount = await dialog
-      .locator('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      .locator(
+        'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )
       .count()
 
     for (let i = 0; i <= focusableCount; i++) {
@@ -362,14 +342,16 @@ test.describe('Fee-estimate dialog — keyboard & focus', () => {
   test.beforeEach(async ({ page }) => {
     await withWallet(page)
     await page.goto('/app/stream/1')
-    await page.waitForLoadState('networkidle')
+    // The stream detail page polls, so the network never goes idle — wait for
+    // the loading skeleton to disappear instead of waitForLoadState('networkidle').
+    await page.waitForSelector('div.space-y-6.animate-pulse', { state: 'detached' })
   })
 
   async function openFeeDialog(page: Page): Promise<boolean> {
     // The fee dialog opens after clicking "Review & cancel" inside the cancel dialog
-    const cancelBtn = page.locator('button:has-text("Cancel stream")').or(
-      page.locator('button:has-text("Cancel")').first(),
-    )
+    const cancelBtn = page
+      .locator('button:has-text("Cancel stream")')
+      .or(page.locator('button:has-text("Cancel")').first())
     if ((await cancelBtn.count()) === 0) return false
     await cancelBtn.first().click()
     await expect(page.locator('[role="dialog"]')).toBeVisible()
@@ -386,9 +368,7 @@ test.describe('Fee-estimate dialog — keyboard & focus', () => {
       .catch(() => false)
   }
 
-  test('Fee-estimate dialog has role=dialog and aria-modal', async ({
-    page,
-  }) => {
+  test('Fee-estimate dialog has role=dialog and aria-modal', async ({ page }) => {
     const opened = await openFeeDialog(page)
     if (!opened) {
       test.skip()
@@ -410,30 +390,22 @@ test.describe('Fee-estimate dialog — keyboard & focus', () => {
     await expect(page.locator('[role="dialog"]')).not.toBeVisible()
   })
 
-  test('Fee-estimate dialog: Cancel button closes dialog and returns focus', async ({
-    page,
-  }) => {
+  test('Fee-estimate dialog: Cancel button closes dialog and returns focus', async ({ page }) => {
     const opened = await openFeeDialog(page)
     if (!opened) {
       test.skip()
       return
     }
     await expect(page.locator('[role="dialog"]')).toBeVisible()
-    const cancelInDialog = page
-      .locator('[role="dialog"] button:has-text("Cancel")')
-      .first()
+    const cancelInDialog = page.locator('[role="dialog"] button:has-text("Cancel")').first()
     await cancelInDialog.click()
     await expect(page.locator('text=Confirm transaction')).not.toBeVisible()
     // Focus should land somewhere meaningful, not body
-    const focused = await page.evaluate(() =>
-      document.activeElement?.tagName?.toLowerCase(),
-    )
+    const focused = await page.evaluate(() => document.activeElement?.tagName?.toLowerCase())
     expect(focused).not.toBe('body')
   })
 
-  test('Fee-estimate dialog: Tab key cycles focus within dialog (focus trap)', async ({
-    page,
-  }) => {
+  test('Fee-estimate dialog: Tab key cycles focus within dialog (focus trap)', async ({ page }) => {
     const opened = await openFeeDialog(page)
     if (!opened) {
       test.skip()
@@ -443,7 +415,9 @@ test.describe('Fee-estimate dialog — keyboard & focus', () => {
     await expect(dialog).toBeVisible()
 
     const focusableCount = await dialog
-      .locator('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      .locator(
+        'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )
       .count()
 
     for (let i = 0; i <= focusableCount; i++) {
@@ -472,21 +446,15 @@ test.describe('Fee-estimate dialog — keyboard & focus', () => {
 // 6. Keyboard navigation — tab order on key pages
 // ─────────────────────────────────────────────────────────────────────────────
 test.describe('Keyboard navigation — tab order', () => {
-  test('landing page: first Tab from body reaches skip-link', async ({
-    page,
-  }) => {
+  test('landing page: first Tab from body reaches skip-link', async ({ page }) => {
     await page.goto('/')
     await page.keyboard.press('Tab')
-    const focused = await page.evaluate(() =>
-      document.activeElement?.getAttribute('href'),
-    )
+    const focused = await page.evaluate(() => document.activeElement?.getAttribute('href'))
     // The skip-link should be the very first focusable element
     expect(focused).toBe('#main-content')
   })
 
-  test('create-stream page: all form inputs are reachable via Tab', async ({
-    page,
-  }) => {
+  test('create-stream page: all form inputs are reachable via Tab', async ({ page }) => {
     await withWallet(page)
     await page.goto('/app/create')
     await page.waitForLoadState('networkidle')
@@ -501,9 +469,7 @@ test.describe('Keyboard navigation — tab order', () => {
     let bodyFocusHits = 0
     for (let i = 0; i < totalInteractive + 2; i++) {
       await page.keyboard.press('Tab')
-      const tag = await page.evaluate(() =>
-        document.activeElement?.tagName?.toLowerCase(),
-      )
+      const tag = await page.evaluate(() => document.activeElement?.tagName?.toLowerCase())
       if (tag === 'body') bodyFocusHits++
     }
     // body may be focused at very end of page; one hit is acceptable

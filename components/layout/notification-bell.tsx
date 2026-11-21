@@ -1,47 +1,60 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Bell } from 'lucide-react'
+import { Bell, X } from 'lucide-react'
+import { formatTimeAgo } from '@/lib/stream-utils'
 import { useWallet } from '@/hooks/use-wallet'
 import { useNotifications, type AppNotification } from '@/hooks/use-notifications'
+import { notificationsCopy } from '@/lib/copy/notifications'
 
-function timeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
-
-function NotificationItem({ notification }: { notification: AppNotification }) {
+function NotificationItem({
+  notification,
+  onDismiss,
+  itemRef,
+}: {
+  notification: AppNotification
+  onDismiss: (id: string) => void
+  itemRef?: (el: HTMLDivElement | null) => void
+}) {
   return (
     <div
+      ref={itemRef}
+      role="menuitem"
+      tabIndex={-1}
       className={
-        'border-b border-border px-4 py-3 last:border-0 ' +
+        'border-b border-border px-4 py-3 last:border-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ' +
         (notification.read ? 'opacity-60' : '')
       }
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium">{notification.title}</p>
-        {!notification.read && (
-          <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" />
-        )}
+        <div className="flex shrink-0 items-center gap-1.5 mt-0.5">
+          {!notification.read && <span className="size-2 rounded-full bg-primary" />}
+          <button
+            onClick={() => onDismiss(notification.id)}
+            aria-label={notificationsCopy.dismissAria}
+            className="text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:rounded"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground">{notification.body}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{timeAgo(notification.timestamp)}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{formatTimeAgo(notification.timestamp)}</p>
     </div>
   )
 }
 
 export function NotificationBell() {
   const { address } = useWallet()
-  const { notifications, unreadCount, markAllRead, clearAll } = useNotifications(address)
+  const { notifications, unreadCount, markAllRead, clearAll, dismissNotification } =
+    useNotifications(address)
   const [open, setOpen] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const itemRefs = useRef<Array<HTMLDivElement | null>>([])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -50,9 +63,27 @@ export function NotificationBell() {
       }
     }
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && open) {
+      if (!open) return
+      if (e.key === 'Escape') {
         setOpen(false)
         triggerRef.current?.focus()
+        return
+      }
+      if (notifications.length === 0) return
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setActiveIndex((i) => {
+          const next = i < notifications.length - 1 ? i + 1 : 0
+          itemRefs.current[next]?.focus()
+          return next
+        })
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setActiveIndex((i) => {
+          const next = i > 0 ? i - 1 : notifications.length - 1
+          itemRefs.current[next]?.focus()
+          return next
+        })
       }
     }
     if (open) {
@@ -63,6 +94,21 @@ export function NotificationBell() {
       document.removeEventListener('mousedown', handleClickOutside)
       document.removeEventListener('keydown', handleKeyDown)
     }
+  }, [open, notifications.length])
+
+  // Issue #684: move focus into the dropdown on open — first notification
+  // item if there is one, otherwise the panel itself.
+  useEffect(() => {
+    if (!open) return
+    itemRefs.current = itemRefs.current.slice(0, notifications.length)
+    if (notifications.length > 0) {
+      setActiveIndex(0)
+      itemRefs.current[0]?.focus()
+    } else {
+      setActiveIndex(-1)
+      panelRef.current?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   function handleToggle() {
@@ -80,41 +126,51 @@ export function NotificationBell() {
         aria-expanded={open}
         aria-haspopup="true"
         className="relative rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ''}`}
+        aria-label={notificationsCopy.triggerAriaLabel(unreadCount)}
+        data-testid="notification-bell-trigger"
       >
         <Bell className="size-5" />
         {unreadCount > 0 && (
           <span className="absolute -right-0.5 -top-0.5 flex size-4.5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-            {unreadCount > 9 ? '9+' : unreadCount}
+            {unreadCount > 9 ? notificationsCopy.badgeOverflow : unreadCount}
           </span>
         )}
       </button>
 
       {open && (
         <div
-          role="dialog"
-          aria-label="Notifications"
-          className="absolute right-0 top-full z-50 mt-2 w-80 rounded-xl border border-border bg-card shadow-lg"
+          ref={panelRef}
+          role="menu"
+          aria-label={notificationsCopy.panelAria}
+          tabIndex={-1}
+          className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card shadow-lg focus:outline-none"
         >
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <h3 className="text-sm font-medium">Notifications</h3>
+            <h3 className="text-sm font-medium">{notificationsCopy.heading}</h3>
             {notifications.length > 0 && (
               <button
                 onClick={clearAll}
                 className="text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:rounded"
               >
-                Clear all
+                {notificationsCopy.clearAll}
               </button>
             )}
           </div>
           <div className="max-h-80 overflow-y-auto">
             {notifications.length === 0 ? (
               <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                No notifications yet
+                {notificationsCopy.empty}
               </p>
             ) : (
-              notifications.map((n) => (
-                <NotificationItem key={n.id} notification={n} />
+              notifications.map((n, idx) => (
+                <NotificationItem
+                  key={n.id}
+                  notification={n}
+                  onDismiss={dismissNotification}
+                  itemRef={(el) => {
+                    itemRefs.current[idx] = el
+                  }}
+                />
               ))
             )}
           </div>

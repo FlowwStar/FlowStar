@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import type { StreamData } from '@/types/stream'
-import { formatTokenAmount } from '@/lib/stream-utils'
+import { formatTokenAmount, SECONDS_PER_DAY } from '@/lib/stream-utils'
 
 interface UnlockChartProps {
   stream: StreamData
@@ -25,13 +25,13 @@ function lerp(a: number, b: number, t: number) {
   return a + (b - a) * Math.max(0, Math.min(1, t))
 }
 
-function toX(time: bigint, start: bigint, end: bigint): number {
+export function toX(time: bigint, start: bigint, end: bigint): number {
   const duration = Number(end - start)
   if (duration <= 0) return PADDING.left
   return PADDING.left + (Number(time - start) / duration) * CHART_W
 }
 
-function toY(amount: bigint, total: bigint): number {
+export function toY(amount: bigint, total: bigint): number {
   if (total <= 0n) return PADDING.top + CHART_H
   const frac = Number(amount) / Number(total)
   return PADDING.top + CHART_H * (1 - frac)
@@ -106,7 +106,7 @@ export function UnlockChart({ stream, nowSeconds, className }: UnlockChartProps)
     const startNum = Number(start)
     const endNum = Number(end)
     const duration = endNum - startNum
-    const xTickCount = Math.min(4, Math.max(2, Math.floor(duration / 86400)))
+    const xTickCount = Math.min(4, Math.max(2, Math.floor(duration / SECONDS_PER_DAY)))
     const xTickValues: number[] = []
     for (let i = 0; i <= Math.min(xTickCount, 4); i++) {
       xTickValues.push(startNum + (duration * i) / Math.min(xTickCount, 4))

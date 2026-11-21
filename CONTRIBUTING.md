@@ -3,17 +3,21 @@
 Welcome! This guide helps you get from zero to a running local development
 environment. Thanks for your interest in contributing!
 
+## Code of Conduct
+
+By participating in this project, you agree to follow the [Code of Conduct](./CODE_OF_CONDUCT.md).
+
 ---
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-|---|---|---|
-| Node.js | 18+ | [nodejs.org](https://nodejs.org) |
-| npm | bundled with Node | or pnpm / bun |
-| Rust | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` |
-| Soroban CLI | latest | `cargo install stellar-cli --locked` |
-| Freighter wallet | latest | [freighter.app](https://www.freighter.app/) — set to **Testnet** |
+| Tool             | Version           | Notes                                                            |
+| ---------------- | ----------------- | ---------------------------------------------------------------- |
+| Node.js          | 18+               | [nodejs.org](https://nodejs.org)                                 |
+| npm              | bundled with Node | or pnpm / bun                                                    |
+| Rust             | 1.84.0 (pinned)   | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs       | sh` |
+| Soroban CLI      | latest            | `cargo install stellar-cli --locked`                             |
+| Freighter wallet | latest            | [freighter.app](https://www.freighter.app/) — set to **Testnet** |
 
 ---
 
@@ -24,7 +28,7 @@ environment. Thanks for your interest in contributing!
 ```bash
 git clone https://github.com/FlowwStar/FlowStar.git
 cd FlowStar
-npm install   # also installs Husky pre-commit hooks via prepare script
+npm ci   # also installs Husky pre-commit hooks via prepare script
 ```
 
 ### 2. Configure environment variables
@@ -97,10 +101,44 @@ chore: bump soroban-sdk to v26 (#101)
 
 1. Fork the repo (external contributors) or create a branch (maintainers).
 2. Open a pull request against `main`.
-3. Fill in the PR template — summary, what was tested, any caveats.
+3. Write a clear PR description — summary, what was tested, any caveats.
 4. A maintainer will review. Address feedback by pushing new commits (don't
    force-push during review).
 5. PRs are squash-merged once approved and CI passes.
+
+---
+
+## Reward programs and campaign labels
+
+Some FlowStar issues are part of external open-source contribution programs, and these labels mark them. FlowStar itself does not pay contributors. **The external program decides whether a contribution is rewarded, how much, and when.** A label shows that an issue is part of a program. It does not guarantee a reward.
+
+### What the labels mean
+
+| Label                                          | Meaning                                                                                                               |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `Stellar Wave`                                 | The issue is part of the Stellar Wave program.                                                                        |
+| `GrantFox OSS`                                 | The issue is tracked in GrantFox's open-source program.                                                               |
+| `Maybe Rewarded`                               | The issue _may_ be eligible for a GrantFox reward. GrantFox decides whether it is.                                    |
+| `Official Campaign \| FWC26`, `Third Campaign` | The issue belongs to a specific time-boxed campaign in a program. Campaign rules and deadlines come from the program. |
+
+Issues without these labels are ordinary contributions. They are just as welcome, but no program tracks them.
+
+### Eligibility basics
+
+The program's own terms decide eligibility. On FlowStar's side:
+
+1. **Get assigned before starting.** Comment on the issue and wait for a maintainer to assign you. That way two people don't work on the same issue. If you start unassigned work on a program issue, it may not count.
+2. **Only merged PRs count.** Maintainers can only confirm contributions that went through the [PR process](#pr-process) and were merged into `main`. A PR that is opened but not merged will not count.
+3. **Link the issue.** Put `Closes #NNN` in the PR description and include the issue number in the branch name and commit messages (see above). That is how program tracking connects your PR to the labeled issue.
+4. **Stay inside the issue's scope.** Unrelated changes in the same PR slow down review and can hold up the merge.
+5. **Don't let an assigned issue go quiet.** If you can no longer work on it, say so on the issue so it can be reassigned.
+
+Security findings follow [SECURITY.md](./SECURITY.md) instead of this process. Report them privately, not in a labeled public issue.
+
+### Questions
+
+- Ask questions **about a specific issue** (scope, approach, assignment) in that issue's comments.
+- Ask questions **about the program itself** (payouts, reward amounts, deadlines, sign-up, account setup) through Stellar Wave's or GrantFox's own channels. FlowStar maintainers can't answer those for the program.
 
 ---
 
@@ -113,18 +151,53 @@ npm test               # run once
 npm run test:watch     # watch mode
 ```
 
-Tests live in `lib/__tests__/`. The suite covers unlock math, formatters, and
-utility functions.
+All unit tests must live under `__tests__/` at the repo root and follow the
+naming convention `**/*.{test,spec}.{ts,tsx}`. Vitest only collects files from
+that directory — files placed alongside source code (e.g. under `components/`
+or `lib/`) are silently ignored and will never run.
+
+The runner is [Vitest](https://vitest.dev/). Use `vi` for mocking, **not**
+`jest`:
+
+```ts
+import { describe, it, expect, vi } from "vitest";
+
+const spy = vi.fn();       // ✅
+const spy = jest.fn();     // ❌ jest is not installed
+```
+
+To run a single test file:
+
+```bash
+npx vitest run __tests__/lib/unlock-math.test.ts
+```
+
+The suite covers unlock math, formatters, and utility functions.
 
 ### E2E tests (Playwright)
 
 ```bash
 npm run test:e2e       # headless
-npm run test:e2e:ui    # interactive UI mode
 ```
 
 E2E tests require a running dev server (`npm run dev` in a separate terminal)
 or will start it automatically depending on the config.
+
+#### Visual snapshot baselines
+
+Playwright compares screenshots against committed PNG baselines stored in
+`e2e/__screenshots__/`. Baselines must be generated on Linux (via CI) — PNGs
+produced on Windows or macOS use different font rendering and will cause
+false-positive failures for everyone else. **Do not commit locally generated
+snapshots.**
+
+To regenerate baselines after an intentional UI change, trigger the
+**Update Playwright Snapshots** GitHub Actions workflow on your branch
+(Actions → Update Playwright Snapshots → Run workflow). It commits the correct
+Linux-rendered PNGs back to your branch automatically.
+
+See [docs/TESTING.md](./docs/TESTING.md) for the full workflow, when to
+regenerate, and how CI handles missing baselines.
 
 ### Contract tests (Rust)
 
@@ -138,9 +211,90 @@ overdraw protection, integer math, and self-streams.
 
 ---
 
+## Storybook
+
+FlowStar uses [Storybook](https://storybook.js.org/) to develop and document UI
+components in isolation. Stories live alongside their components as
+`*.stories.tsx` files under `components/`.
+
+### Running Storybook
+
+```bash
+npm run storybook
+```
+
+Opens the Storybook UI at [http://localhost:6006](http://localhost:6006). The
+dev server hot-reloads on file changes — no restart needed.
+
+### Building a static version
+
+```bash
+npm run storybook:build
+```
+
+Output goes to `storybook-static/`. Useful for CI artifact uploads or
+previewing the docs site locally.
+
+### Writing stories
+
+Stories use the [Component Story Format (CSF3)](https://storybook.js.org/docs/api/csf)
+with TypeScript. Follow the existing pattern in `components/ui/badge.stories.tsx`
+and `components/ui/button.stories.tsx`:
+
+```tsx
+import type { Meta, StoryObj } from "@storybook/react";
+import { MyComponent } from "./my-component";
+
+const meta = {
+  title: "UI/MyComponent",      // determines the sidebar path in Storybook
+  component: MyComponent,
+  parameters: { layout: "centered" },
+  tags: ["autodocs"],           // enables the auto-generated Docs page
+} satisfies Meta<typeof MyComponent>;
+
+export default meta;
+type Story = StoryObj<typeof meta>;
+
+export const Default: Story = {
+  args: { /* props */ },
+};
+```
+
+A few conventions to follow:
+
+- **File location**: place the story file next to the component it documents,
+  e.g. `components/ui/my-component.stories.tsx`.
+- **`title` path**: mirror the folder structure — `UI/`, `Streams/`, `Layout/`,
+  `Landing/` match the subdirectories under `components/`.
+- **`autodocs` tag**: include `tags: ["autodocs"]` on every new story so the
+  Docs tab is generated automatically.
+- **`argTypes`**: define `argTypes` for any prop that benefits from a Storybook
+  control (select, boolean, range, etc.) so reviewers can interact with
+  variants without editing code.
+- **Named exports**: each meaningful variant gets its own named export (e.g.
+  `Default`, `Disabled`, `AllVariants`). Avoid a single catch-all story.
+
+### Configuration
+
+| File | Purpose |
+|---|---|
+| `.storybook/main.ts` | Story glob (`components/**/*.stories.ts?(x)`), addons, Next.js framework |
+| `.storybook/preview.ts` | Global parameters, `controls` matchers, and `globals.css` import |
+
+The framework is `@storybook/nextjs`, so Next.js features (Image, Link, App
+Router) work inside stories without extra mocking.
+
+---
+
 ## Contract development
 
 All contract source lives in `contracts/streaming/src/`.
+
+The Rust toolchain is pinned in `contracts/rust-toolchain.toml` (1.84.0 with
+`clippy`, `rustfmt` and the `wasm32v1-none` target). `rustup` picks it up
+automatically when you run `cargo` from `contracts/` or
+`contracts/streaming/`; CI uses the same version. Update that file and the
+workflows together when upgrading.
 
 ### Build
 
@@ -183,12 +337,145 @@ Copy the returned contract ID into your `.env.local` as
 
 ---
 
+## Full-stack local setup
+
+This section explains how to build and deploy a local or testnet contract and wire the frontend to it. Follow these steps when you want to test contract changes end-to-end rather than using mock mode.
+
+### Prerequisites
+
+You need everything from the [Prerequisites](#prerequisites) table plus a Freighter wallet set to **Testnet**.
+
+### 1. Create and fund a deployer identity
+
+```bash
+./scripts/fund-testnet.sh deployer
+```
+
+`fund-testnet.sh` creates the `deployer` key if it does not exist and calls Friendbot to give it testnet XLM. You can pass a different identity name as the first argument.
+
+```bash
+./scripts/fund-testnet.sh my-deployer   # custom identity name
+```
+
+You only need to do this once per identity.
+
+### 2. Build the contract
+
+```bash
+cd contracts/streaming
+stellar contract build
+cd ../..
+```
+
+The compiled WASM is written to `contracts/target/wasm32v1-none/release/flowstar_streaming.wasm`.
+
+### 3. Deploy the contract
+
+```bash
+./scripts/deploy.sh --network testnet --source deployer --update-env
+```
+
+`--update-env` writes the new contract ID to `.env.local` automatically:
+
+```
+NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET=C...
+```
+
+If you prefer to set the variable yourself, omit `--update-env` and copy the contract ID printed at the end of the deploy output.
+
+You can also target mainnet:
+
+```bash
+./scripts/deploy.sh --network mainnet --source prod-deployer --update-env
+```
+
+### 4. Start the frontend
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). The app reads `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` (or `_MAINNET`, depending on `NEXT_PUBLIC_STELLAR_NETWORK`) and connects to the contract you just deployed. The mock mode banner will not appear when the env var is set.
+
+### 5. Verify the connection
+
+Connect your Freighter wallet (set to Testnet) and create a test stream. If the transaction succeeds and the stream appears on the dashboard, the full stack is working.
+
+### Pointing the frontend at an existing contract
+
+If you want to use the already-deployed testnet contract (without deploying your own), skip steps 1–3 and set the env var manually:
+
+```bash
+# .env.local
+NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET=CBNDCZTRFNTDAPQLPK2ESOKO4XFMSC4PX37QE75BBYFOYIEWIPMHAKFV
+```
+
+Restart the dev server after any `.env.local` change.
+
+### Switching between networks
+
+| Network | Env var to set | Freighter setting |
+|---|---|---|
+| Testnet | `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` | Testnet |
+| Mainnet | `NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET` | Mainnet |
+
+Set `NEXT_PUBLIC_STELLAR_NETWORK=mainnet` to make the app read the mainnet variable.
+
+### Troubleshooting
+
+- **"contract is paused"** — the deployed contract was paused. Call `unpause` with the admin identity.
+- **"account not found"** — the deployer key is not funded. Run `./scripts/fund-testnet.sh deployer` again.
+- **Mock mode banner still showing** — the env var is missing or the dev server was not restarted after editing `.env.local`.
+- **Build fails** — ensure `stellar-cli` is up to date: `cargo install stellar-cli --locked --force`.
+
+---
+
+## Local security checks
+
+CI runs two security scripts on every push. Run them locally before opening a
+PR to catch issues before they block the build.
+
+### Secret scanner
+
+Scans TypeScript, JavaScript, YAML, and JSON source files for hardcoded secrets
+(Stripe keys, AWS access key IDs, GitHub tokens, private keys, etc.).
+
+```bash
+node scripts/check-secrets.mjs
+```
+
+Exits `0` with `✅ No hardcoded secrets found.` when clean. Exits `1` and
+prints a `❌ HIGH [SECRETS-001]` line for each finding, including the file
+path, line number, and the matched pattern label. All findings must be resolved
+before merging.
+
+### Soroban / Rust contract checker
+
+Scans `contracts/**/*.rs` for four classes of issues:
+
+| ID          | Severity | What it catches                                                          |
+| ----------- | -------- | ------------------------------------------------------------------------ |
+| SOROBAN-001 | HIGH     | Unchecked arithmetic (`+=`, `-=`, `*=`) on `i128`/`u128`/`u64` variables |
+| SOROBAN-002 | HIGH     | Public write functions missing `require_auth()`                          |
+| SOROBAN-003 | HIGH     | `persistent().set()` calls not paired with `extend_ttl()`                |
+| SOROBAN-004 | LOW      | `panic!("…")` with a string literal instead of `ContractError`           |
+
+```bash
+node scripts/soroban-security-check.mjs
+```
+
+Exits `0` when clean or when only LOW-severity warnings are present. Exits `1`
+if any HIGH-severity issue is found. Fix all `❌ HIGH` findings before merging;
+`⚠️ LOW` warnings are non-blocking but should be addressed.
+
+---
+
 ## Code style
 
 ### TypeScript
 
 - Linting: ESLint (`npm run lint`) with config in `eslint.config.mjs`
-- Formatting: Prettier (`npm run format`) with config in `.lintstagedrc`
+- Formatting: Prettier with config in `.lintstagedrc`
 - Hooks in `hooks/`, utilities in `lib/`, page components in `app/`, shared
   components in `components/` under the appropriate subdirectory (`ui/`,
   `streams/`, `layout/`, `landing/`)
@@ -208,11 +495,11 @@ cargo clippy
 
 Husky runs lint-staged on every commit:
 
-| File type | Checks |
-|---|---|
-| `*.ts`, `*.tsx` | ESLint (auto-fix) + Prettier |
-| `*.json`, `*.md`, `*.css` | Prettier |
-| `*.rs` | `cargo fmt --check` |
+| File type                 | Checks                       |
+| ------------------------- | ---------------------------- |
+| `*.ts`, `*.tsx`           | ESLint (auto-fix) + Prettier |
+| `*.json`, `*.md`, `*.css` | Prettier                     |
+| `*.rs`                    | `cargo fmt --check`          |
 
 To skip in an emergency: `git commit --no-verify`. Use sparingly.
 
@@ -224,6 +511,7 @@ If hooks aren't running after a fresh clone: `npm run prepare`. On CI, set
 ## Troubleshooting
 
 **Freighter not detected / connecting**
+
 - Confirm Freighter is set to **Testnet** (not Mainnet or Futurenet)
 - Make sure the extension is installed and enabled for `localhost`
 - Reload the page after unlocking Freighter
@@ -231,6 +519,7 @@ If hooks aren't running after a fresh clone: `npm run prepare`. On CI, set
 - Disable other wallet extensions that might conflict
 
 **RPC failures / transaction timeouts**
+
 - The Soroban testnet RPC (`https://soroban-testnet.stellar.org`) can be
   intermittently slow. Retry the operation.
 - Check [Stellar Status](https://status.stellar.org/) for any ongoing incidents.
@@ -238,6 +527,7 @@ If hooks aren't running after a fresh clone: `npm run prepare`. On CI, set
   `lib/stellar.ts`.
 
 **Contract deployment errors**
+
 - Ensure your deployer key is funded: `stellar keys fund deployer --network testnet`
 - If the WASM upload fails, try rebuilding: `stellar contract build` then redeploy
 - Check that `stellar-cli` is up to date: `cargo install stellar-cli --locked --force`
@@ -246,10 +536,12 @@ If hooks aren't running after a fresh clone: `npm run prepare`. On CI, set
 - `Error: account not found` usually means the key isn't funded yet
 
 **`npm install` fails on Husky**
+
 - Run `npm run prepare` manually to re-install hooks
 - If on CI, set `HUSKY=0` environment variable to skip hook installation
 
 **App running in mock mode unexpectedly**
+
 - Hard-refresh the browser (`Ctrl+Shift+R`) to clear any cached module state
 - Confirm that `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` (or `_MAINNET`) is set
   in `.env.local` with a valid contract ID, and that the dev server was

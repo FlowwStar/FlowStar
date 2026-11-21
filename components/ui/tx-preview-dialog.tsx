@@ -25,7 +25,15 @@ interface Props {
   pending: boolean
 }
 
-function ResourceRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function ResourceRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+}) {
   return (
     <div className="flex items-center justify-between gap-4 py-1.5 text-sm">
       <span className="flex items-center gap-2 text-muted-foreground">
@@ -51,12 +59,26 @@ export function TxPreviewDialog({
   const [simulating, setSimulating] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
     if (!open || !input || !sender) return
     setPreview(null)
     setSimulating(true)
+
     simulateCreateStreamPreview(network, input, sender)
-      .then(setPreview)
-      .finally(() => setSimulating(false))
+      .then((result) => {
+        if (!cancelled) {
+          setPreview(result)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSimulating(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [open, input, network, sender])
 
   return (
@@ -87,22 +109,28 @@ export function TxPreviewDialog({
           {preview && (
             <>
               {/* Success/failure */}
-              <div className={`flex items-center gap-3 rounded-lg border p-3 ${
-                preview.success
-                  ? 'border-green-500/30 bg-green-500/10'
-                  : 'border-destructive/30 bg-destructive/10'
-              }`}>
+              <div
+                className={`flex items-center gap-3 rounded-lg border p-3 ${
+                  preview.success
+                    ? 'border-green-500/30 bg-green-500/10'
+                    : 'border-destructive/30 bg-destructive/10'
+                }`}
+              >
                 {preview.success ? (
                   <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600 dark:text-green-400" />
                 ) : (
                   <XCircle className="h-5 w-5 shrink-0 text-destructive" />
                 )}
                 <div>
-                  <p className={`text-sm font-medium ${preview.success ? 'text-green-700 dark:text-green-400' : 'text-destructive'}`}>
+                  <p
+                    className={`text-sm font-medium ${preview.success ? 'text-green-700 dark:text-green-400' : 'text-destructive'}`}
+                  >
                     Simulation {preview.success ? 'succeeded' : 'failed'}
                   </p>
                   {preview.errorMessage && (
-                    <p className="mt-0.5 text-xs text-destructive/80 line-clamp-3">{preview.errorMessage}</p>
+                    <p className="mt-0.5 text-xs text-destructive/80 line-clamp-3">
+                      {preview.errorMessage}
+                    </p>
                   )}
                 </div>
               </div>
@@ -111,7 +139,9 @@ export function TxPreviewDialog({
               {preview.success && (
                 <div className="divide-y divide-border rounded-lg border border-border">
                   <div className="px-4 py-3">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Estimated cost</p>
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Estimated cost
+                    </p>
                     <ResourceRow
                       icon={<Coins className="h-4 w-4" />}
                       label="Network fee"
@@ -119,7 +149,9 @@ export function TxPreviewDialog({
                     />
                   </div>
                   <div className="px-4 py-3">
-                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Resource usage</p>
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Resource usage
+                    </p>
                     <ResourceRow
                       icon={<Cpu className="h-4 w-4" />}
                       label="CPU instructions"
@@ -144,7 +176,9 @@ export function TxPreviewDialog({
           <Button
             onClick={onConfirm}
             disabled={pending || simulating || preview?.success === false}
+            className="gap-2"
           >
+            {pending && <Loader2 className="h-4 w-4 animate-spin" />}
             {pending ? 'Signing…' : simulating ? 'Simulating…' : 'Confirm & Sign →'}
           </Button>
         </div>

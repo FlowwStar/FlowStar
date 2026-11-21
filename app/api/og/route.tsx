@@ -1,6 +1,8 @@
-import { ImageResponse } from '@vercel/og'
+import { ImageResponse } from 'next/og'
+import { shortenAddress } from '@/lib/stream-utils'
+import { captureError } from '@/lib/sentry'
 
-export const runtime = 'edge'
+export const runtime = 'nodejs'
 
 interface OGParams {
   amount?: string
@@ -20,11 +22,6 @@ export async function GET(request: Request) {
       recipient: searchParams.get('recipient') || '',
       sender: searchParams.get('sender') || '',
       status: searchParams.get('status') || 'active',
-    }
-
-    const shortenAddress = (addr: string) => {
-      if (!addr) return ''
-      return addr.slice(0, 6) + '...' + addr.slice(-4)
     }
 
     return new ImageResponse(
@@ -154,7 +151,7 @@ export async function GET(request: Request) {
       },
     )
   } catch (error) {
-    console.error('OG image generation error:', error)
+    void captureError(error, { operation: 'og-image:generate' })
     return new Response('Failed to generate OG image', { status: 500 })
   }
 }

@@ -45,20 +45,14 @@ export function Breadcrumb() {
   if (crumbs.length <= 1) return null
 
   return (
-    <nav
-      aria-label="Breadcrumb"
-      className="border-b border-border bg-background/60 px-4 sm:px-6"
-    >
+    <nav aria-label="Breadcrumb" className="border-b border-border bg-background/60 px-4 sm:px-6">
       <ol className="mx-auto flex h-9 max-w-6xl items-center gap-1 text-sm">
         {crumbs.map((crumb, i) => {
           const isLast = i === crumbs.length - 1
           return (
             <li key={crumb.href} className="flex items-center gap-1">
               {i > 0 && (
-                <ChevronRight
-                  className="size-3.5 shrink-0 text-muted-foreground"
-                  aria-hidden
-                />
+                <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
               )}
               {isLast ? (
                 <span

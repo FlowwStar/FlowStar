@@ -6,7 +6,7 @@ async function withWallet(page: Page) {
     localStorage.setItem('walletId', 'xbull')
     ;(window as any).xBullSDK = {
       connect: async () => ({
-        publicKey: 'GBQTESTWALLETADDRESS000000000000000000000000000000000000',
+        publicKey: 'GA4M5Y74MXREPXU6LGRR7WOC6VLXJBLKJHZBJGDBKOFIP7GBM3MHF3G5',
       }),
       signXDR: async () => 'AAAAAgAAAAA...dummy-signature...',
     }
@@ -71,12 +71,10 @@ test.describe('Settings page — webhook management', () => {
     await page.waitForLoadState('networkidle')
   })
 
-  test('registering a webhook with an invalid URL shows a validation error', async ({
-    page,
-  }) => {
+  test('registering a webhook with an invalid URL shows a validation error', async ({ page }) => {
     await page.locator('#webhook-url').fill('not-a-valid-url')
     await page.locator('button:has-text("Register webhook")').click()
-    await expect(page.locator('text=Invalid URL')).toBeVisible()
+    await expect(page.locator('text=Please enter a valid webhook URL')).toBeVisible()
   })
 
   test('registers a webhook and shows it in the registered list', async ({ page }) => {
@@ -110,10 +108,10 @@ test.describe('Settings page — webhook management', () => {
       .locator('div')
       .filter({ hasText: 'https://example.com/toggle-hook' })
       .first()
-    const disableBtn = hookRow.locator('button[title="Disable"]')
+    const disableBtn = hookRow.locator('button[aria-label="Disable"]')
     await disableBtn.click()
 
-    await expect(hookRow.locator('button[title="Enable"]')).toBeVisible()
+    await expect(hookRow.locator('button[aria-label="Enable"]')).toBeVisible()
   })
 
   test('removing a registered webhook deletes it from the list', async ({ page }) => {
@@ -125,7 +123,7 @@ test.describe('Settings page — webhook management', () => {
       .locator('div')
       .filter({ hasText: 'https://example.com/remove-hook' })
       .first()
-    await hookRow.locator('button[title="Remove"]').click()
+    await hookRow.locator('button[aria-label="Remove"]').click()
 
     await expect(page.locator('text=https://example.com/remove-hook')).not.toBeVisible()
   })
@@ -138,6 +136,6 @@ test.describe('Settings page — webhook management', () => {
     }
     await page.locator('#webhook-url').fill('https://example.com/no-events')
     await page.locator('button:has-text("Register webhook")').click()
-    await expect(page.locator('text=Select at least one event type.')).toBeVisible()
+    await expect(page.locator('text=Select at least one event type')).toBeVisible()
   })
 })

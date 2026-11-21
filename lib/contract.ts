@@ -9,6 +9,7 @@ import {
 } from '@stellar/stellar-sdk'
 import { type NetworkName, getNetworkConfig, getServer, getAllTokens } from '@/lib/stellar'
 import { mockStore } from '@/lib/mock-data'
+import { getWithdrawableAmount } from '@/lib/stream-utils'
 import type { CreateStreamInput, StreamData, TokenInfo } from '@/types/stream'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -16,6 +17,11 @@ import type { CreateStreamInput, StreamData, TokenInfo } from '@/types/stream'
 /** Wallet sign callback — must be set by WalletProvider before any write. */
 let _signTransaction: ((xdr: string) => Promise<string>) | null = null
 
+/**
+ * Register the wallet's signing callback. Called by WalletProvider on connect;
+ * every live write signs through it and throws `Wallet not connected` until it
+ * is set. Mock mode never signs, so it does not need this.
+ */
 export function setSignTransaction(fn: (xdr: string) => Promise<string>) {
   _signTransaction = fn
 }
@@ -31,10 +37,11 @@ const FEE_BUFFER = 1.15 // 15% above minimum to ensure inclusion
 
 const REQUEST_TIMEOUT_MS = 30_000
 const POLL_TIMEOUT_MS = 60_000
+const SIMULATION_ACCOUNT = 'GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADI'
 const MAX_RETRIES = 3
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const
 
-function isRetryableError(err: unknown): boolean {
+export function isRetryableError(err: unknown): boolean {
   if (err instanceof TypeError) return true // network failure
   if (err instanceof Error && (err.message.includes('503') || err.message.includes('429')))
     return true
@@ -44,7 +51,7 @@ function isRetryableError(err: unknown): boolean {
   return status === 429 || status === 503
 }
 
-async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+export async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
   let lastErr: unknown
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const controller = new AbortController()
@@ -64,7 +71,7 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
   throw lastErr
 }
 
-async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   let lastErr: unknown
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -113,6 +120,11 @@ async function buildAndSimulate(
   return { prepared, estimatedFee, minFee }
 }
 
+/**
+ * Progress stages reported through `onStep` by live writes, in order. A write
+ * that sends several transactions (e.g. approve + create) repeats the cycle
+ * once per transaction. Mock mode never reports steps.
+ */
 export type TxStep = 'simulating' | 'signing' | 'submitting' | 'confirming'
 
 /** Build, simulate, sign, and submit a contract call. Returns the transaction hash. */
@@ -181,7 +193,8 @@ async function invoke(
       error?: { message: string }
     }
     if (pollJson.error) throw new Error(`Poll failed: ${pollJson.error.message}`)
-    pollStatus = pollJson.result!.status
+    if (!pollJson.result) continue
+    pollStatus = pollJson.result.status
   }
 
   if (pollStatus === 'FAILED') throw new Error('Transaction failed on-chain')
@@ -201,7 +214,7 @@ async function query(
   const contract = new Contract(contractAddress)
   // Use a dummy account for simulation reads
   const dummyKeypair = {
-    accountId: () => 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN',
+    accountId: () => SIMULATION_ACCOUNT,
     sequence: () => BigInt(0),
     incrementSequenceNumber: () => {},
   }
@@ -256,12 +269,22 @@ function scValToStreamData(network: NetworkName, val: xdr.ScVal): StreamData {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+/**
+ * Fee estimate in stroops: `minFee` is the simulated minimum resource fee,
+ * `estimatedFee` adds a 15% buffer, and `estimatedFeeXlm` is `estimatedFee`
+ * in XLM formatted to 4 decimals.
+ */
 export interface FeeEstimate {
   minFee: number
   estimatedFee: number
   estimatedFeeXlm: string
 }
 
+/**
+ * Display-ready result of a dry-run `create_stream` simulation. When `success`
+ * is `false`, the numeric fields are zeroed and `errorMessage` explains why.
+ * `estimatedFeeUsd` uses a hard-coded XLM price, so it is only a rough guide.
+ */
 export interface SimulationPreview {
   success: boolean
   estimatedFeeXlm: string
@@ -339,14 +362,14 @@ export async function simulateCreateStreamPreview(
     const estimatedFee = Math.ceil(minFee * FEE_BUFFER)
     const feeXlm = (estimatedFee / 1e7).toFixed(4)
     const feeUsd = `~$${((estimatedFee / 1e7) * 0.08).toFixed(4)}`
-    const resources = successSim.transactionData.build().resources()
+    const resources = successSim.transactionData.build().resources
 
     return {
       success: true,
       estimatedFeeXlm: feeXlm,
       estimatedFeeUsd: feeUsd,
-      cpuInstructions: resources.instructions(),
-      memoryBytes: resources.readBytes() + resources.writeBytes(),
+      cpuInstructions: resources.instructions,
+      memoryBytes: resources.diskReadBytes + resources.writeBytes,
     }
   } catch (err) {
     return {
@@ -360,6 +383,14 @@ export async function simulateCreateStreamPreview(
   }
 }
 
+/**
+ * Estimate the fee for the `create_stream` call by simulating it as `sender`.
+ * Does not include the separate token `approve` transaction that
+ * {@link createStream} also sends.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): returns a fixed estimate without touching the network.
+ * Live: throws if the account can't be loaded or the simulation fails.
+ */
 export async function estimateCreateStreamFee(
   network: NetworkName,
   input: CreateStreamInput,
@@ -405,7 +436,7 @@ export async function estimateCreateStreamFee(
   }
 }
 
-function buildCreateStreamInputScVal(input: CreateStreamInput): xdr.ScVal {
+export function buildCreateStreamInputScVal(input: CreateStreamInput): xdr.ScVal {
   return xdr.ScVal.scvMap(
     [
       ['recipient', new Address(input.recipient).toScVal()],
@@ -425,7 +456,7 @@ function buildCreateStreamInputScVal(input: CreateStreamInput): xdr.ScVal {
   )
 }
 
-function buildCreateStreamParamsScVal(input: CreateStreamInput): xdr.ScVal {
+export function buildCreateStreamParamsScVal(input: CreateStreamInput): xdr.ScVal {
   return xdr.ScVal.scvMap(
     [
       ['cliff_amount', nativeToScVal(input.cliffAmount, { type: 'i128' })],
@@ -445,6 +476,19 @@ function buildCreateStreamParamsScVal(input: CreateStreamInput): xdr.ScVal {
   )
 }
 
+/**
+ * Create a single stream funded by `sender` and return its ID.
+ *
+ * Live: sends two signed transactions — a token `approve` letting the stream
+ * contract pull `totalAmount` (valid for ~500 ledgers), then `create_stream` —
+ * so `onStep` cycles twice. The new ID is taken as the highest ID in the
+ * sender's first 1000 sent streams, since the SDK can't decode the return
+ * value; a concurrent creation by the same sender could race with this.
+ * Throws on any simulation, signing, submission or confirmation failure.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, adds the stream to the in-memory mock store and
+ * returns its ID.
+ */
 export async function createStream(
   input: CreateStreamInput,
   sender: string,
@@ -525,6 +569,17 @@ export async function createStream(
   return String(newId)
 }
 
+/**
+ * Create several streams in one `create_streams_batch` call and return their
+ * IDs in ascending order. Throws if `inputs` is empty.
+ *
+ * Live: sends one `approve` per distinct token (summing the amounts for that
+ * token), then the batch call. The returned IDs are the `inputs.length`
+ * highest IDs in the sender's first 1000 sent streams, so the same race
+ * caveat as {@link createStream} applies.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): adds each stream to the in-memory mock store immediately (no delay).
+ */
 export async function createStreamsBatch(
   inputs: CreateStreamInput[],
   sender: string,
@@ -600,6 +655,14 @@ export async function createStreamsBatch(
   return createdIds
 }
 
+/**
+ * Withdraw `amount` (in the token's base units) from stream `id`.
+ *
+ * Live: fetches the stream first and signs as its recipient; throws
+ * `Stream not found` if it can't be loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, updates the mock store and returns `null`.
+ */
 export async function withdrawFromStream(
   id: string,
   amount: bigint,
@@ -627,6 +690,42 @@ export async function withdrawFromStream(
   )
 }
 
+/**
+ * Withdraw everything currently available from stream `id` — "withdraw all" /
+ * auto-withdraw's `withdrawMax` wrapper around {@link withdrawFromStream}.
+ *
+ * Fetches the stream fresh and computes the withdrawable amount from that
+ * just-fetched snapshot, rather than reusing a value a caller computed
+ * earlier (e.g. at render time, or earlier in a batch loop). That earlier
+ * value is always a little stale by the time the transaction is built —
+ * more unlocks on-chain in the meantime — which left dust behind on every
+ * "withdraw all" (#1146). Resolves to `null` with no transaction when
+ * nothing is withdrawable.
+ */
+export async function withdrawMaxFromStream(
+  id: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  const amount = getWithdrawableAmount(stream)
+  if (amount <= 0n) return null
+
+  return withdrawFromStream(id, amount, network, onStep)
+}
+
+/**
+ * Cancel stream `id`: funds unlocked so far go to the recipient and the
+ * still-locked remainder is refunded to the sender.
+ *
+ * Live: fetches the stream first and signs as its sender; throws
+ * `Stream not found` if it can't be loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, marks the stream cancelled in the mock store and
+ * returns `null`.
+ */
 export async function cancelStream(
   id: string,
   network: NetworkName = 'testnet',
@@ -653,6 +752,48 @@ export async function cancelStream(
   )
 }
 
+/**
+ * Partially cancel stream `id`: reclaims `amount` of the still-locked
+ * (unvested) balance back to the sender while leaving the stream active.
+ *
+ * Live: fetches the stream first and signs as its sender; throws
+ * `Stream not found` if it can't be loaded. Returns the transaction hash.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, updates the mock store and returns `null`.
+ */
+export async function partialCancelStream(
+  id: string,
+  amount: bigint,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    await new Promise((r) => setTimeout(r, 700))
+    mockStore.partialCancel(id, amount)
+    return null
+  }
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  return invoke(
+    network,
+    'partial_cancel',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), nativeToScVal(amount, { type: 'i128' })],
+    stream.sender,
+    config.streamContractId,
+    onStep,
+  )
+}
+
+/**
+ * Look up a token contract's `symbol` and `decimals` via read-only simulation.
+ *
+ * Always queries the network, even in mock mode. Returns `null` on any
+ * failure (bad address, not a token contract, RPC error) — it never throws.
+ */
 export async function getTokenMetadata(
   tokenAddress: string,
   network: NetworkName = 'testnet',
@@ -661,9 +802,7 @@ export async function getTokenMetadata(
     const config = getNetworkConfig(network)
     const server = getServer(network)
     const contract = new Contract(tokenAddress)
-    const dummyAccount = await withRetry(() =>
-      server.getAccount('GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN'),
-    )
+    const dummyAccount = await withRetry(() => server.getAccount(SIMULATION_ACCOUNT))
 
     const buildSimTx = (method: string) => {
       const tx = new TransactionBuilder(dummyAccount, {
@@ -696,6 +835,14 @@ export async function getTokenMetadata(
   }
 }
 
+/**
+ * `accountAddress`'s balance of `tokenAddress`, in base units.
+ *
+ * Live: returns `0n` on any failure (simulation error, RPC error, missing
+ * trustline), so an error is indistinguishable from an empty balance.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): always returns 1,000,000 whole units (at 7 decimals).
+ */
 export async function getTokenBalance(
   tokenAddress: string,
   accountAddress: string,
@@ -709,9 +856,7 @@ export async function getTokenBalance(
   try {
     const server = getServer(network)
     const contract = new Contract(tokenAddress)
-    const account = await withRetry(() =>
-      server.getAccount('GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN'),
-    )
+    const account = await withRetry(() => server.getAccount(SIMULATION_ACCOUNT))
     const tx = new TransactionBuilder(account, {
       fee: '100',
       networkPassphrase: config.passphrase,
@@ -730,6 +875,12 @@ export async function getTokenBalance(
   }
 }
 
+/**
+ * Extend stream `id`'s on-chain storage TTL via `bump_stream`, signed by
+ * `signerAddress`, so its data doesn't get archived. Throws on failure.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): no-op.
+ */
 export async function bumpStreamTtl(
   network: NetworkName,
   id: string,
@@ -749,6 +900,15 @@ export async function bumpStreamTtl(
   )
 }
 
+/**
+ * Load a single stream by ID. Tokens not in the known-token list for
+ * `network` come back with symbol `UNK` and 7 decimals.
+ *
+ * Returns `null` if the stream doesn't exist or the query fails for any
+ * reason (live) — it never throws.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): reads from the in-memory mock store.
+ */
 export async function fetchStream(network: NetworkName, id: string): Promise<StreamData | null> {
   const config = getNetworkConfig(network)
   const isMockMode = !config.streamContractId
@@ -768,6 +928,16 @@ export async function fetchStream(network: NetworkName, id: string): Promise<Str
   }
 }
 
+/**
+ * Load every stream where `address` is the sender or the recipient (the first
+ * 1000 of each), de-duplicated so self-streams appear once.
+ *
+ * Live: throws if the ID-list queries fail; individual streams that fail to
+ * load are silently dropped from the result. Archived streams are not
+ * included — see {@link fetchArchivedSentStreamIds}.
+ *
+ * Mock mode (no `streamContractId` configured for `network`): filters the in-memory mock store.
+ */
 export async function fetchStreamsForAddress(
   network: NetworkName,
   address: string,
@@ -811,4 +981,101 @@ export async function fetchStreamsForAddress(
 
   const streams = await Promise.all(unique.map((id) => fetchStream(network, id)))
   return streams.filter((s): s is StreamData => s !== null)
+}
+
+/**
+ * Issue #688: paginated archived (cancelled/fully-withdrawn) stream IDs where
+ * `address` is the sender, mirroring the contract's `get_archived_sent_streams`.
+ */
+export async function fetchArchivedSentStreamIds(
+  network: NetworkName,
+  address: string,
+  offset = 0,
+  limit = 100,
+): Promise<string[]> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    return mockStore
+      .getArchived(address)
+      .filter((s) => s.sender === address)
+      .map((s) => s.id)
+  }
+
+  const result = await query(
+    network,
+    'get_archived_sent_streams',
+    [
+      new Address(address).toScVal(),
+      nativeToScVal(offset, { type: 'u32' }),
+      nativeToScVal(limit, { type: 'u32' }),
+    ],
+    config.streamContractId,
+  )
+  return (scValToNative(result) as bigint[]).map(String)
+}
+
+/**
+ * Issue #688: paginated archived (cancelled/fully-withdrawn) stream IDs where
+ * `address` is the recipient, mirroring the contract's
+ * `get_archived_received_streams`.
+ */
+export async function fetchArchivedReceivedStreamIds(
+  network: NetworkName,
+  address: string,
+  offset = 0,
+  limit = 100,
+): Promise<string[]> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    return mockStore
+      .getArchived(address)
+      .filter((s) => s.recipient === address)
+      .map((s) => s.id)
+  }
+
+  const result = await query(
+    network,
+    'get_archived_received_streams',
+    [
+      new Address(address).toScVal(),
+      nativeToScVal(offset, { type: 'u32' }),
+      nativeToScVal(limit, { type: 'u32' }),
+    ],
+    config.streamContractId,
+  )
+  return (scValToNative(result) as bigint[]).map(String)
+}
+
+/**
+ * Issue #689: permanently remove a completed/cancelled stream's on-chain data
+ * via the contract's `cleanup_stream`. Either the sender or recipient may call
+ * this once the stream is cancelled or fully withdrawn past `end_time`.
+ */
+export async function cleanupStream(
+  id: string,
+  callerAddress: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const config = getNetworkConfig(network)
+  const isMockMode = !config.streamContractId
+
+  if (isMockMode) {
+    await new Promise((r) => setTimeout(r, 500))
+    mockStore.cleanup(id)
+    return null
+  }
+
+  return invoke(
+    network,
+    'cleanup_stream',
+    [new Address(callerAddress).toScVal(), nativeToScVal(BigInt(id), { type: 'u64' })],
+    callerAddress,
+    config.streamContractId,
+    onStep,
+  )
 }

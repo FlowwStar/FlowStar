@@ -109,6 +109,28 @@ export type ActivityFilter = {
 
 const PAGE_SIZE = 20
 
+/**
+ * Derives and paginates the activity feed for a wallet from the streams it
+ * participates in.
+ *
+ * Filtering contract: events are derived from `useStreams().all` and narrowed
+ * by the `filter` state, which matches on both `eventType` (an
+ * `ActivityEventType` or `'all'`) and `role` (`'sent'`, `'received'`, or
+ * `'all'`). A filter value of `'all'` disables that dimension. The returned
+ * `total` reflects the number of events matching the current filter, and
+ * `setFilter` updates the filter (resetting pagination to the first page).
+ *
+ * Pagination contract: matching events are exposed in pages of `PAGE_SIZE`
+ * (20) via `events`, which always contains the first `page * PAGE_SIZE`
+ * matches. `hasMore` is `true` while more matches remain beyond the visible
+ * slice, and `loadMore` advances to the next page. Changing the filter resets
+ * the page back to 1.
+ *
+ * @param walletAddress - Address used to derive events and determine each
+ *   event's `sent`/`received` role; when `null`, no events are produced.
+ * @returns The visible `events`, `hasMore`, `loadMore`, the current `filter`
+ *   and `setFilter`, and the filtered `total` count.
+ */
 export function useActivityFeed(walletAddress: string | null) {
   const { all } = useStreams()
   const [filter, setFilter] = useState<ActivityFilter>({ eventType: 'all', role: 'all' })

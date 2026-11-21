@@ -12,78 +12,33 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Brand, APP_NAME } from '@/components/brand'
+import { landingSectionsCopy } from '@/lib/copy/landing'
+
+const { features, howItWorks, useCases, cta, footer } = landingSectionsCopy
 
 const FEATURES = [
-  {
-    icon: Gauge,
-    title: 'Per-second unlocking',
-    body: 'Funds unlock continuously down to the second. Recipients see their balance grow in real time, no waiting for payout dates.',
-  },
-  {
-    icon: ShieldCheck,
-    title: 'Non-custodial',
-    body: 'Streams live in a Soroban smart contract. FlowStar never holds your keys or your tokens — you sign every action from your wallet.',
-  },
-  {
-    icon: Hourglass,
-    title: 'Cliffs & schedules',
-    body: 'Add a cliff before unlocking starts, set start and end times, and let the contract handle the math precisely.',
-  },
-  {
-    icon: Wallet,
-    title: 'Withdraw anytime',
-    body: 'Recipients withdraw unlocked funds whenever they want. Senders can cancel and reclaim whatever has not unlocked yet.',
-  },
+  { icon: Gauge, ...features.items.perSecond },
+  { icon: ShieldCheck, ...features.items.nonCustodial },
+  { icon: Hourglass, ...features.items.cliffs },
+  { icon: Wallet, ...features.items.withdraw },
 ]
 
 const USE_CASES = [
-  {
-    icon: Briefcase,
-    title: 'Payroll',
-    body: 'Pay contributors a salary that streams every second instead of monthly lump sums.',
-  },
-  {
-    icon: CalendarClock,
-    title: 'Token vesting',
-    body: 'Vest team and investor allocations on-chain with cliffs and linear schedules.',
-  },
-  {
-    icon: Gift,
-    title: 'Grants',
-    body: 'Fund builders progressively and keep the ability to stop if milestones slip.',
-  },
-  {
-    icon: Coins,
-    title: 'Subscriptions',
-    body: 'Bill continuously for services with streams that anyone can verify on-chain.',
-  },
+  { icon: Briefcase, ...useCases.items.payroll },
+  { icon: CalendarClock, ...useCases.items.vesting },
+  { icon: Gift, ...useCases.items.grants },
+  { icon: Coins, ...useCases.items.subscriptions },
 ]
 
-const STEPS = [
-  {
-    step: '01',
-    title: 'Connect your wallet',
-    body: 'Sign in with Freighter, xBull, LOBSTR, or Albedo. FlowStar reads your address — nothing more.',
-  },
-  {
-    step: '02',
-    title: 'Create a stream',
-    body: 'Pick a token, recipient, amount, and schedule. Fund it in a single transaction.',
-  },
-  {
-    step: '03',
-    title: 'Watch it flow',
-    body: 'The recipient withdraws unlocked funds anytime. Cancel to reclaim the rest whenever you need.',
-  },
-]
+const STEPS = [howItWorks.steps.connect, howItWorks.steps.create, howItWorks.steps.watch]
 
 export function Features() {
   return (
     <section id="features" className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
       <div className="max-w-2xl">
-        <p className="text-sm font-medium text-primary">Why FlowStar</p>
+        <p className="text-sm font-medium text-primary">{features.eyebrow}</p>
         <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-          Programmable money that moves continuously
+          {features.title}
         </h2>
       </div>
       <div className="mt-12 grid gap-4 sm:grid-cols-2">
@@ -111,9 +66,9 @@ export function HowItWorks() {
     <section id="how" className="border-y border-border bg-card/30">
       <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
         <div className="max-w-2xl">
-          <p className="text-sm font-medium text-primary">How it works</p>
+          <p className="text-sm font-medium text-primary">{howItWorks.eyebrow}</p>
           <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-            Three steps from transfer to stream
+            {howItWorks.title}
           </h2>
         </div>
         <div className="mt-12 grid gap-8 md:grid-cols-3">
@@ -137,9 +92,9 @@ export function UseCases() {
   return (
     <section id="use-cases" className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
       <div className="max-w-2xl">
-        <p className="text-sm font-medium text-primary">Use cases</p>
+        <p className="text-sm font-medium text-primary">{useCases.eyebrow}</p>
         <h2 className="mt-3 text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-          One primitive, many payment flows
+          {useCases.title}
         </h2>
       </div>
       <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -168,16 +123,15 @@ export function CTA() {
           className="pointer-events-none absolute -bottom-24 left-1/2 size-[420px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl"
         />
         <h2 className="relative text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-          Start streaming in minutes
+          {cta.title}
         </h2>
         <p className="relative mx-auto mt-4 max-w-md text-pretty text-muted-foreground">
-          Connect a wallet and create your first stream on Stellar testnet. No
-          setup, no custody, no code.
+          {cta.description}
         </p>
         <div className="relative mt-8 flex justify-center">
           <Button asChild size="lg">
             <Link href="/app/create">
-              Create a stream
+              {cta.createStreamButton}
               <ArrowRight className="size-4" />
             </Link>
           </Button>
@@ -192,10 +146,7 @@ export function Footer() {
     <footer className="border-t border-border">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 sm:flex-row sm:px-6">
         <Brand />
-        <p className="text-xs text-muted-foreground">
-          {APP_NAME} streams tokens on Stellar. Demo frontend — connect your
-          Soroban contracts to go live.
-        </p>
+        <p className="text-xs text-muted-foreground">{footer.tagline(APP_NAME)}</p>
       </div>
     </footer>
   )

@@ -1,0 +1,55 @@
+name: Update Playwright Snapshots
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to update snapshots on"
+        required: false
+        default: ""
+
+jobs:
+  update-snapshots:
+    name: Regenerate visual baselines
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Build app in mock mode
+        run: npm run build
+        env:
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ""
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET: ""
+
+      - name: Update snapshots
+        run: npx playwright test --update-snapshots
+        env:
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET: ""
+          NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET: ""
+          CI: "true"
+
+      - name: Commit updated snapshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add e2e/__screenshots__/
+          git diff --cached --quiet || git commit -m "test: update playwright visual snapshots [skip ci]"
+          git push

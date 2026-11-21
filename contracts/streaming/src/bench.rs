@@ -13,7 +13,7 @@ use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env,
+    vec, Address, Env, Vec,
 };
 
 // ─── Benchmark harness ────────────────────────────────────────────────────────
@@ -51,15 +51,21 @@ impl BenchEnv {
         let env = Env::default();
         env.mock_all_auths();
 
-        let contract_id = env.register(StreamingContract, ());
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-
         let token_admin = Address::generate(&env);
         let token_id = env
             .register_stellar_asset_contract_v2(token_admin.clone())
             .address();
+
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let admin = Address::generate(&env);
+
         StellarAssetClient::new(&env, &token_id).mint(&sender, &1_000_000_000_0000000);
+
+        let contract_id = env.register_contract(None, StreamingContract);
+        StreamingContractClient::new(&env, &contract_id)
+            .initialize(&admin)
+            .unwrap();
 
         BenchEnv {
             env,
@@ -91,8 +97,8 @@ impl BenchEnv {
         );
     }
 
-    fn create_default(&self, now: u64) -> u64 {
-        let params = CreateStreamParams {
+    fn default_params(&self, now: u64) -> CreateStreamParams {
+        CreateStreamParams {
             recipient: self.recipient.clone(),
             token: self.token_id.clone(),
             total_amount: 1_000_0000000,
@@ -100,9 +106,13 @@ impl BenchEnv {
             end_time: now + 1000,
             cliff_time: now,
             cliff_amount: 0,
-        };
+        }
+    }
+
+    fn create_default(&self, now: u64) -> u64 {
+        let params = self.default_params(now);
         self.approve(params.total_amount);
-        self.client().create_stream(&self.sender, &params)
+        self.client().create_stream(&self.sender, &params).unwrap()
     }
 }
 
@@ -127,7 +137,7 @@ fn bench_create_stream() {
 
     measure(&b.env, "create_stream (no cliff)", || {
         let p = params.clone();
-        b.client().create_stream(&b.sender, &p);
+        b.client().create_stream(&b.sender, &p).unwrap();
     });
 
     let params_cliff = CreateStreamParams {
@@ -143,7 +153,7 @@ fn bench_create_stream() {
 
     measure(&b.env, "create_stream (with cliff)", || {
         let p = params_cliff.clone();
-        b.client().create_stream(&b.sender, &p);
+        b.client().create_stream(&b.sender, &p).unwrap();
     });
 }
 
@@ -156,17 +166,17 @@ fn bench_withdraw() {
     // Withdraw at 25% progress
     let sid = b.create_default(now);
     b.set_time(now + 250);
-    let amt = b.client().get_withdrawable(&sid);
+    let amt = b.client().get_withdrawable(&sid).unwrap();
     measure(&b.env, "withdraw (25% progress)", || {
-        b.client().withdraw(&sid, &amt);
+        b.client().withdraw(&sid, &amt).unwrap();
     });
 
     // Withdraw at 100% (full)
-    let sid2 = b.create_default(now);
+    let sid2 = b.create_default(b.env.ledger().timestamp());
     b.set_time(now + 2000);
-    let full = b.client().get_withdrawable(&sid2);
+    let full = b.client().get_withdrawable(&sid2).unwrap();
     measure(&b.env, "withdraw (100% — full stream)", || {
-        b.client().withdraw(&sid2, &full);
+        b.client().withdraw(&sid2, &full).unwrap();
     });
 }
 
@@ -179,19 +189,67 @@ fn bench_cancel() {
     let sid_early = b.create_default(now);
     b.set_time(now + 100); // 10% in
     measure(&b.env, "cancel (10% progress)", || {
-        b.client().cancel(&sid_early);
+        b.client().cancel(&sid_early).unwrap();
     });
 
-    let sid_mid = b.create_default(now);
+    let sid_mid = b.create_default(b.env.ledger().timestamp());
     b.set_time(now + 500); // 50% in
     measure(&b.env, "cancel (50% progress)", || {
-        b.client().cancel(&sid_mid);
+        b.client().cancel(&sid_mid).unwrap();
     });
 
-    let sid_late = b.create_default(now);
+    let sid_late = b.create_default(b.env.ledger().timestamp());
     b.set_time(now + 990); // 99% in
     measure(&b.env, "cancel (99% progress)", || {
-        b.client().cancel(&sid_late);
+        b.client().cancel(&sid_late).unwrap();
+    });
+}
+
+#[test]
+fn bench_partial_cancel() {
+    // Issue #1134: partial_cancel was missing bench coverage even though it
+    // does strictly more work than a full cancel — it recomputes the rate
+    // and mutates the stream in place instead of just flipping a flag.
+    let b = BenchEnv::setup();
+    let now = 1_000_000u64;
+    b.set_time(now);
+
+    // Partial cancel *before* the cliff passes — exercises the `else`
+    // branch, which shrinks `linear_amount`/`duration` directly instead of
+    // rewriting cliff/start fields. Needs an explicit future cliff_time;
+    // `create_default`'s cliff_time == start_time, which is always "passed".
+    let pre_cliff_params = CreateStreamParams {
+        recipient: b.recipient.clone(),
+        token: b.token_id.clone(),
+        total_amount: 1_000_0000000,
+        start_time: now,
+        end_time: now + 1000,
+        cliff_time: now + 500,
+        cliff_amount: 0,
+    };
+    b.approve(pre_cliff_params.total_amount);
+    let sid_pre_cliff = b
+        .client()
+        .create_stream(&b.sender, &pre_cliff_params)
+        .unwrap();
+    b.set_time(now + 100); // before cliff_time (now + 500)
+    measure(&b.env, "partial_cancel (10% progress, pre-cliff path)", || {
+        b.client().partial_cancel(&sid_pre_cliff, &200_0000000).unwrap();
+    });
+
+    // Partial cancel after unlock has started (rate recompute via the
+    // unlocked/cliff-rewrite branch) — 50% progress.
+    let sid_mid = b.create_default(b.env.ledger().timestamp());
+    b.set_time(now + 500);
+    measure(&b.env, "partial_cancel (50% progress, post-cliff path)", || {
+        b.client().partial_cancel(&sid_mid, &100_0000000).unwrap();
+    });
+
+    // Partial cancel near the end of the stream — 99% progress, small refund.
+    let sid_late = b.create_default(b.env.ledger().timestamp());
+    b.set_time(now + 990);
+    measure(&b.env, "partial_cancel (99% progress)", || {
+        b.client().partial_cancel(&sid_late, &5_000000).unwrap();
     });
 }
 
@@ -205,7 +263,7 @@ fn bench_transfer_stream() {
     let new_recipient = Address::generate(&b.env);
 
     measure(&b.env, "transfer_stream (index remove + add)", || {
-        b.client().transfer_stream(&sid, &new_recipient);
+        b.client().transfer_stream(&sid, &new_recipient).unwrap();
     });
 }
 
@@ -221,14 +279,51 @@ fn bench_top_up() {
     // Top up at start
     b.approve(additional * 10);
     measure(&b.env, "top_up (at stream start)", || {
-        b.client().top_up(&sid, &additional);
+        b.client().top_up(&sid, &additional).unwrap();
     });
 
     // Top up mid-stream (rate recalculation)
     b.set_time(now + 500);
     measure(&b.env, "top_up (mid-stream, rate recalculation)", || {
-        b.client().top_up(&sid, &additional);
+        b.client().top_up(&sid, &additional).unwrap();
     });
+}
+
+#[test]
+fn bench_create_streams_batch_max() {
+    // Issue #1134: the 20-stream (MAX_BATCH_SIZE) batch is the most
+    // expensive single call in the contract — it repeats the full
+    // create_stream validation + index-update path up to 20 times in one
+    // transaction, so it's the first thing to watch for a CPU regression.
+    let b = BenchEnv::setup();
+    let now = 1_000_000u64;
+    b.set_time(now);
+
+    let per_stream = 10_0000000i128;
+    let batch_size = MAX_BATCH_SIZE;
+
+    let mut streams: Vec<CreateStreamParams> = vec![&b.env];
+    for _ in 0..batch_size {
+        streams.push_back(CreateStreamParams {
+            recipient: b.recipient.clone(),
+            token: b.token_id.clone(),
+            total_amount: per_stream,
+            start_time: now,
+            end_time: now + 1000,
+            cliff_time: now,
+            cliff_amount: 0,
+        });
+    }
+    b.approve(per_stream * (batch_size as i128) * 2);
+
+    measure(
+        &b.env,
+        "create_streams_batch (max size, 20 streams)",
+        || {
+            let s = streams.clone();
+            b.client().create_streams_batch(&b.sender, &s).unwrap();
+        },
+    );
 }
 
 #[test]
@@ -312,7 +407,7 @@ fn bench_get_withdrawable() {
     b.set_time(now + 500);
 
     measure(&b.env, "get_withdrawable (mid-stream)", || {
-        b.client().get_withdrawable(&sid);
+        b.client().get_withdrawable(&sid).unwrap();
     });
 }
 
@@ -325,6 +420,6 @@ fn bench_get_stream() {
     let sid = b.create_default(now);
 
     measure(&b.env, "get_stream (read by id)", || {
-        b.client().get_stream(&sid);
+        b.client().get_stream(&sid).unwrap();
     });
 }

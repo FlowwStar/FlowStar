@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   buildNextRunAt,
   createRenewalPreset,
@@ -26,6 +26,11 @@ function makeRule(overrides: Partial<RecurringRule> = {}): RecurringRule {
 
 beforeEach(() => {
   window.localStorage.clear()
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 // ─── buildNextRunAt ───────────────────────────────────────────────────────────
@@ -86,6 +91,29 @@ describe('buildNextRunAt', () => {
     expect(next.getHours()).toBe(9)
     expect(next.getMinutes()).toBe(30)
   })
+
+  it('rolls monthly across the year boundary', () => {
+    const start = new Date('2026-12-15T00:00:00').getTime()
+    const next = new Date(buildNextRunAt(start, 'monthly'))
+    expect(next.getFullYear()).toBe(2027)
+    expect(next.getMonth()).toBe(0) // January
+    expect(next.getDate()).toBe(15)
+  })
+
+  it('rolls quarterly across the year boundary', () => {
+    const start = new Date('2026-11-15T00:00:00').getTime()
+    const next = new Date(buildNextRunAt(start, 'quarterly'))
+    expect(next.getFullYear()).toBe(2027)
+    expect(next.getMonth()).toBe(1) // February
+    expect(next.getDate()).toBe(15)
+  })
+
+  it('clamps Aug 31 + 1 quarter to Nov 30', () => {
+    const start = new Date('2026-08-31T00:00:00').getTime()
+    const next = new Date(buildNextRunAt(start, 'quarterly'))
+    expect(next.getMonth()).toBe(10) // November
+    expect(next.getDate()).toBe(30)
+  })
 })
 
 // ─── saveRecurringRule / getRecurringRules / removeRecurringRule ─────────────
@@ -121,6 +149,14 @@ describe('saveRecurringRule / getRecurringRules', () => {
     window.localStorage.setItem('flowstar:recurring-streams', '{not valid json')
     expect(getRecurringRules()).toEqual([])
   })
+
+  it('returns [] when stored JSON is valid but not an array', () => {
+    window.localStorage.setItem(
+      'flowstar:recurring-streams',
+      JSON.stringify({ streamId: 'not-an-array' }),
+    )
+    expect(getRecurringRules()).toEqual([])
+  })
 })
 
 describe('removeRecurringRule', () => {
@@ -137,6 +173,10 @@ describe('removeRecurringRule', () => {
 // ─── getUpcomingRenewals ──────────────────────────────────────────────────────
 
 describe('getUpcomingRenewals', () => {
+  it('returns [] when no rules are stored', () => {
+    expect(getUpcomingRenewals()).toEqual([])
+  })
+
   it('excludes rules whose nextRunAt is in the past', () => {
     saveRecurringRule(makeRule({ streamId: 'past', nextRunAt: Date.now() - 1000 }))
     saveRecurringRule(makeRule({ streamId: 'future', nextRunAt: Date.now() + 1000 }))
@@ -149,6 +189,33 @@ describe('getUpcomingRenewals', () => {
     saveRecurringRule(makeRule({ streamId: 'sooner', nextRunAt: Date.now() + 1000 }))
     const upcoming = getUpcomingRenewals()
     expect(upcoming.map((r) => r.streamId)).toEqual(['sooner', 'later'])
+  })
+
+  it('excludes a rule scheduled exactly at now (strict > comparison)', () => {
+    const now = 1_700_000_000_000
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+    saveRecurringRule(makeRule({ streamId: 'due-now', nextRunAt: now }))
+    saveRecurringRule(makeRule({ streamId: 'future', nextRunAt: now + 1 }))
+    expect(getUpcomingRenewals().map((r) => r.streamId)).toEqual(['future'])
+  })
+})
+
+// ─── Server-side safety (window undefined) ────────────────────────────────────
+
+describe('server-side safety (no window)', () => {
+  it('getRecurringRules returns [] when window is undefined', () => {
+    vi.stubGlobal('window', undefined)
+    expect(getRecurringRules()).toEqual([])
+  })
+
+  it('saveRecurringRule is a no-op when window is undefined', () => {
+    vi.stubGlobal('window', undefined)
+    expect(() => saveRecurringRule(makeRule({ streamId: 'ssr' }))).not.toThrow()
+  })
+
+  it('removeRecurringRule is a no-op when window is undefined', () => {
+    vi.stubGlobal('window', undefined)
+    expect(() => removeRecurringRule('ssr')).not.toThrow()
   })
 })
 

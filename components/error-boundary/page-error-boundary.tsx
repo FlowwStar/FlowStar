@@ -3,6 +3,9 @@
 import React from 'react'
 import Link from 'next/link'
 import { captureError } from '@/lib/sentry'
+import { errorsCopy } from '@/lib/copy/errors'
+
+const copy = errorsCopy.pageErrorBoundary
 
 interface State {
   error: Error | null
@@ -44,11 +47,11 @@ export class PageErrorBoundary extends React.Component<Props, State> {
       <div className="flex min-h-svh flex-col items-center justify-center px-6 py-24 text-center">
         <div className="mx-auto max-w-md">
           <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10 text-destructive text-2xl">
-            ⚠
+            {copy.iconAriaLabel}
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">Something went wrong</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{copy.heading}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {error.message || 'An unexpected error occurred on this page.'}
+            {error.message || copy.fallbackMessage}
           </p>
 
           <div className="mt-6 flex flex-wrap justify-center gap-3">
@@ -56,25 +59,25 @@ export class PageErrorBoundary extends React.Component<Props, State> {
               onClick={this.reset}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
             >
-              Try again
+              {copy.tryAgainButton}
             </button>
             <button
               onClick={() => window.location.reload()}
               className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium hover:bg-muted"
             >
-              Reload page
+              {copy.reloadPageButton}
             </button>
             <Link
-              href="/app"
+              href={copy.dashboardHref}
               className="rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium hover:bg-muted"
             >
-              Go to dashboard
+              {copy.goToDashboardButton}
             </Link>
           </div>
 
           <details className="mt-6 text-left">
             <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground">
-              Technical details
+              {copy.technicalDetailsSummary}
             </summary>
             <pre className="mt-2 overflow-auto rounded-lg border border-border bg-muted p-3 text-xs text-muted-foreground whitespace-pre-wrap break-words">
               {error.stack ?? String(error)}
@@ -83,7 +86,7 @@ export class PageErrorBoundary extends React.Component<Props, State> {
               onClick={() => navigator.clipboard?.writeText(error.stack ?? String(error))}
               className="mt-2 text-xs text-primary hover:underline"
             >
-              Copy error details
+              {copy.copyErrorDetailsButton}
             </button>
           </details>
         </div>

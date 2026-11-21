@@ -87,4 +87,95 @@ describe('useActivityFeed', () => {
     })
     expect(result.current.events).toEqual([])
   })
+
+  it('adds a completed event when stream has ended and all tokens are withdrawn', () => {
+    mockUseStreams.mockReturnValue({
+      all: [makeStream({ endTime: 1n, withdrawnAmount: 1000n })],
+    })
+    const { result } = renderHook(() => useActivityFeed('GSENDER'))
+    expect(result.current.events.some((e) => e.type === 'stream.completed')).toBe(true)
+  })
+
+  describe('deriveEvents — description text', () => {
+    const DEPOSITED = 10_000_000n // 1 USDC at 7 decimals
+
+    it('stream.created sent: description mentions sender action and recipient address', () => {
+      mockUseStreams.mockReturnValue({
+        all: [makeStream({ depositedAmount: DEPOSITED })],
+      })
+      const { result } = renderHook(() => useActivityFeed('GSENDER'))
+      const ev = result.current.events.find((e) => e.type === 'stream.created')!
+      expect(ev.role).toBe('sent')
+      expect(ev.description).toContain('You started streaming')
+      expect(ev.description).toContain('USDC')
+      expect(ev.description).toContain('GRECI')
+    })
+
+    it('stream.created received: description mentions incoming stream and sender address', () => {
+      mockUseStreams.mockReturnValue({
+        all: [makeStream({ depositedAmount: DEPOSITED })],
+      })
+      const { result } = renderHook(() => useActivityFeed('GRECIPIENT'))
+      const ev = result.current.events.find((e) => e.type === 'stream.created')!
+      expect(ev.role).toBe('received')
+      expect(ev.description).toContain('Incoming stream of')
+      expect(ev.description).toContain('USDC')
+      expect(ev.description).toContain('GSEND')
+    })
+
+    it('stream.withdrawal received: "You" appears in description', () => {
+      mockUseStreams.mockReturnValue({
+        all: [makeStream({ depositedAmount: DEPOSITED, withdrawnAmount: 5_000_000n })],
+      })
+      const { result } = renderHook(() => useActivityFeed('GRECIPIENT'))
+      const ev = result.current.events.find((e) => e.type === 'stream.withdrawal')!
+      expect(ev.role).toBe('received')
+      expect(ev.description).toContain('You withdrew')
+      expect(ev.description).toContain('USDC')
+    })
+
+    it('stream.withdrawal sent: recipient address snippet appears in description', () => {
+      mockUseStreams.mockReturnValue({
+        all: [makeStream({ depositedAmount: DEPOSITED, withdrawnAmount: 5_000_000n })],
+      })
+      const { result } = renderHook(() => useActivityFeed('GSENDER'))
+      const ev = result.current.events.find((e) => e.type === 'stream.withdrawal')!
+      expect(ev.role).toBe('sent')
+      expect(ev.description).toContain('withdrew')
+      expect(ev.description).toContain('GRECI')
+    })
+
+    it('stream.cancelled sent: description contains "You cancelled" and returned amount', () => {
+      mockUseStreams.mockReturnValue({
+        all: [makeStream({ depositedAmount: DEPOSITED, cancelled: true })],
+      })
+      const { result } = renderHook(() => useActivityFeed('GSENDER'))
+      const ev = result.current.events.find((e) => e.type === 'stream.cancelled')!
+      expect(ev.role).toBe('sent')
+      expect(ev.description).toContain('You cancelled')
+      expect(ev.description).toContain('USDC returned')
+    })
+
+    it('stream.cancelled received: description contains "was cancelled" and returned amount', () => {
+      mockUseStreams.mockReturnValue({
+        all: [makeStream({ depositedAmount: DEPOSITED, cancelled: true })],
+      })
+      const { result } = renderHook(() => useActivityFeed('GRECIPIENT'))
+      const ev = result.current.events.find((e) => e.type === 'stream.cancelled')!
+      expect(ev.role).toBe('received')
+      expect(ev.description).toContain('was cancelled')
+      expect(ev.description).toContain('USDC returned')
+    })
+
+    it('stream.completed: description contains "fully unlocked" and token symbol', () => {
+      mockUseStreams.mockReturnValue({
+        all: [makeStream({ depositedAmount: DEPOSITED, withdrawnAmount: DEPOSITED, endTime: 1n })],
+      })
+      const { result } = renderHook(() => useActivityFeed('GSENDER'))
+      const ev = result.current.events.find((e) => e.type === 'stream.completed')!
+      expect(ev).toBeDefined()
+      expect(ev.description).toContain('fully unlocked')
+      expect(ev.description).toContain('USDC')
+    })
+  })
 })

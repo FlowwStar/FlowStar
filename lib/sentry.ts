@@ -1,8 +1,10 @@
-'use client'
-
 /**
  * Thin wrapper around Sentry so the rest of the codebase doesn't import
  * @sentry/nextjs directly (keeps the dependency swappable and tree-shakeable).
+ *
+ * This module is intentionally isomorphic — no 'use client' directive — so it
+ * can be imported from client components, server components, server actions,
+ * and edge runtime routes alike.
  */
 
 let _sentry: typeof import('@sentry/nextjs') | null = null

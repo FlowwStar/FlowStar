@@ -1,5 +1,27 @@
 "use client";
 
+/**
+ * A single row parsed from a batch/airdrop CSV import.
+ *
+ * ### Accepted CSV column names & aliases
+ *
+ * | Field           | Required | Accepted aliases (case-insensitive)                                        |
+ * |-----------------|----------|---------------------------------------------------------------------------|
+ * | `recipient`     | yes      | `recipient`, `recipient_address`, `address`, `to`                         |
+ * | `amount`        | yes      | `amount`, `total_amount`, `stream_amount`                                 |
+ * | `start_time`    | yes *    | `start_time`, `start_date`, `start_timestamp`                            |
+ * | `end_time`      | yes *    | `end_time`, `end_date`, `end_timestamp`                                  |
+ * | `cliff_time`    | no       | `cliff_time`, `cliff_date`, `cliff_timestamp`                            |
+ * | `cliff_amount`  | no       | `cliff_amount`                                                            |
+ * | `cliff_duration`| no       | `cliff_duration`, `cliff_period` — accepts plain seconds or suffixes: `s`, `m`, `h`, `d`, `w` (e.g. `30d`) |
+ * | `start_date`    | no       | `start_date`, `start_time`                                                |
+ * | `end_date`      | no       | `end_date`, `end_time`                                                    |
+ *
+ * \* Either `start_time`/`start_date` **or** `end_time`/`end_date` is required.
+ *
+ * All string values are raw CSV cell text; conversion to the appropriate
+ * type (e.g. BigInt for timestamps) happens downstream.
+ */
 export interface CsvBatchRow {
   recipient: string;
   amount: string;
@@ -12,6 +34,14 @@ export interface CsvBatchRow {
   end_date?: string;
 }
 
+/**
+ * Result returned by {@link parseCsvBatch}.
+ *
+ * @property rows        – Successfully parsed rows (may be empty on header-only CSVs).
+ * @property errors      – Human-readable validation error messages, if any.
+ * @property headerMapping – Map of logical field names to zero-based column indices
+ *                           (auto-detected or provided via `customColumnMapping`).
+ */
 export interface CsvParseResult {
   rows: CsvBatchRow[];
   errors: string[];
@@ -43,7 +73,14 @@ export function parseDuration(value: string): bigint | null {
   return BigInt(match[1]) * DURATION_UNIT_SECONDS[match[2]];
 }
 
-// Flexible header mapping - supports multiple naming conventions
+/**
+ * Maps each logical CSV field to the list of accepted header aliases.
+ *
+ * During auto-detection, headers are matched case-insensitively against
+ * these lists in order; the first match wins.  This lets users write
+ * headers like `to`, `address`, or `recipient_address` and have them
+ * all resolve to the `recipient` field.
+ */
 const HEADER_ALIASES = {
   recipient: ["recipient", "recipient_address", "address", "to"],
   amount: ["amount", "total_amount", "stream_amount"],
@@ -56,6 +93,16 @@ const HEADER_ALIASES = {
   end_date: ["end_date", "end_time"],
 };
 
+/**
+ * Parses a single CSV line into an array of trimmed cell values.
+ *
+ * Handles quoted fields (double-quote escaping: `""` inside a quoted field
+ * represents a literal `"`) and respects the CSV spec where commas inside
+ * quoted fields are not treated as delimiters.
+ *
+ * @param line – One line of CSV text (without the line terminator).
+ * @returns    – Array of trimmed string values, one per column.
+ */
 function parseCsvLine(line: string): string[] {
   const values: string[] = [];
   let current = "";
@@ -88,6 +135,16 @@ function parseCsvLine(line: string): string[] {
   return values.map((value) => value.trim());
 }
 
+/**
+ * Finds the zero-based column index for a logical field name.
+ *
+ * Normalises every header to lowercase, then tries each alias for
+ * `fieldName` (from {@link HEADER_ALIASES}) in order.  Returns `-1`
+ * when no alias matches.
+ *
+ * @param headers   – Raw header row values (as returned by {@link parseCsvLine}).
+ * @param fieldName – Logical field name whose alias list to search.
+ */
 function findColumnIndex(headers: string[], fieldName: string): number {
   const normalized = headers.map((h) => h.trim().toLowerCase());
   const aliases =
@@ -101,6 +158,77 @@ function findColumnIndex(headers: string[], fieldName: string): number {
   return -1;
 }
 
+/**
+ * Resolves a cliff timestamp (in seconds) from a parsed CSV row.
+ *
+ * Priority:
+ *  1. `cliff_time` — an absolute timestamp (unix seconds or ISO date string).
+ *     If present and parseable, it is returned directly.
+ *  2. `cliff_duration` — a relative offset from `startTime`.
+ *     If present and parseable, `startTime + duration` is returned.
+ *  3. Neither present → returns null (no cliff).
+ *
+ * `parseTimestampFn` is injected so this pure helper has no dependency on
+ * browser/Node APIs; callers supply their own timestamp parser.
+ */
+export function resolveCliffTime(
+  row: Pick<CsvBatchRow, "cliff_time" | "cliff_duration">,
+  startTime: bigint | null,
+  parseTimestampFn: (value: string) => bigint | null,
+): bigint | null {
+  if (row.cliff_time) {
+    return parseTimestampFn(row.cliff_time);
+  }
+  if (row.cliff_duration && startTime !== null) {
+    const duration = parseDuration(row.cliff_duration);
+    if (duration !== null) return startTime + duration;
+  }
+  return null;
+}
+
+/**
+ * Parses a CSV string into an array of batch payment rows with optional column mapping.
+ *
+ * @param csvText The raw CSV text to parse. Supports both \n and \r\n line endings.
+ * @param customColumnMapping Optional pre-defined column indices. When provided, skips header detection
+ *                              and uses these exact positions instead. Useful when the CSV has no header row
+ *                              or when automatic detection fails.
+ *
+ * @returns A CsvParseResult object containing:
+ *   - rows: Array of parsed CsvBatchRow objects with extracted fields
+ *   - errors: Array of validation error messages encountered during parsing
+ *   - headerMapping: Record mapping field names to their column indices (auto-detected or custom)
+ *
+ * @description
+ * This function implements flexible CSV parsing with support for multiple header naming conventions:
+ *
+ * **Supported Header Aliases:**
+ * - recipient: "recipient", "recipient_address", "address", "to"
+ * - amount: "amount", "total_amount", "stream_amount"
+ * - start_time: "start_time", "start_date", "start_timestamp"
+ * - end_time: "end_time", "end_date", "end_timestamp"
+ * - cliff_time: "cliff_time", "cliff_date", "cliff_timestamp"
+ * - cliff_amount: "cliff_amount"
+ * - cliff_duration: "cliff_duration", "cliff_period"
+ * - start_date: "start_date", "start_time"
+ * - end_date: "end_date", "end_time"
+ *
+ * **Column Mapping/Detection Logic:**
+ * 1. Normalizes all headers to lowercase and trims whitespace
+ * 2. Matches each header against its field's alias list (case-insensitive)
+ * 3. Returns the index of the first matching alias
+ * 4. Auto-detection only occurs when customColumnMapping is not provided
+ * 5. If no matching header is found for a field, returns -1 (indicating not present)
+ * 6. Required columns (recipient, amount, start_time/start_date, end_time/end_date) are validated;
+ *    missing required columns trigger an error
+ *
+ * **Malformed Input Handling:**
+ * - Empty CSV strings return empty rows array with no errors
+ * - CSV lines with mismatched column counts are returned as-is (trailing columns are undefined)
+ * - Invalid headers that don't match any field aliases trigger validation error
+ * - Missing required columns are reported in errors array; rows array remains empty
+ * - All errors are descriptive and can be used for user feedback
+ */
 export function parseCsvBatch(
   csvText: string,
   customColumnMapping?: Record<string, number>,

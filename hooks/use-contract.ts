@@ -6,7 +6,10 @@ import {
   createStream as createStreamCall,
   createStreamsBatch as createStreamsBatchCall,
   withdrawFromStream,
+  withdrawMaxFromStream,
   cancelStream as cancelStreamCall,
+  partialCancelStream as partialCancelStreamCall,
+  cleanupStream as cleanupStreamCall,
   estimateCreateStreamFee,
   type TxStep,
 } from "@/lib/contract";
@@ -18,6 +21,11 @@ import { getWithdrawableAmount } from "@/lib/stream-utils";
 import { mapError, categoryLabel } from "@/lib/error-messages";
 import type { CreateStreamInput, StreamData } from "@/types/stream";
 
+/**
+ * Result of a batch withdrawal operation.
+ * @property {number} succeeded - Number of streams successfully withdrawn from
+ * @property {number} failed - Number of streams that failed to withdraw
+ */
 export interface WithdrawAllResult {
   succeeded: number;
   failed: number;
@@ -38,22 +46,53 @@ function showErrorToast(err: unknown, toastId?: string | number) {
     duration: 7000,
     ...(toastId ? { id: toastId } : {}),
     action: mapped.details
-      ? {
-          label: "Details",
-          onClick: () => {
-            const short =
-              mapped.details!.length > 200
-                ? mapped.details!.slice(0, 200) + "…"
-                : mapped.details!;
-            toast.info(short, { duration: 10000 });
-          },
-        }
+      ? (() => {
+          const details = mapped.details;
+          return {
+            label: "Details",
+            onClick: () => {
+              const short =
+                details.length > 200
+                  ? details.slice(0, 200) + "…"
+                  : details;
+              toast.info(short, { duration: 10000 });
+            },
+          };
+        })()
       : undefined,
   };
   toast.error(mapped.message, opts);
   return `[${category}] ${mapped.message}`;
 }
 
+/**
+ * Hook for executing contract write operations (create, withdraw, cancel streams).
+ *
+ * Wraps every contract call with:
+ *   - Wallet connection checks and error handling
+ *   - Transaction step tracking (simulate → sign → submit → confirm)
+ *   - Toast notifications for user feedback
+ *   - Automatic stream cache invalidation on success
+ *   - Error mapping and recovery
+ *
+ * @returns {Object} Contract operations and state
+ * @returns {Function} createStream - Create a new stream from input parameters
+ * @returns {Function} createStreamsBatch - Create multiple streams in one atomic transaction (up to 20)
+ * @returns {Function} withdraw - Withdraw unlocked funds from a stream by ID
+ * @returns {Function} cancel - Cancel a stream; sender gets remainder, recipient keeps unlocked
+ * @returns {Function} partialCancel - Reclaim part of a stream's locked balance back to the sender; stream stays active
+ * @returns {Function} cleanup - Permanently remove a completed or cancelled stream from history
+ * @returns {Function} withdrawAll - Withdraw from multiple streams in sequence, with progress tracking
+ * @returns {Function} estimateFee - Estimate the fee for creating a stream (returns null if wallet disconnected)
+ * @returns {boolean} pending - True while any transaction is being executed
+ * @returns {string|null} error - Error message from the last failed operation, or null
+ *
+ * @throws {Error} "Connect a wallet first." - If any operation is called without a connected wallet
+ *
+ * @example
+ * const { createStream, pending, error } = useContract()
+ * await createStream({ recipient, token, amount, endTime, cliffTime, cliffAmount })
+ */
 export function useContract() {
   const { address, isConnected } = useWallet();
   const { network } = useNetwork();
@@ -97,6 +136,15 @@ export function useContract() {
     [address, isConnected],
   );
 
+  /**
+   * Create a new token stream.
+   * Requires prior token approval. Emits toast notifications for each step
+   * (simulate, sign, submit, confirm). Invalidates the streams cache on success.
+   *
+   * @param {CreateStreamInput} input - Stream parameters (recipient, token, amount, schedule, cliff)
+   * @returns {Promise<void>} Resolves when stream is created and confirmed on-chain
+   * @throws {Error} Network or user rejection errors (caught and mapped to user-friendly messages)
+   */
   const createStream = useCallback(
     (input: CreateStreamInput) =>
       run("Create stream", (onStep) =>
@@ -105,6 +153,15 @@ export function useContract() {
     [run, address, network],
   );
 
+  /**
+   * Create multiple streams in a single atomic transaction (up to 20 per batch).
+   * Each stream requires prior token approval. All streams succeed or all fail together.
+   * Emits toast notifications for transaction steps. Invalidates cache on success.
+   *
+   * @param {CreateStreamInput[]} inputs - Array of stream parameters (max 20)
+   * @returns {Promise<void>} Resolves when all streams are created and confirmed
+   * @throws {Error} Network, validation, or user rejection errors
+   */
   const createStreamsBatch = useCallback(
     (inputs: CreateStreamInput[]) =>
       run("Create streams", (onStep) =>
@@ -113,6 +170,16 @@ export function useContract() {
     [run, address, network],
   );
 
+  /**
+   * Withdraw unlocked tokens from a stream.
+   * Can be called by the recipient or any delegate authorized by the recipient.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to withdraw from
+   * @param {bigint} amount - Amount to withdraw (must not exceed withdrawable balance)
+   * @returns {Promise<void>} Resolves when withdrawal is confirmed on-chain
+   * @throws {Error} "Not recipient or delegate" or "Insufficient unlocked balance"
+   */
   const withdraw = useCallback(
     (id: string, amount: bigint) =>
       run("Withdraw", (onStep) =>
@@ -121,12 +188,67 @@ export function useContract() {
     [run, network],
   );
 
+  /**
+   * Cancel a stream. Only the sender can cancel.
+   * The recipient keeps all previously unlocked tokens; sender recovers the remainder.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to cancel
+   * @returns {Promise<void>} Resolves when cancellation is confirmed
+   * @throws {Error} "Not sender" if caller is not the original sender
+   */
   const cancel = useCallback(
     (id: string) =>
       run("Cancel stream", (onStep) => cancelStreamCall(id, network, onStep)),
     [run, network],
   );
 
+  /**
+   * Partially cancel a stream. Only the sender can call this.
+   * Reclaims `amount` of the stream's still-locked (unvested) balance back
+   * to the sender while leaving the stream active — the recipient keeps
+   * all previously unlocked tokens and the remainder keeps streaming.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to partially cancel
+   * @param {bigint} amount - Amount of the locked balance to reclaim (must not exceed it)
+   * @returns {Promise<void>} Resolves when the partial cancellation is confirmed
+   * @throws {Error} "Not sender" if caller is not the original sender, or "Invalid amount" if amount exceeds the locked balance
+   */
+  const partialCancel = useCallback(
+    (id: string, amount: bigint) =>
+      run("Reclaim funds", (onStep) =>
+        partialCancelStreamCall(id, amount, network, onStep),
+      ),
+    [run, network],
+  );
+
+  /**
+   * Permanently remove a completed or cancelled stream from ledger storage.
+   * Only callable when stream is fully drained (withdrawn) or cancelled.
+   * Frees up ledger space and reduces storage fees.
+   *
+   * @param {string} id - Stream ID to clean up
+   * @returns {Promise<void>} Resolves when stream is removed from storage
+   * @throws {Error} "Stream not drained" if stream still has unlocked balance
+   */
+  const cleanup = useCallback(
+    (id: string) =>
+      run("Remove stream", (onStep) => {
+        if (!address) throw new Error("Connect a wallet first.");
+        return cleanupStreamCall(id, address, network, onStep);
+      }),
+    [run, address, network],
+  );
+
+  /**
+   * Estimate the fee for creating a stream.
+   * Returns null if wallet is disconnected or estimation fails (graceful degradation).
+   * Useful for displaying fee warnings or confirming budget availability before creation.
+   *
+   * @param {CreateStreamInput} input - Stream parameters to estimate fee for
+   * @returns {Promise<FeeEstimate | null>} Fee estimate, or null if unavailable
+   */
   const estimateFee = useCallback(
     async (input: CreateStreamInput): Promise<FeeEstimate | null> => {
       if (!isConnected || !address) return null;
@@ -139,6 +261,21 @@ export function useContract() {
     [address, isConnected, network],
   );
 
+  /**
+   * Withdraw from all streams with unlocked balance in sequence.
+   * Gracefully handles partial failures: continues to next stream on error.
+   * Detects mid-batch wallet disconnections and stops remaining withdrawals.
+   * Fires individual error toasts per failed stream; caller sees aggregate result.
+   * Useful for "Withdraw all" buttons and batch recovery flows.
+   *
+   * @param {StreamData[]} streams - Array of stream objects to check for withdrawable balance
+   * @param {Function} [onProgress] - Optional callback (current, total) fired before each withdrawal attempt
+   * @returns {Promise<WithdrawAllResult>} { succeeded, failed } counts
+   *
+   * @example
+   * const result = await withdrawAll(myStreams, (i, total) => console.log(`${i}/${total}`))
+   * if (result.failed > 0) { console.warn(`${result.failed} streams failed`) }
+   */
   const withdrawAll = useCallback(
     async (
       streams: StreamData[],
@@ -169,8 +306,12 @@ export function useContract() {
         onProgress?.(i + 1, withdrawable.length);
         const s = withdrawable[i];
         try {
-          const amount = getWithdrawableAmount(s, now);
-          await withdrawFromStream(s.id, amount, network);
+          // `withdrawMaxFromStream` re-fetches the stream and computes the
+          // amount right before submitting, instead of reusing `now`/`s`
+          // from the top of this loop — those get staler with every prior
+          // iteration's confirmation wait, which used to leave dust behind
+          // (#1146).
+          await withdrawMaxFromStream(s.id, network);
           succeeded++;
         } catch (err) {
           failed++;
@@ -199,6 +340,8 @@ export function useContract() {
     createStreamsBatch,
     withdraw,
     cancel,
+    partialCancel,
+    cleanup,
     withdrawAll,
     estimateFee,
     pending,

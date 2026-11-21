@@ -7,7 +7,16 @@ import { test, expect, type Page } from '@playwright/test'
 // the same convention e2e/visual.spec.ts uses for dashboard screenshots.
 const DEMO_ADDRESS = 'GBQ2X7KFY3R4VZ6N5LJ7WQH3M2PD8C9SAUTV4EXAMPLE0WALLET00ADDR'
 
+// The mock streams in lib/mock-data.ts are seeded with startTime offsets
+// relative to Date.now() at module-evaluation time (e.g. "now - 90 days").
+// Without a frozen clock, which streams fall inside a given range depends on
+// exactly when the test happens to run. Freeze the clock with Playwright's
+// `page.clock` so the seeded offsets — and therefore the expected counts
+// below — are deterministic regardless of the current date.
+const FIXED_NOW = new Date('2025-06-15T12:00:00.000Z')
+
 async function withWallet(page: Page, address: string = DEMO_ADDRESS) {
+  await page.clock.install({ time: FIXED_NOW })
   await page.addInitScript((walletAddress) => {
     localStorage.setItem('walletId', 'xbull')
     ;(window as any).xBullSDK = {
@@ -87,11 +96,19 @@ test.describe('Analytics page — chart rendering with mock data', () => {
     await expect(activeCard.locator('text=3')).toBeVisible()
   })
 
-  test('renders the "Streams created over time" chart with data bars', async ({
+  test('renders the "Streaming volume over time" chart with data', async ({
     page,
   }) => {
-    await expect(page.locator('text=Streams created over time')).toBeVisible()
+    await expect(page.locator('text=Streaming volume over time')).toBeVisible()
     await expect(page.locator('text=No stream activity yet for this period.')).not.toBeVisible()
+  })
+
+  test('renders the stream status breakdown and top recipients sections', async ({
+    page,
+  }) => {
+    await expect(page.locator('text=Stream status breakdown')).toBeVisible()
+    await expect(page.locator('text=Top recipients')).toBeVisible()
+    await expect(page.locator('text=Unlock progress')).toBeVisible()
   })
 
   test('renders "Top tokens by volume" with the seeded token symbols', async ({
