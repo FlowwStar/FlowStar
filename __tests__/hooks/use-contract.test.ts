@@ -26,6 +26,8 @@ vi.mock('@/lib/contract', () => ({
   withdrawFromStream: vi.fn(),
   cancelStream: vi.fn(),
   estimateCreateStreamFee: vi.fn(),
+  topUpStream: vi.fn(),
+  transferStream: vi.fn(),
 }))
 
 import {
@@ -33,6 +35,8 @@ import {
   withdrawFromStream,
   cancelStream,
   estimateCreateStreamFee,
+  topUpStream,
+  transferStream,
 } from '@/lib/contract'
 import { useContract } from '@/hooks/use-contract'
 import type { CreateStreamInput, StreamData } from '@/types/stream'
@@ -83,6 +87,8 @@ describe('useContract', () => {
     vi.mocked(createStream).mockResolvedValue('new-stream-id')
     vi.mocked(withdrawFromStream).mockResolvedValue('tx-hash-withdraw')
     vi.mocked(cancelStream).mockResolvedValue('tx-hash-cancel')
+    vi.mocked(topUpStream).mockResolvedValue('tx-hash-topup')
+    vi.mocked(transferStream).mockResolvedValue('tx-hash-transfer')
     vi.mocked(estimateCreateStreamFee).mockResolvedValue({
       minFee: 100_000,
       estimatedFee: 115_000,
@@ -181,6 +187,94 @@ describe('useContract', () => {
       await result.current.cancel('55')
     })
     expect(cancelStream).toHaveBeenCalledWith('55', 'testnet', expect.any(Function))
+  })
+
+  // ── topUp (issue #1135) ────────────────────────────────────────────────────
+
+  it('calls topUpStream with correct id, amount, address and network', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.topUp('7', 500n)
+    })
+    expect(topUpStream).toHaveBeenCalledWith('7', 500n, 'GSENDER', 'testnet', expect.any(Function))
+  })
+
+  it('returns the topUpStream transaction hash', async () => {
+    const { result } = renderHook(() => useContract())
+    let hash: string | null | undefined
+    await act(async () => {
+      hash = await result.current.topUp('7', 500n)
+    })
+    expect(hash).toBe('tx-hash-topup')
+  })
+
+  it('sets error on topUp failure', async () => {
+    vi.mocked(topUpStream).mockRejectedValueOnce(new Error('StreamEnded'))
+    const { result } = renderHook(() => useContract())
+    let caught: unknown
+    await act(async () => {
+      try {
+        await result.current.topUp('7', 500n)
+      } catch (err) {
+        caught = err
+      }
+    })
+    expect(caught).toBeInstanceOf(Error)
+    expect(result.current.error).toBeTruthy()
+  })
+
+  it('throws when wallet not connected on topUp', async () => {
+    mockUseWallet.mockReturnValue({ address: null, isConnected: false } as any)
+    const { result } = renderHook(() => useContract())
+    await expect(act(() => result.current.topUp('7', 500n))).rejects.toThrow('Connect a wallet')
+  })
+
+  // ── transferStream (issue #1137) ──────────────────────────────────────────
+
+  it('calls transferStream with correct id, newRecipient, address and network', async () => {
+    const { result } = renderHook(() => useContract())
+    await act(async () => {
+      await result.current.transferStream('7', 'GNEWRECIPIENT')
+    })
+    expect(transferStream).toHaveBeenCalledWith(
+      '7',
+      'GNEWRECIPIENT',
+      'GSENDER',
+      'testnet',
+      expect.any(Function),
+    )
+  })
+
+  it('returns the transferStream transaction hash', async () => {
+    const { result } = renderHook(() => useContract())
+    let hash: string | null | undefined
+    await act(async () => {
+      hash = await result.current.transferStream('7', 'GNEWRECIPIENT')
+    })
+    expect(hash).toBe('tx-hash-transfer')
+  })
+
+  it('sets error on transferStream failure', async () => {
+    vi.mocked(transferStream).mockRejectedValueOnce(new Error('SameRecipient'))
+    const { result } = renderHook(() => useContract())
+    let caught: unknown
+    await act(async () => {
+      try {
+        await result.current.transferStream('7', 'GNEWRECIPIENT')
+      } catch (err) {
+        caught = err
+      }
+    })
+    expect(caught).toBeInstanceOf(Error)
+    expect(result.current.error).toBeTruthy()
+  })
+
+  it('throws when wallet not connected on transferStream', async () => {
+    mockUseWallet.mockReturnValue({ address: null, isConnected: false } as any)
+    const { result } = renderHook(() => useContract())
+    await expect(
+      act(() => result.current.transferStream('7', 'GNEWRECIPIENT')),
+    ).rejects.toThrow('Connect a wallet')
   })
 
   // ── estimateFee ────────────────────────────────────────────────────────────

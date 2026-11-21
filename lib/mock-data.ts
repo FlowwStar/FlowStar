@@ -1,6 +1,6 @@
 import type { CreateStreamInput, StreamData } from '@/types/stream'
 import { NETWORKS } from '@/lib/stellar'
-import { SECONDS_PER_DAY } from '@/lib/stream-utils'
+import { SECONDS_PER_DAY, getUnlockedAmount } from '@/lib/stream-utils'
 
 /**
  * In-memory mock store standing in for on-chain state.
@@ -153,6 +153,45 @@ export const mockStore = {
   },
   cancel(id: string) {
     streams = streams.map((s) => (s.id === id ? { ...s, cancelled: true } : s))
+    emit()
+  },
+  /**
+   * Issue #1135: mirrors the contract's `top_up` — adds `amount` to
+   * `depositedAmount` and recalculates the unlock rate over the remaining
+   * duration, same as `top_up` in contracts/streaming/src/lib.rs.
+   */
+  topUp(id: string, amount: bigint) {
+    streams = streams.map((s) => {
+      if (s.id !== id) return s
+      const nowSec = BigInt(Math.floor(Date.now() / 1000))
+      const depositedAmount = s.depositedAmount + amount
+      const remainingSeconds = s.endTime > nowSec ? s.endTime - nowSec : 0n
+
+      if (nowSec >= s.cliffTime) {
+        const alreadyUnlocked = getUnlockedAmount(s, Number(nowSec))
+        const remaining = depositedAmount - alreadyUnlocked
+        const newRate = remainingSeconds > 0n ? remaining / remainingSeconds : 0n
+        return {
+          ...s,
+          depositedAmount,
+          cliffTime: nowSec,
+          cliffAmount: alreadyUnlocked,
+          startTime: nowSec,
+          linearAmount: remaining,
+          duration: remainingSeconds,
+          amountPerSecond: newRate,
+        }
+      }
+
+      const linearAmount = s.linearAmount + amount
+      const newRate = s.duration > 0n ? linearAmount / s.duration : 0n
+      return { ...s, depositedAmount, linearAmount, amountPerSecond: newRate }
+    })
+    emit()
+  },
+  /** Issue #1137: mirrors the contract's `transfer_stream`. */
+  transfer(id: string, newRecipient: string) {
+    streams = streams.map((s) => (s.id === id ? { ...s, recipient: newRecipient } : s))
     emit()
   },
   /** Streams that are terminal — cancelled, or fully withdrawn past end_time. */
