@@ -6,7 +6,9 @@ import {
   createStream as createStreamCall,
   createStreamsBatch as createStreamsBatchCall,
   withdrawFromStream,
+  withdrawMaxFromStream,
   cancelStream as cancelStreamCall,
+  partialCancelStream as partialCancelStreamCall,
   cleanupStream as cleanupStreamCall,
   updateStreamMetadata as updateStreamMetadataCall,
   transferStream as transferStreamCall,
@@ -81,6 +83,7 @@ function showErrorToast(err: unknown, toastId?: string | number) {
  * @returns {Function} createStreamsBatch - Create multiple streams in one atomic transaction (up to 20)
  * @returns {Function} withdraw - Withdraw unlocked funds from a stream by ID
  * @returns {Function} cancel - Cancel a stream; sender gets remainder, recipient keeps unlocked
+ * @returns {Function} partialCancel - Reclaim part of a stream's locked balance back to the sender; stream stays active
  * @returns {Function} cleanup - Permanently remove a completed or cancelled stream from history
  * @returns {Function} withdrawAll - Withdraw from multiple streams in sequence, with progress tracking
  * @returns {Function} estimateFee - Estimate the fee for creating a stream (returns null if wallet disconnected)
@@ -242,6 +245,21 @@ export function useContract() {
     (id: string, newRecipient: string) =>
       run("Transfer stream", (onStep) =>
         transferStreamCall(id, newRecipient, network, onStep),
+   * Partially cancel a stream. Only the sender can call this.
+   * Reclaims `amount` of the stream's still-locked (unvested) balance back
+   * to the sender while leaving the stream active — the recipient keeps
+   * all previously unlocked tokens and the remainder keeps streaming.
+   * Emits toast notifications and invalidates cache on success.
+   *
+   * @param {string} id - Stream ID to partially cancel
+   * @param {bigint} amount - Amount of the locked balance to reclaim (must not exceed it)
+   * @returns {Promise<void>} Resolves when the partial cancellation is confirmed
+   * @throws {Error} "Not sender" if caller is not the original sender, or "Invalid amount" if amount exceeds the locked balance
+   */
+  const partialCancel = useCallback(
+    (id: string, amount: bigint) =>
+      run("Reclaim funds", (onStep) =>
+        partialCancelStreamCall(id, amount, network, onStep),
       ),
     [run, network],
   );
@@ -329,8 +347,12 @@ export function useContract() {
         onProgress?.(i + 1, withdrawable.length);
         const s = withdrawable[i];
         try {
-          const amount = getWithdrawableAmount(s, now);
-          await withdrawFromStream(s.id, amount, network);
+          // `withdrawMaxFromStream` re-fetches the stream and computes the
+          // amount right before submitting, instead of reusing `now`/`s`
+          // from the top of this loop — those get staler with every prior
+          // iteration's confirmation wait, which used to leave dust behind
+          // (#1146).
+          await withdrawMaxFromStream(s.id, network);
           succeeded++;
         } catch (err) {
           failed++;
@@ -359,6 +381,7 @@ export function useContract() {
     createStreamsBatch,
     withdraw,
     cancel,
+    partialCancel,
     cleanup,
     updateMetadata,
     transfer,

@@ -57,6 +57,7 @@ import {
   getStreamProgress,
   getUnlockedAmount,
   getWithdrawableAmount,
+  getLockedAmount,
   formatTokenAmount,
   formatDateTime,
   parseTokenAmount,
@@ -65,6 +66,8 @@ import {
   SECONDS_PER_DAY,
 } from '@/lib/stream-utils'
 import { explorerUrl, validateStellarAddress } from '@/lib/stellar'
+import type { StreamData } from '@/types/stream'
+import { explorerUrl } from '@/lib/stellar'
 import { useNetwork } from '@/components/providers/network-provider'
 import { useAutoWithdraw } from '@/hooks/use-auto-withdraw'
 import { useTokenPrice } from '@/hooks/use-token-price'
@@ -77,6 +80,21 @@ import { isFederationAddress, resolveFederationAddress } from '@/lib/federation'
 import { QrShareDialog } from '@/components/streams/qr-share-dialog'
 import { streamDetailCopy as copy } from '@/lib/copy/stream-detail'
 import type { StreamMetadata } from '@/types/stream'
+
+/**
+ * Parses user-typed amount input, treating anything `parseTokenAmount`
+ * rejects (negative, malformed, e.g. a lone "-" mid-typing) as `0n` instead
+ * of throwing — these inputs are live-typed values, not submitted forms, so
+ * a bad keystroke should fall back to "invalid amount" (handled by the
+ * existing `parsed <= 0n` checks) rather than crash the component.
+ */
+function safeParseTokenAmount(value: string, decimals: number): bigint {
+  try {
+    return parseTokenAmount(value, decimals)
+  } catch {
+    return 0n
+  }
+}
 
 // ─── Address copy button ────────────────────────────────────────────────────
 
@@ -165,7 +183,7 @@ function WithdrawDialog({
   const [showFeeEstimate, setShowFeeEstimate] = useState(false)
 
   const max = formatTokenAmount(withdrawable, token.decimals, token.decimals)
-  const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
+  const parsed = inputAmount ? safeParseTokenAmount(inputAmount, token.decimals) : 0n
   const invalid = parsed <= 0n || parsed > withdrawable
 
   // Calculate estimated fees
@@ -350,6 +368,139 @@ function CancelDialog({
         loading={false}
       />
     </>
+  )
+}
+
+// ─── Reclaim funds (partial cancel) dialog ─────────────────────────────────
+
+// Issue #1139/#1140: mirrors the contract's `partial_cancel` re-basing of the
+// unlock curve (contracts/streaming/src/lib.rs) so the dialog can preview the
+// new per-second rate before the sender submits the transaction.
+function previewRateAfterReclaim(
+  stream: StreamData,
+  amount: bigint,
+  nowSeconds: number,
+): bigint {
+  if (amount <= 0n) return stream.amountPerSecond
+  const now = BigInt(nowSeconds)
+  const unlocked = getUnlockedAmount(stream, nowSeconds)
+  const depositedAmount = stream.depositedAmount - amount
+  const remainingSeconds = stream.endTime - now
+
+  if (now >= stream.cliffTime) {
+    const remaining = depositedAmount - unlocked
+    return remainingSeconds > 0n ? remaining / remainingSeconds : 0n
+  }
+  const linearAmount = stream.linearAmount - amount
+  return stream.duration > 0n ? linearAmount / stream.duration : 0n
+}
+
+function ReclaimDialog({
+  open,
+  onClose,
+  streamId,
+  stream,
+  nowSeconds,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  stream: StreamData
+  nowSeconds: number
+}) {
+  const { partialCancel, pending, error } = useContract()
+  const { network } = useNetwork()
+  const [inputAmount, setInputAmount] = useState('')
+
+  const token = stream.token
+  const locked = getLockedAmount(stream, nowSeconds)
+  const max = formatTokenAmount(locked, token.decimals, token.decimals)
+  const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
+  const invalid = parsed <= 0n || parsed > locked
+
+  const newRate =
+    !invalid && parsed > 0n ? previewRateAfterReclaim(stream, parsed, nowSeconds) : null
+  const newRateFormatted =
+    newRate !== null ? formatRate(newRate, token.decimals, token.symbol).best : null
+
+  async function handleReclaim() {
+    try {
+      const hash = await partialCancel(streamId, parsed)
+      toast.success(copy.reclaimDialog.successToastTitle, {
+        description: copy.reclaimDialog.successToastDescription(
+          formatTokenAmount(parsed, token.decimals, 4),
+          token.symbol,
+        ),
+        ...(hash && {
+          action: {
+            label: copy.reclaimDialog.viewTransactionAction,
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
+          },
+        }),
+      })
+      onClose()
+      setInputAmount('')
+    } catch {
+      // error shown inline via useContract
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{copy.reclaimDialog.title}</DialogTitle>
+          <DialogDescription>
+            {copy.reclaimDialog.maxPrefix}{' '}
+            <span className="font-mono font-medium text-foreground">
+              {max} {token.symbol}
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-1">
+          <div className="space-y-1.5">
+            <Label htmlFor="reclaim-amount">{copy.reclaimDialog.amountLabel(token.symbol)}</Label>
+            <div className="flex gap-2">
+              <Input
+                id="reclaim-amount"
+                type="number"
+                min="0"
+                step="any"
+                placeholder={copy.reclaimDialog.amountPlaceholder}
+                value={inputAmount}
+                onChange={(e) => setInputAmount(e.target.value)}
+                aria-invalid={!!inputAmount && invalid}
+              />
+              <Button type="button" variant="secondary" size="sm" onClick={() => setInputAmount(max)}>
+                {copy.reclaimDialog.maxButton}
+              </Button>
+            </div>
+            {inputAmount && invalid && (
+              <p className="text-xs text-destructive">{copy.reclaimDialog.exceedsBalance}</p>
+            )}
+          </div>
+
+          {newRateFormatted && (
+            <div className="rounded-lg bg-secondary/50 p-3">
+              <p className="text-xs text-muted-foreground">
+                {copy.reclaimDialog.newRateLabel}{' '}
+                <span className="font-mono text-foreground">{newRateFormatted}</span>
+              </p>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={pending}>
+              {copy.reclaimDialog.cancelButton}
+            </Button>
+            <Button onClick={handleReclaim} disabled={pending || invalid || !inputAmount}>
+              {pending ? copy.reclaimDialog.reclaiming : copy.reclaimDialog.reclaimButton}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -799,7 +950,7 @@ function AutoWithdrawSection({ stream }: { stream: import('@/types/stream').Stre
               onChange={(e) => {
                 setMinDisplay(e.target.value)
                 const raw = e.target.value
-                  ? parseTokenAmount(e.target.value, stream.token.decimals).toString()
+                  ? safeParseTokenAmount(e.target.value, stream.token.decimals).toString()
                   : '0'
                 updateSettings({ minAmountRaw: raw })
               }}
@@ -822,7 +973,7 @@ function AutoWithdrawSection({ stream }: { stream: import('@/types/stream').Stre
               onChange={(e) => {
                 setMaxDisplay(e.target.value)
                 const raw = e.target.value
-                  ? parseTokenAmount(e.target.value, stream.token.decimals).toString()
+                  ? safeParseTokenAmount(e.target.value, stream.token.decimals).toString()
                   : '0'
                 updateSettings({ maxSafetyLimitRaw: raw })
               }}
@@ -958,7 +1109,7 @@ function TtlWarning({
 
 function RateDisplay({ stream }: { stream: import('@/types/stream').StreamData }) {
   const [expanded, setExpanded] = useState(false)
-  const rate = formatRate(stream.amountPerSecond, stream.token.decimals, stream.token.symbol)
+  const rate = formatRate(stream.linearAmount, stream.duration, stream.token.decimals, stream.token.symbol)
 
   return (
     <div className="text-right">
@@ -1134,6 +1285,7 @@ function StreamDetail({ id }: { id: string }) {
   const now = useNow(1000)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [reclaimOpen, setReclaimOpen] = useState(false)
   const [cleanupOpen, setCleanupOpen] = useState(false)
   const [editMetadataOpen, setEditMetadataOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
@@ -1170,6 +1322,15 @@ function StreamDetail({ id }: { id: string }) {
   const isSender = address === stream.sender
   const canWithdraw = isRecipient && !stream.cancelled && withdrawable > 0n
   const canCancel = isSender && !stream.cancelled && status !== 'completed' && !isCancelling
+  // Issue #1140: reclaim ("partial cancel") is only meaningful while there's
+  // still a locked balance to pull back and the stream hasn't been
+  // fully/cancel-terminated.
+  const canPartialCancel =
+    isSender &&
+    !stream.cancelled &&
+    status !== 'completed' &&
+    !isCancelling &&
+    getLockedAmount(stream, now) > 0n
   // Issue #689: eligible for cleanup once terminal — cancelled, or fully
   // withdrawn past end_time — mirroring the contract's own eligibility check.
   const canCleanup =
@@ -1338,6 +1499,7 @@ function StreamDetail({ id }: { id: string }) {
 
         {/* Actions */}
         {(canWithdraw || canCancel || canCleanup || canTransfer || isSender) && (
+        {(canWithdraw || canCancel || canPartialCancel || canCleanup || isSender) && (
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
             {canWithdraw && (
               <Button
@@ -1365,6 +1527,9 @@ function StreamDetail({ id }: { id: string }) {
             {canEditDetails && (
               <Button variant="outline" onClick={() => setEditMetadataOpen(true)} disabled={paused}>
                 {copy.header.editDetailsButton}
+            {canPartialCancel && (
+              <Button variant="outline" onClick={() => setReclaimOpen(true)}>
+                {copy.header.reclaimFundsButton}
               </Button>
             )}
             <DownloadReceiptButton stream={stream} />
@@ -1504,6 +1669,13 @@ function StreamDetail({ id }: { id: string }) {
         token={stream.token}
       />
       <CancelDialog open={cancelOpen} onClose={() => setCancelOpen(false)} streamId={stream.id} />
+      <ReclaimDialog
+        open={reclaimOpen}
+        onClose={() => setReclaimOpen(false)}
+        streamId={stream.id}
+        stream={stream}
+        nowSeconds={now}
+      />
       <CleanupDialog
         open={cleanupOpen}
         onClose={() => setCleanupOpen(false)}

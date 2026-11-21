@@ -1,6 +1,6 @@
 import type { CreateStreamInput, StreamData, StreamMetadata } from '@/types/stream'
 import { NETWORKS } from '@/lib/stellar'
-import { SECONDS_PER_DAY } from '@/lib/stream-utils'
+import { SECONDS_PER_DAY, getUnlockedAmount } from '@/lib/stream-utils'
 
 /**
  * In-memory mock store standing in for on-chain state.
@@ -163,6 +163,59 @@ export const mockStore = {
   /** Issue #1138: reassign a stream's recipient. */
   transfer(id: string, newRecipient: string) {
     streams = streams.map((s) => (s.id === id ? { ...s, recipient: newRecipient } : s))
+  /**
+   * Issue #1139/#1140: reclaim `amount` of a stream's still-locked balance
+   * back to the sender while leaving the stream active. Mirrors the
+   * `partial_cancel` contract entrypoint (contracts/streaming/src/lib.rs):
+   * reduces `depositedAmount` by `amount`, then re-bases the unlock curve
+   * from `now` so the recipient's already-unlocked amount is preserved and
+   * the remaining balance unlocks linearly over the time left.
+   */
+  partialCancel(id: string, amount: bigint, nowSeconds: number = Math.floor(Date.now() / 1000)) {
+    const stream = streams.find((s) => s.id === id)
+    if (!stream) throw new Error('Stream not found')
+    if (stream.cancelled) throw new Error('Stream is cancelled')
+
+    const now = BigInt(nowSeconds)
+    if (now >= stream.endTime) throw new Error('Stream has ended')
+
+    const unlocked = getUnlockedAmount(stream, nowSeconds)
+    const locked = stream.depositedAmount - unlocked
+    if (amount <= 0n || amount > locked) throw new Error('Invalid amount')
+
+    const depositedAmount = stream.depositedAmount - amount
+    const remainingSeconds = stream.endTime - now
+
+    let updated: StreamData
+    if (now >= stream.cliffTime) {
+      const remaining = depositedAmount - unlocked
+      const newRate = remainingSeconds > 0n ? remaining / remainingSeconds : 0n
+      if (newRate === 0n && remaining > 0n) throw new Error('Resulting rate is zero')
+
+      updated = {
+        ...stream,
+        depositedAmount,
+        cliffTime: now,
+        cliffAmount: unlocked,
+        startTime: now,
+        linearAmount: remaining,
+        duration: remainingSeconds,
+        amountPerSecond: newRate,
+      }
+    } else {
+      const linearAmount = stream.linearAmount - amount
+      const newRate = stream.duration > 0n ? linearAmount / stream.duration : 0n
+      if (newRate === 0n && linearAmount > 0n) throw new Error('Resulting rate is zero')
+
+      updated = {
+        ...stream,
+        depositedAmount,
+        linearAmount,
+        amountPerSecond: newRate,
+      }
+    }
+
+    streams = streams.map((s) => (s.id === id ? updated : s))
     emit()
   },
   /** Streams that are terminal — cancelled, or fully withdrawn past end_time. */

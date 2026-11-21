@@ -26,4 +26,14 @@ export const dashboardCopy = {
     receiving: (count: number) => `Receiving (${count})`,
     sending: (count: number) => `Sending (${count})`,
   },
+  // Issue #1145: surfaces recurring-stream rules (saved via the "Recurring
+  // cadence" option on the create form) that are due to renew soon, with a
+  // way to act on them immediately instead of waiting for the schedule.
+  upcomingRenewals: {
+    title: "Upcoming renewals",
+    description: "Recurring streams scheduled to run again soon.",
+    nextRun: (dateStr: string) => `Next renewal ${dateStr}`,
+    createNow: "Create now",
+    removeAriaLabel: "Remove this renewal reminder",
+  },
 }

@@ -217,14 +217,21 @@ export function CreateForm() {
     accountId: string
   } | null>(null)
 
+  // Issue #1164: `set` is a stable-per-render helper, but the effect below
+  // needs to call it without listing it as a dependency (which would
+  // re-run the effect on every render). Keep a ref to the latest `set`.
+  const setFieldRef = useRef(set)
+  setFieldRef.current = set
+
   useEffect(() => {
     const raw = recipientInput.trim()
+    const setField = setFieldRef.current
 
     if (!raw) {
       setFederationStatus('idle')
       setFederationError(null)
       setFederationResolved(null)
-      set('recipient', '')
+      setField('recipient', '')
       return
     }
 
@@ -232,7 +239,7 @@ export function CreateForm() {
       setFederationStatus('idle')
       setFederationError(null)
       setFederationResolved(null)
-      set('recipient', raw)
+      setField('recipient', raw)
       return
     }
 
@@ -248,7 +255,7 @@ export function CreateForm() {
             accountId: result.accountId,
           })
           setFederationStatus('resolved')
-          set('recipient', result.accountId)
+          setField('recipient', result.accountId)
         })
         .catch((err) => {
           if (cancelled) return
@@ -257,7 +264,7 @@ export function CreateForm() {
           setFederationError(
             err instanceof Error ? err.message : copy.errors.federationLookupFailed,
           )
-          set('recipient', '')
+          setField('recipient', '')
         })
     }, 500)
 
@@ -265,7 +272,6 @@ export function CreateForm() {
       cancelled = true
       clearTimeout(timer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipientInput])
 
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
@@ -319,15 +325,16 @@ export function CreateForm() {
   }
 
   // Fetch balance when token or wallet changes
+  const selectedTokenAddress = selectedToken?.address
   useEffect(() => {
-    if (!walletAddress || !selectedToken) return
+    if (!walletAddress || !selectedTokenAddress) return
     setTokenBalance(null)
     setBalanceLoading(true)
-    getTokenBalance(selectedToken.address, walletAddress)
+    getTokenBalance(selectedTokenAddress, walletAddress)
       .then(setTokenBalance)
       .catch(() => setTokenBalance(null))
       .finally(() => setBalanceLoading(false))
-  }, [selectedToken?.address, walletAddress])
+  }, [selectedTokenAddress, walletAddress])
 
   // Issue #103: Check recipient account info when address changes
   useEffect(() => {
@@ -369,17 +376,21 @@ export function CreateForm() {
       }),
   )
 
-  // Check for existing draft on first mount
+  // Check for existing draft on first mount.
+  // Issue #1164: `loadDraft` is recreated by `useFormDraft` on every render,
+  // so keep a ref to the latest version and only run this once on mount.
+  const loadDraftRef = useRef(loadDraft)
+  loadDraftRef.current = loadDraft
+
   useEffect(() => {
     if (!isFirstMount.current) return
     isFirstMount.current = false
     clearExpiredDrafts()
-    const entry = loadDraft()
+    const entry = loadDraftRef.current()
     if (entry) {
       setDraftSavedAt(entry.savedAt)
       setShowDraftBanner(true)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function handleCustomTokenLookup() {
@@ -467,8 +478,11 @@ export function CreateForm() {
     if (!form.amount || isNaN(Number(form.amount)) || Number(form.amount) <= 0) {
       newErrors.amount = copy.errors.invalidAmount
     }
-    // Issue #29: validate against balance
-    if (form.amount && tokenBalance !== null) {
+    // Issue #29: validate against balance. Skipped when `newErrors.amount` is
+    // already set above (empty/NaN/negative) — parseTokenAmount now rejects
+    // that input instead of silently mis-parsing it (pre-existing: it could
+    // already throw a raw SyntaxError here for non-numeric input).
+    if (form.amount && !newErrors.amount && tokenBalance !== null) {
       const parsed = parseTokenAmount(form.amount, selectedToken.decimals)
       if (parsed > tokenBalance) {
         newErrors.amount = copy.errors.amountExceedsBalance(
@@ -490,7 +504,14 @@ export function CreateForm() {
       if (!form.cliffDate || cliff < start || cliff > end) {
         newErrors.cliffDate = copy.errors.cliffOutOfRange
       }
-      if (form.cliffAmount && Number(form.cliffAmount) > Number(form.amount)) {
+      if (
+        form.cliffAmount &&
+        (isNaN(Number(form.cliffAmount)) || Number(form.cliffAmount) < 0)
+      ) {
+        // Guards parseTokenAmount in buildInput() below, which now rejects
+        // negative/non-numeric input instead of silently mis-parsing it.
+        newErrors.cliffAmount = copy.errors.invalidAmount
+      } else if (form.cliffAmount && Number(form.cliffAmount) > Number(form.amount)) {
         newErrors.cliffAmount = copy.errors.cliffExceedsTotal
       }
     }
@@ -518,7 +539,7 @@ export function CreateForm() {
     }
   }, [form, selectedToken])
 
-  async function handleEstimateFee() {
+  const handleEstimateFee = useCallback(async () => {
     if (!validate()) return
     setEstimatingFee(true)
     setFeeEstimate(null)
@@ -532,7 +553,9 @@ export function CreateForm() {
     } finally {
       setEstimatingFee(false)
     }
-  }
+    // `validate` is a plain function recreated each render; it only reads
+    // current state, so it is intentionally not listed here.
+  }, [estimateFee, buildInput])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -597,10 +620,10 @@ export function CreateForm() {
   }
 
   const input = showTxPreview || showConfirmation ? buildInput() : null
-  const durationSeconds =
-    (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000
-  const amountPerSecond =
-    input && durationSeconds > 0 ? input.totalAmount / BigInt(Math.floor(durationSeconds)) : 0n
+  // Mirrors the contract's linearAmount/duration split (total minus the
+  // cliff lump sum, over the full start→end window) — see formatRate's docs.
+  const linearAmount = input ? input.totalAmount - input.cliffAmount : 0n
+  const duration = input ? input.endTime - input.startTime : 0n
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -1347,7 +1370,8 @@ export function CreateForm() {
           endTime={input.endTime}
           cliffTime={input.cliffTime}
           cliffAmount={input.cliffAmount}
-          amountPerSecond={amountPerSecond}
+          linearAmount={linearAmount}
+          duration={duration}
         />
       )}
 

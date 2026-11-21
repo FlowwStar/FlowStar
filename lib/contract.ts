@@ -10,6 +10,8 @@ import {
 import { type NetworkName, getNetworkConfig, getServer, getAllTokens } from '@/lib/stellar'
 import { mockStore } from '@/lib/mock-data'
 import type { CreateStreamInput, StreamData, StreamMetadata, TokenInfo } from '@/types/stream'
+import { getWithdrawableAmount } from '@/lib/stream-utils'
+import type { CreateStreamInput, StreamData, TokenInfo } from '@/types/stream'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -712,6 +714,32 @@ export async function withdrawFromStream(
 }
 
 /**
+ * Withdraw everything currently available from stream `id` — "withdraw all" /
+ * auto-withdraw's `withdrawMax` wrapper around {@link withdrawFromStream}.
+ *
+ * Fetches the stream fresh and computes the withdrawable amount from that
+ * just-fetched snapshot, rather than reusing a value a caller computed
+ * earlier (e.g. at render time, or earlier in a batch loop). That earlier
+ * value is always a little stale by the time the transaction is built —
+ * more unlocks on-chain in the meantime — which left dust behind on every
+ * "withdraw all" (#1146). Resolves to `null` with no transaction when
+ * nothing is withdrawable.
+ */
+export async function withdrawMaxFromStream(
+  id: string,
+  network: NetworkName = 'testnet',
+  onStep?: (step: TxStep) => void,
+): Promise<string | null> {
+  const stream = await fetchStream(network, id)
+  if (!stream) throw new Error('Stream not found')
+
+  const amount = getWithdrawableAmount(stream)
+  if (amount <= 0n) return null
+
+  return withdrawFromStream(id, amount, network, onStep)
+}
+
+/**
  * Cancel stream `id`: funds unlocked so far go to the recipient and the
  * still-locked remainder is refunded to the sender.
  *
@@ -776,6 +804,8 @@ export async function isPaused(network: NetworkName = 'testnet'): Promise<boolea
 /**
  * Update a stream's metadata (name, category, memo). Unlike at creation, the
  * sender may call this at any time for the life of the stream.
+ * Partially cancel stream `id`: reclaims `amount` of the still-locked
+ * (unvested) balance back to the sender while leaving the stream active.
  *
  * Live: fetches the stream first and signs as its sender; throws
  * `Stream not found` if it can't be loaded. Returns the transaction hash.
@@ -829,6 +859,11 @@ export async function updateStreamMetadata(
 export async function transferStream(
   id: string,
   newRecipient: string,
+ * Mock mode (no `streamContractId` configured for `network`): waits ~700ms, updates the mock store and returns `null`.
+ */
+export async function partialCancelStream(
+  id: string,
+  amount: bigint,
   network: NetworkName = 'testnet',
   onStep?: (step: TxStep) => void,
 ): Promise<string | null> {
@@ -838,6 +873,7 @@ export async function transferStream(
   if (isMockMode) {
     await new Promise((r) => setTimeout(r, 700))
     mockStore.transfer(id, newRecipient)
+    mockStore.partialCancel(id, amount)
     return null
   }
   const stream = await fetchStream(network, id)
@@ -848,6 +884,9 @@ export async function transferStream(
     'transfer_stream',
     [nativeToScVal(BigInt(id), { type: 'u64' }), new Address(newRecipient).toScVal()],
     stream.recipient,
+    'partial_cancel',
+    [nativeToScVal(BigInt(id), { type: 'u64' }), nativeToScVal(amount, { type: 'i128' })],
+    stream.sender,
     config.streamContractId,
     onStep,
   )

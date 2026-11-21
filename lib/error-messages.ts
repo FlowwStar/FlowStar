@@ -197,9 +197,9 @@ const ERROR_PATTERNS: Array<{
   {
     pattern: /Error\(Contract,\s*#?21\)/,
     mapped: {
-      message: 'Stream start time cannot be in the past',
-      suggestion: 'Choose a start time in the future. Backdating a stream is not allowed.',
-      category: 'user',
+      message: 'Start time is in the past',
+      suggestion: 'Pick a start time a few minutes from now.',
+      category: 'contract',
     },
   },
 

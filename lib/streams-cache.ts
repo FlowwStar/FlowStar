@@ -1,3 +1,4 @@
+import { readJSON, writeJSON } from '@/lib/storage'
 import type { StreamData } from '@/types/stream'
 
 /**
@@ -41,14 +42,7 @@ function reviver(_key: string, value: unknown) {
  *   cached for this key, or the stored value is unreadable/corrupt.
  */
 export function readCachedStreams(network: string, address: string): CachedEntry | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(cacheKey(network, address))
-    if (!raw) return null
-    return JSON.parse(raw, reviver) as CachedEntry
-  } catch {
-    return null
-  }
+  return readJSON<CachedEntry | null>(cacheKey(network, address), null, reviver)
 }
 
 /**
@@ -61,12 +55,8 @@ export function readCachedStreams(network: string, address: string): CachedEntry
  * never throws into the fetch path.
  */
 export function writeCachedStreams(network: string, address: string, streams: StreamData[]) {
-  if (typeof window === 'undefined') return
-  try {
-    const entry: CachedEntry = { streams, fetchedAt: Date.now() }
-    window.localStorage.setItem(cacheKey(network, address), JSON.stringify(entry, replacer))
-  } catch {
-    // Storage may be full or unavailable (private browsing) — caching is
-    // best-effort, never block the live fetch path on it.
-  }
+  const entry: CachedEntry = { streams, fetchedAt: Date.now() }
+  // Storage may be full or unavailable (private browsing) — caching is
+  // best-effort, never block the live fetch path on it.
+  writeJSON(cacheKey(network, address), entry, replacer)
 }
