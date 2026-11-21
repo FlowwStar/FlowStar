@@ -28,6 +28,27 @@ export const streamDetailCopy = {
     viewTransactionAction: 'View transaction',
   },
 
+  // TopUpDialog strings — issue #1136
+  topUpDialog: {
+    title: 'Top up stream',
+    description: 'Add more funds to this stream. The unlock rate recalculates automatically.',
+    amountLabel: (symbol: string) => `Amount to add (${symbol})`,
+    amountPlaceholder: '0.00',
+    availableBalancePrefix: 'Wallet balance:',
+    exceedsBalance: 'Amount exceeds wallet balance',
+    newRateLabel: 'New rate:',
+    estimatedFeeLabel: 'Estimated network fee:',
+    feeShownAgainNote: 'Fee will be shown again before wallet confirmation.',
+    feeConfirmAction: 'top-up',
+    cancelButton: 'Cancel',
+    toppingUp: 'Topping up…',
+    reviewFeesButton: 'Review fees',
+    successToastTitle: 'Top-up successful',
+    successToastDescription: (amount: string, symbol: string) =>
+      `${amount} ${symbol} added to the stream.`,
+    viewTransactionAction: 'View transaction',
+  },
+
   cancelDialog: {
     title: 'Cancel stream',
     description:
@@ -193,6 +214,7 @@ export const streamDetailCopy = {
     endsInLabel: 'Ends in',
     cancellingNotice: 'Cancelling… you can still undo this from the toast.',
     withdrawButton: 'Withdraw',
+    topUpButton: 'Top up',
     cancelStreamButton: 'Cancel stream',
     reclaimFundsButton: 'Reclaim funds',
     duplicateStreamButton: 'Duplicate stream',

@@ -510,19 +510,32 @@ describe('formatTimeAgo', () => {
     expect(formatTimeAgo(NOW - 6 * 86_400_000)).toBe('6d ago')
   })
 
-  it('boundary: 7 days ago falls through to a locale date string', () => {
+  it('boundary: 7 days ago falls through to an en-US date string', () => {
     pinNow()
     const result = formatTimeAgo(NOW - 7 * 86_400_000)
     expect(result).not.toMatch(/ago/)
     expect(result).not.toBe('just now')
     // Should be a date string for the timestamp 7 days before NOW
-    expect(result).toBe(new Date(NOW - 7 * 86_400_000).toLocaleDateString())
+    expect(result).toBe(new Date(NOW - 7 * 86_400_000).toLocaleDateString('en-US'))
   })
 
-  it('returns a locale date string for timestamps older than 7 days', () => {
+  it('returns an en-US date string for timestamps older than 7 days', () => {
     pinNow()
     const ts = NOW - 30 * 86_400_000
-    expect(formatTimeAgo(ts)).toBe(new Date(ts).toLocaleDateString())
+    expect(formatTimeAgo(ts)).toBe(new Date(ts).toLocaleDateString('en-US'))
+  })
+
+  it('issue #1154: pins en-US regardless of the runtime default locale', () => {
+    // Before the fix this called toLocaleDateString() with no locale, which
+    // falls back to the environment/browser locale and can render
+    // differently (e.g. "DD/MM/YYYY") from formatDateTime/formatTokenAmount's
+    // pinned 'en-US'. Compare against an explicit non-US locale to prove the
+    // output no longer depends on the ambient locale.
+    pinNow()
+    const ts = NOW - 10 * 86_400_000
+    const result = formatTimeAgo(ts)
+    expect(result).toBe(new Date(ts).toLocaleDateString('en-US'))
+    expect(result).not.toBe(new Date(ts).toLocaleDateString('en-GB'))
   })
 
   it('returns "just now" for future timestamps', () => {

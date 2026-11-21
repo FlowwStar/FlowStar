@@ -12,6 +12,8 @@ import {
   partialCancelStream,
   simulateCreateStreamPreview,
   withdrawFromStream,
+  topUpStream,
+  transferStream,
   withdrawMaxFromStream,
 } from '@/lib/contract'
 import { getUnlockedAmount } from '@/lib/stream-utils'
@@ -168,6 +170,45 @@ describe('contract mock mode', () => {
 
     await expect(fetchArchivedSentStreamIds('testnet', sender)).resolves.toContain(id)
   })
+
+  // Issue #1135: topUpStream wrapper
+  it('tops up a stream in the mock store, increasing depositedAmount', async () => {
+    const id = await createMockStream()
+
+    const topUpPromise = topUpStream(id, 500n, sender, 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await expect(topUpPromise).resolves.toBeNull()
+
+    await expect(fetchStream('testnet', id)).resolves.toMatchObject({
+      depositedAmount: input.totalAmount + 500n,
+    })
+  })
+
+  it('reports transaction steps while topping up in mock mode', async () => {
+    const id = await createMockStream()
+    const onStep = vi.fn()
+
+    const topUpPromise = topUpStream(id, 500n, sender, 'testnet', onStep)
+    await vi.advanceTimersByTimeAsync(700)
+    await topUpPromise
+
+    // Mock mode never reports steps — only live writes do.
+    expect(onStep).not.toHaveBeenCalled()
+  })
+
+  // Issue #1137: transferStream wrapper
+  it('transfers a stream to a new recipient in the mock store', async () => {
+    const id = await createMockStream()
+    const newRecipient = 'GTEST-NEW-RECIPIENT'
+
+    const transferPromise = transferStream(id, newRecipient, recipient, 'testnet')
+    await vi.advanceTimersByTimeAsync(700)
+    await expect(transferPromise).resolves.toBeNull()
+
+    await expect(fetchStream('testnet', id)).resolves.toMatchObject({
+      recipient: newRecipient,
+    })
+  })
 })
 
 describe('getTokenMetadata', () => {
@@ -216,5 +257,48 @@ describe('getTokenMetadata', () => {
     vi.mocked(getServer).mockReturnValue({ getAccount } as never)
 
     await expect(getTokenMetadata(tokenAddress, 'testnet')).resolves.toBeNull()
+  })
+})
+
+// Issue #1135 / #1137: live-mode (RPC-mocked) coverage for topUpStream and
+// transferStream. Both fetch the stream first via `fetchStream`, which
+// returns `null` on any simulation failure (proven by getTokenMetadata's
+// "returns null when simulation fails" case above) — so a failing
+// simulation is a safe, deterministic way to exercise the live branch
+// without needing a fully-shaped `assembleTransaction` simulation result.
+describe('topUpStream / transferStream (live mode, RPC mocked)', () => {
+  const simulationAccount = new Account(
+    'GBZXN7PIRZGNMHGA7MUUUF4GWPY5AYPV6LY4UV2GL6VJGIQRXFDNMADI',
+    '1',
+  )
+
+  beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET', 'CCONTRACTIDFAKE00000000000000000000000000000000000000')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.clearAllMocks()
+  })
+
+  it('topUpStream throws "Stream not found" when the stream cannot be loaded', async () => {
+    const simulateTransaction = vi.fn().mockResolvedValue({ error: 'HostError: contract trapped' })
+    const getAccount = vi.fn().mockResolvedValue(simulationAccount)
+    vi.mocked(getServer).mockReturnValue({ getAccount, simulateTransaction } as never)
+
+    await expect(topUpStream('42', 500n, sender, 'testnet')).rejects.toThrow('Stream not found')
+    // Never got far enough to call getLatestLedger/approve.
+    expect(simulateTransaction).toHaveBeenCalledTimes(1)
+  })
+
+  it('transferStream throws "Stream not found" when the stream cannot be loaded', async () => {
+    const simulateTransaction = vi.fn().mockResolvedValue({ error: 'HostError: contract trapped' })
+    const getAccount = vi.fn().mockResolvedValue(simulationAccount)
+    vi.mocked(getServer).mockReturnValue({ getAccount, simulateTransaction } as never)
+
+    await expect(transferStream('42', recipient, recipient, 'testnet')).rejects.toThrow(
+      'Stream not found',
+    )
+    expect(simulateTransaction).toHaveBeenCalledTimes(1)
   })
 })

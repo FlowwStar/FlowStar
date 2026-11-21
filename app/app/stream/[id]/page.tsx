@@ -1,5 +1,6 @@
 'use client'
 
+import { use, useState, useEffect } from 'react'
 import { use, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -19,6 +20,7 @@ import {
   Send,
   QrCode,
   Trash2,
+  Plus,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { ConnectWalletButton } from '@/components/layout/connect-wallet-button'
@@ -63,6 +65,7 @@ import {
   parseTokenAmount,
   shortenAddress,
   formatRate,
+  previewTopUpRate,
   SECONDS_PER_DAY,
 } from '@/lib/stream-utils'
 import { explorerUrl, validateStellarAddress } from '@/lib/stellar'
@@ -74,6 +77,9 @@ import { useTokenPrice } from '@/hooks/use-token-price'
 import { UnlockChart } from '@/components/streams/unlock-chart'
 import { StreamTimeline } from '@/components/streams/stream-timeline'
 import { DownloadReceiptButton } from '@/components/streams/download-receipt-button'
+import { bumpStreamTtl, getTokenBalance } from '@/lib/contract'
+import type { StreamData } from '@/types/stream'
+import { getFederationNameForAddress } from '@/lib/address-book'
 import { bumpStreamTtl } from '@/lib/contract'
 import { getFederationNameForAddress, getAddressBookEntries } from '@/lib/address-book'
 import { isFederationAddress, resolveFederationAddress } from '@/lib/federation'
@@ -293,6 +299,164 @@ function WithdrawDialog({
         action={copy.withdrawDialog.feeConfirmAction}
         averageFee={TYPICAL_FEES.withdraw.typical}
         isHighFee={withdrawFeeHigh}
+        loading={pending}
+      />
+    </>
+  )
+}
+
+// ─── Top-up dialog ──────────────────────────────────────────────────────────
+
+// Issue #1136: lets the sender add funds to an active stream from the UI.
+// Depends on the topUpStream() wrapper added for issue #1135.
+function TopUpDialog({
+  open,
+  onClose,
+  streamId,
+  stream,
+}: {
+  open: boolean
+  onClose: () => void
+  streamId: string
+  stream: StreamData
+}) {
+  const { topUp, pending, error } = useContract()
+  const { network } = useNetwork()
+  const { address } = useWallet()
+  const { usdPrice: xlmPrice } = useTokenPrice('XLM')
+  const now = useNow(5000)
+  const [inputAmount, setInputAmount] = useState('')
+  const [showFeeEstimate, setShowFeeEstimate] = useState(false)
+  const [balance, setBalance] = useState<bigint | null>(null)
+  const [balanceLoading, setBalanceLoading] = useState(false)
+
+  const token = stream.token
+
+  useEffect(() => {
+    if (!open || !address) return
+    setBalance(null)
+    setBalanceLoading(true)
+    getTokenBalance(token.address, address, network)
+      .then(setBalance)
+      .catch(() => setBalance(null))
+      .finally(() => setBalanceLoading(false))
+  }, [open, address, token.address, network])
+
+  const parsed = inputAmount ? parseTokenAmount(inputAmount, token.decimals) : 0n
+  const exceedsBalance = balance !== null && parsed > balance
+  const invalid = parsed <= 0n || exceedsBalance
+
+  const newRate = parsed > 0n ? previewTopUpRate(stream, parsed, now) : stream.amountPerSecond
+  const newRateFormatted = formatRate(newRate, token.decimals, token.symbol)
+
+  const estimatedFee = TYPICAL_FEES.topUp.typical
+  const feeBreakdown = calculateFeeBreakdown(estimatedFee, xlmPrice ?? undefined)
+  const topUpFeeHigh = isHighFee(feeBreakdown.totalEstimated, TYPICAL_FEES.topUp.typical)
+
+  async function handleTopUp() {
+    try {
+      const hash = await topUp(streamId, parsed)
+      toast.success(copy.topUpDialog.successToastTitle, {
+        description: copy.topUpDialog.successToastDescription(
+          formatTokenAmount(parsed, token.decimals, 4),
+          token.symbol,
+        ),
+        ...(hash && {
+          action: {
+            label: copy.topUpDialog.viewTransactionAction,
+            onClick: () => window.open(explorerUrl(network, 'tx', hash), '_blank'),
+          },
+        }),
+      })
+      onClose()
+      setInputAmount('')
+    } catch {
+      // error shown inline
+    }
+  }
+
+  return (
+    <>
+      <Dialog open={open && !showFeeEstimate} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{copy.topUpDialog.title}</DialogTitle>
+            <DialogDescription>{copy.topUpDialog.description}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="topup-amount">{copy.topUpDialog.amountLabel(token.symbol)}</Label>
+              <Input
+                id="topup-amount"
+                type="number"
+                min="0"
+                step="any"
+                placeholder={copy.topUpDialog.amountPlaceholder}
+                value={inputAmount}
+                onChange={(e) => setInputAmount(e.target.value)}
+                aria-invalid={!!inputAmount && invalid}
+              />
+              <p className="text-xs text-muted-foreground">
+                {copy.topUpDialog.availableBalancePrefix}{' '}
+                <span className="font-mono">
+                  {balanceLoading
+                    ? '…'
+                    : balance !== null
+                      ? `${formatTokenAmount(balance, token.decimals, token.decimals)} ${token.symbol}`
+                      : '—'}
+                </span>
+              </p>
+              {inputAmount && exceedsBalance && (
+                <p className="text-xs text-destructive">{copy.topUpDialog.exceedsBalance}</p>
+              )}
+            </div>
+
+            {parsed > 0n && (
+              <div className="rounded-lg bg-secondary/50 p-3">
+                <p className="text-xs text-muted-foreground">
+                  {copy.topUpDialog.newRateLabel}{' '}
+                  <span className="font-mono text-foreground">{newRateFormatted.best}</span>
+                </p>
+              </div>
+            )}
+
+            {/* Fee info */}
+            <div className="rounded-lg bg-secondary/50 p-3 space-y-2">
+              <p className="text-xs text-muted-foreground">
+                {copy.topUpDialog.estimatedFeeLabel}{' '}
+                <span className="font-mono text-foreground">
+                  {(estimatedFee / 1e7).toFixed(7)} XLM
+                </span>
+              </p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {copy.topUpDialog.feeShownAgainNote}
+              </p>
+            </div>
+
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={onClose} disabled={pending}>
+                {copy.topUpDialog.cancelButton}
+              </Button>
+              <Button
+                onClick={() => setShowFeeEstimate(true)}
+                disabled={pending || invalid || !inputAmount}
+              >
+                {pending ? copy.topUpDialog.toppingUp : copy.topUpDialog.reviewFeesButton}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <FeeEstimateDialog
+        open={showFeeEstimate}
+        onConfirm={handleTopUp}
+        onCancel={() => setShowFeeEstimate(false)}
+        fees={feeBreakdown}
+        action={copy.topUpDialog.feeConfirmAction}
+        averageFee={TYPICAL_FEES.topUp.typical}
+        isHighFee={topUpFeeHigh}
         loading={pending}
       />
     </>
@@ -1284,6 +1448,7 @@ function StreamDetail({ id }: { id: string }) {
   const router = useRouter()
   const now = useNow(1000)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
+  const [topUpOpen, setTopUpOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
   const [reclaimOpen, setReclaimOpen] = useState(false)
   const [cleanupOpen, setCleanupOpen] = useState(false)
@@ -1322,6 +1487,8 @@ function StreamDetail({ id }: { id: string }) {
   const isSender = address === stream.sender
   const canWithdraw = isRecipient && !stream.cancelled && withdrawable > 0n
   const canCancel = isSender && !stream.cancelled && status !== 'completed' && !isCancelling
+  // Issue #1136: sender can top up any stream that isn't cancelled or ended.
+  const canTopUp = isSender && !stream.cancelled && status !== 'completed'
   // Issue #1140: reclaim ("partial cancel") is only meaningful while there's
   // still a locked balance to pull back and the stream hasn't been
   // fully/cancel-terminated.
@@ -1498,6 +1665,7 @@ function StreamDetail({ id }: { id: string }) {
         )}
 
         {/* Actions */}
+        {(canWithdraw || canCancel || canTopUp || canCleanup || isSender) && (
         {(canWithdraw || canCancel || canCleanup || canTransfer || isSender) && (
         {(canWithdraw || canCancel || canPartialCancel || canCleanup || isSender) && (
           <div className="flex flex-wrap gap-2 pt-1 border-t border-border">
@@ -1512,6 +1680,12 @@ function StreamDetail({ id }: { id: string }) {
                 <span className="font-mono">
                   {formatTokenAmount(withdrawable, stream.token.decimals, 2)} {stream.token.symbol}
                 </span>
+              </Button>
+            )}
+            {canTopUp && (
+              <Button variant="outline" onClick={() => setTopUpOpen(true)} className="gap-1.5">
+                <Plus className="size-4" />
+                {copy.header.topUpButton}
               </Button>
             )}
             {canCancel && (
@@ -1667,6 +1841,12 @@ function StreamDetail({ id }: { id: string }) {
         streamId={stream.id}
         withdrawable={withdrawable}
         token={stream.token}
+      />
+      <TopUpDialog
+        open={topUpOpen}
+        onClose={() => setTopUpOpen(false)}
+        streamId={stream.id}
+        stream={stream}
       />
       <CancelDialog open={cancelOpen} onClose={() => setCancelOpen(false)} streamId={stream.id} />
       <ReclaimDialog
