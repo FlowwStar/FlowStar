@@ -224,7 +224,102 @@ fn test_double_cancel_rejected() {
 // ─── Upgrade auth guard ───────────────────────────────────────────────────────
 
 #[test]
-fn test_upgrade_wrong_admin_rejected() {
+fn test_create_stream_rejects_contract_as_recipient() {
+    let s = SecEnv::setup();
+    let now = 1_000_000u64;
+    s.set_time(now);
+
+    let total = 100_0000000i128;
+    s.token().approve(
+        &s.sender,
+        &s.contract_id,
+        &total,
+        &(s.env.ledger().sequence() + 500),
+    );
+
+    let err = s
+        .client()
+        .try_create_stream(
+            &s.sender,
+            &CreateStreamParams {
+                recipient: s.contract_id.clone(),
+                token: s.token_id.clone(),
+                total_amount: total,
+                start_time: now,
+                end_time: now + 1000,
+                cliff_time: now,
+                cliff_amount: 0,
+            },
+        )
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, StreamError::InvalidRecipient);
+}
+
+#[test]
+fn test_create_stream_duration_exceeds_maximum() {
+    let s = SecEnv::setup();
+    let now = 1_000_000u64;
+    s.set_time(now);
+
+    let total = 100_0000000i128;
+    s.token().approve(
+        &s.sender,
+        &s.contract_id,
+        &total,
+        &(s.env.ledger().sequence() + 500),
+    );
+
+    let err = s
+        .client()
+        .try_create_stream(
+            &s.sender,
+            &CreateStreamParams {
+                recipient: s.recipient.clone(),
+                token: s.token_id.clone(),
+                total_amount: total,
+                start_time: now,
+                end_time: now + 315_360_001,
+                cliff_time: now,
+                cliff_amount: 0,
+            },
+        )
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, StreamError::DurationExceedsMaximum);
+}
+
+#[test]
+fn test_create_stream_duration_at_maximum_succeeds() {
+    let s = SecEnv::setup();
+    let now = 1_000_000u64;
+    s.set_time(now);
+
+    let total = 100_0000000i128;
+    s.token().approve(
+        &s.sender,
+        &s.contract_id,
+        &total,
+        &(s.env.ledger().sequence() + 500),
+    );
+
+    let id = s
+        .client()
+        .create_stream(
+            &s.sender,
+            &CreateStreamParams {
+                recipient: s.recipient.clone(),
+                token: s.token_id.clone(),
+                total_amount: total,
+                start_time: now,
+                end_time: now + 315_360_000,
+                cliff_time: now,
+                cliff_amount: 0,
+            },
+        )
+        .unwrap();
+    assert!(id > 0);
+}
     let s = SecEnv::setup();
     let not_admin = Address::generate(&s.env);
     let hash = soroban_sdk::BytesN::from_array(&s.env, &[0u8; 32]);
@@ -235,4 +330,11 @@ fn test_upgrade_wrong_admin_rejected() {
         .unwrap_err()
         .unwrap();
     assert_eq!(err, StreamError::Unauthorized);
+}
+
+#[test]
+fn test_migrate_is_idempotent() {
+    let s = SecEnv::setup();
+    s.client().migrate().unwrap();
+    s.client().migrate().unwrap();
 }

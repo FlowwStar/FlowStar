@@ -114,6 +114,9 @@ pub enum DataKey {
     /// Global upgrade pause / freeze. When set, prevents creating new streams.
     Paused,
 
+    /// Stored schema version of the contract storage layout.
+    SchemaVersion,
+
     /// Stream struct keyed by ID. Stored in Persistent.
     Stream(u64),
 
@@ -736,6 +739,15 @@ impl StreamingContract {
     pub fn migrate(env: Env) -> Result<(), StreamError> {
         Self::require_admin(&env)?;
 
+        let stored: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::SchemaVersion)
+            .unwrap_or(0);
+        if stored >= CONTRACT_VERSION {
+            return Ok(());
+        }
+
         // By default, unfreeze after wasm upgrade.
         env.storage().instance().set(&DataKey::Paused, &false);
 
@@ -770,6 +782,10 @@ impl StreamingContract {
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_TTL_LEDGERS, INSTANCE_TTL_LEDGERS);
+
+        env.storage()
+            .instance()
+            .set(&DataKey::SchemaVersion, &CONTRACT_VERSION);
 
         // Notify off-chain consumers that the upgrade + migration completed and
         // the contract is now unpaused (fixes issue #1100).

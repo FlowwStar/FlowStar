@@ -119,7 +119,32 @@ fn test_batch_empty_fails() {
 }
 
 #[test]
-fn test_batch_one_invalid_rejects_whole_batch() {
+fn test_batch_duration_exceeds_maximum() {
+    let b = BatchEnv::setup();
+    let now = 2_000_000u64;
+    b.set_time(now);
+
+    let per = 100_0000000i128;
+    b.token().approve(
+        &b.sender,
+        &b.contract_id,
+        &(per * 2),
+        &(b.env.ledger().sequence() + 500),
+    );
+
+    let mut bad = b.stream_params(now);
+    bad.end_time = now + 315_360_001;
+
+    let streams = vec![&b.env, b.stream_params(now), bad];
+
+    let err = b
+        .client()
+        .try_create_streams_batch(&b.sender, &streams)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, StreamError::DurationExceedsMaximum);
+    assert_eq!(b.token().balance(&b.contract_id), 0);
+}
     let b = BatchEnv::setup();
     let now = 2_000_000u64;
     b.set_time(now);
