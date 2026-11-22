@@ -1,4 +1,4 @@
-//! Tests for issues #1099, #1101, #1102, #1103, #1133.
+//! Tests for issues #1099, #1101, #1102, #1103, #1133, #1123.
 //!
 //! Each section is labelled with its issue number so reviewers can map a
 //! failing test directly back to the requirement it covers.
@@ -424,4 +424,38 @@ fn test_top_up_then_partial_cancel_preserves_unlocked_amount() {
     let withdrawable_at_end = ctx.client().get_withdrawable(&id).unwrap();
     assert_eq!(withdrawable_at_end, expected_deposited);
     assert_eq!(withdrawable_at_end, stream_final.deposited_amount);
+}
+
+// ─── Issue #1123 — pause blocks set_delegate ─────────────────────────────────
+
+/// `set_delegate` calls `require_not_paused`, so it must be rejected with
+/// `ContractPaused` while the contract is paused.
+#[test]
+fn test_set_delegate_rejected_while_paused() {
+    let ctx = Ctx::setup();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+
+    let total = 1_000_000i128;
+    let params = CreateStreamParams {
+        recipient: ctx.recipient.clone(),
+        token: ctx.token_id.clone(),
+        total_amount: total,
+        start_time: now,
+        end_time: now + 1000,
+        cliff_time: now,
+        cliff_amount: 0,
+    };
+    ctx.approve(total);
+    let id = ctx.client().create_stream(&ctx.sender, &params).unwrap();
+
+    ctx.client().pause().unwrap();
+
+    let delegate = Address::generate(&ctx.env);
+    let err = ctx
+        .client()
+        .try_set_delegate(&id, &delegate)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, StreamError::ContractPaused);
 }
