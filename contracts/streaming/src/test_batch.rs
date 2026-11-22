@@ -138,3 +138,32 @@ fn test_batch_one_invalid_rejects_whole_batch() {
     // No funds should have moved.
     assert_eq!(b.token().balance(&b.contract_id), 0);
 }
+
+#[test]
+fn test_batch_blocked_when_paused() {
+    let b = BatchEnv::setup();
+    let now = 2_000_000u64;
+    b.set_time(now);
+    b.client().pause().unwrap();
+
+    let per = 100_0000000i128;
+    b.token().approve(
+        &b.sender,
+        &b.contract_id,
+        &(per * 2),
+        &(b.env.ledger().sequence() + 500),
+    );
+    let sender_balance_before = b.token().balance(&b.sender);
+
+    let streams = vec![&b.env, b.stream_params(now), b.stream_params(now)];
+
+    let err = b
+        .client()
+        .try_create_streams_batch(&b.sender, &streams)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, StreamError::ContractPaused);
+    // No funds should have moved.
+    assert_eq!(b.token().balance(&b.contract_id), 0);
+    assert_eq!(b.token().balance(&b.sender), sender_balance_before);
+}
