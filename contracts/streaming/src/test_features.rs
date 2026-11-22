@@ -1,4 +1,4 @@
-//! Tests for issues #1099, #1101, #1102, #1103, #1133, #1123.
+//! Tests for issues #1099, #1101, #1102, #1103, #1133, #1123, #1120.
 //!
 //! Each section is labelled with its issue number so reviewers can map a
 //! failing test directly back to the requirement it covers.
@@ -455,6 +455,40 @@ fn test_set_delegate_rejected_while_paused() {
     let err = ctx
         .client()
         .try_set_delegate(&id, &delegate)
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err, StreamError::ContractPaused);
+}
+
+// ─── Issue #1120 — pause blocks transfer_stream ──────────────────────────────
+
+/// `transfer_stream` calls `require_not_paused`, so it must be rejected with
+/// `ContractPaused` while the contract is paused.
+#[test]
+fn test_transfer_stream_rejected_while_paused() {
+    let ctx = Ctx::setup();
+    let now = 1_000_000u64;
+    ctx.set_time(now);
+
+    let total = 1_000_000i128;
+    let params = CreateStreamParams {
+        recipient: ctx.recipient.clone(),
+        token: ctx.token_id.clone(),
+        total_amount: total,
+        start_time: now,
+        end_time: now + 1000,
+        cliff_time: now,
+        cliff_amount: 0,
+    };
+    ctx.approve(total);
+    let id = ctx.client().create_stream(&ctx.sender, &params).unwrap();
+
+    ctx.client().pause().unwrap();
+
+    let new_recipient = Address::generate(&ctx.env);
+    let err = ctx
+        .client()
+        .try_transfer_stream(&id, &new_recipient)
         .unwrap_err()
         .unwrap();
     assert_eq!(err, StreamError::ContractPaused);
