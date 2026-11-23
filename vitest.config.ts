@@ -16,14 +16,14 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       include: ["hooks/**", "lib/**", "components/**", "utils/**"],
       exclude: ["**/*.d.ts", "**/index.ts"],
-      // Baseline from current coverage (`npm run test:coverage` on 2026-07-18).
-      // Ratchet these up over time as more tests are added; never lower them
-      // to make a failing PR pass.
+      // Measured 2026-11-23: 67.53% statements, 67.51% branches,
+      // 66.05% functions, 67.90% lines (reportOnFailure). Main's test suite
+      // still fails, so revalidate on a fully passing suite before raising.
       thresholds: {
-        statements: 13,
-        branches: 60,
-        functions: 40,
-        lines: 13,
+        statements: 60,
+        branches: 62,
+        functions: 57,
+        lines: 60,
       },
     },
   },

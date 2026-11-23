@@ -151,6 +151,14 @@ npm test               # run once
 npm run test:watch     # watch mode
 ```
 
+Coverage is enforced in the CI build job using `npm run test:coverage`.
+The minimum thresholds are defined in `vitest.config.ts` for statements,
+branches, functions, and lines. When changing them, record a fresh coverage
+report and set thresholds a few points below the measured values; do not lower
+them simply to make a failing PR pass. Also run `npm run lint`,
+`npm run typecheck`, and `npm test` before requesting review. Coverage
+numbers alone do not mean the test suite passed.
+
 All unit tests must live under `__tests__/` at the repo root and follow the
 naming convention `**/*.{test,spec}.{ts,tsx}`. Vitest only collects files from
 that directory — files placed alongside source code (e.g. under `components/`
