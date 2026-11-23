@@ -8,6 +8,7 @@ import { DashboardStats, DashboardStatsSkeleton } from '@/components/streams/das
 import { StreamCardSkeleton } from '@/components/streams/stream-card'
 import { VirtualStreamList } from '@/components/streams/virtual-stream-list'
 import { EmptyStreams } from '@/components/streams/empty-state'
+import { UpcomingRenewalsCard } from '@/components/streams/upcoming-renewals-card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { SectionErrorBoundary } from '@/components/error-boundary/section-error-boundary'
@@ -145,6 +146,11 @@ export function Dashboard() {
           ) : (
             <DashboardStats sent={sent} received={received} />
           )}
+        </SectionErrorBoundary>
+
+        {/* Upcoming recurring-stream renewals (issue #1145) */}
+        <SectionErrorBoundary>
+          <UpcomingRenewalsCard />
         </SectionErrorBoundary>
 
         {/* Stream list */}

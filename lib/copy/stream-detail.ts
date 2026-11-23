@@ -28,6 +28,27 @@ export const streamDetailCopy = {
     viewTransactionAction: 'View transaction',
   },
 
+  // TopUpDialog strings — issue #1136
+  topUpDialog: {
+    title: 'Top up stream',
+    description: 'Add more funds to this stream. The unlock rate recalculates automatically.',
+    amountLabel: (symbol: string) => `Amount to add (${symbol})`,
+    amountPlaceholder: '0.00',
+    availableBalancePrefix: 'Wallet balance:',
+    exceedsBalance: 'Amount exceeds wallet balance',
+    newRateLabel: 'New rate:',
+    estimatedFeeLabel: 'Estimated network fee:',
+    feeShownAgainNote: 'Fee will be shown again before wallet confirmation.',
+    feeConfirmAction: 'top-up',
+    cancelButton: 'Cancel',
+    toppingUp: 'Topping up…',
+    reviewFeesButton: 'Review fees',
+    successToastTitle: 'Top-up successful',
+    successToastDescription: (amount: string, symbol: string) =>
+      `${amount} ${symbol} added to the stream.`,
+    viewTransactionAction: 'View transaction',
+  },
+
   cancelDialog: {
     title: 'Cancel stream',
     description:
@@ -36,8 +57,23 @@ export const streamDetailCopy = {
     keepStreamButton: 'Keep stream',
     reviewAndCancelButton: 'Review & cancel',
     feeConfirmAction: 'stream cancellation',
-    keepStreamButton: 'Keep stream',
-    reviewAndCancelButton: 'Review & cancel',
+  },
+
+  reclaimDialog: {
+    title: 'Reclaim funds',
+    maxPrefix: 'Reclaim part of the locked balance back to your wallet. Max:',
+    amountLabel: (symbol: string) => `Amount to reclaim (${symbol})`,
+    amountPlaceholder: '0.00',
+    maxButton: 'Max',
+    exceedsBalance: 'Amount exceeds locked balance',
+    newRateLabel: 'New rate after reclaim:',
+    cancelButton: 'Cancel',
+    reclaiming: 'Reclaiming…',
+    reclaimButton: 'Confirm reclaim',
+    successToastTitle: 'Funds reclaimed',
+    successToastDescription: (amount: string, symbol: string) =>
+      `${amount} ${symbol} returned to your wallet. The stream is still active.`,
+    viewTransactionAction: 'View transaction',
   },
 
   cleanupDialog: {
@@ -47,6 +83,44 @@ export const streamDetailCopy = {
     cancelButton: 'Cancel',
     removing: 'Removing…',
     confirmButton: 'Remove permanently',
+  },
+
+  // Issue #1143: edit stream metadata after creation
+  editMetadataDialog: {
+    title: 'Edit details',
+    description: 'Update this stream’s name, category, and memo. Visible to both parties.',
+    nameLabel: 'Name',
+    namePlaceholder: 'e.g. Q3 Salary',
+    categoryLabel: 'Category',
+    categoryPlaceholder: 'e.g. payroll, grant, vesting',
+    memoLabel: 'Memo',
+    memoPlaceholder: 'Optional note',
+    cancelButton: 'Cancel',
+    saving: 'Saving…',
+    saveButton: 'Save changes',
+    successToastTitle: 'Stream details updated',
+  },
+
+  // Issue #1138: transfer a stream to a new recipient
+  transferDialog: {
+    title: 'Transfer stream',
+    description: 'Reassign this stream to a new recipient. You will no longer be able to withdraw from it.',
+    addressLabel: 'New recipient address',
+    addressPlaceholder: 'G… or name*domain.com',
+    resolving: 'Resolving address…',
+    invalidFormat: 'Not a valid Stellar address.',
+    invalidChecksum: 'This looks like a Stellar address with a typo — check the checksum.',
+    cancelButton: 'Cancel',
+    continueButton: 'Continue',
+    confirmTitle: 'Confirm transfer',
+    confirmDelegateWarning:
+      'Any delegate currently registered on this stream will be cleared. The new recipient will need to set their own delegate if they want one.',
+    confirmTransferringTo: 'Transferring to:',
+    backButton: 'Back',
+    transferring: 'Transferring…',
+    confirmButton: 'Confirm transfer',
+    successToastTitle: 'Stream transferred',
+    successToastDescription: (address: string) => `Recipient is now ${address}.`,
   },
 
   autoWithdraw: {
@@ -100,6 +174,21 @@ export const streamDetailCopy = {
     errorToast: 'Failed to extend TTL',
   },
 
+  // Delegate management card — issue #1142 (depends on ADR-008 / issue #1141)
+  delegate: {
+    title: 'Withdrawal delegate',
+    emptyHelpText:
+      'The recipient can appoint a delegate address to withdraw on their behalf — useful for treasuries or automated payout bots.',
+    setButton: 'Set delegate',
+    settingButton: 'Setting…',
+    removeButton: 'Remove',
+    removingButton: 'Removing…',
+    cancelButton: 'Cancel',
+    addressPlaceholder: 'Delegate address (G...)',
+    lockoutWarning:
+      'While this delegate is active, only the delegate — not the recipient directly — can withdraw from this stream. Remove the delegate to restore direct withdrawals.',
+  },
+
   shareButtons: {
     shareButton: 'Share',
     shareAriaLabel: 'Share stream',
@@ -140,10 +229,15 @@ export const streamDetailCopy = {
     endsInLabel: 'Ends in',
     cancellingNotice: 'Cancelling… you can still undo this from the toast.',
     withdrawButton: 'Withdraw',
+    topUpButton: 'Top up',
     cancelStreamButton: 'Cancel stream',
+    reclaimFundsButton: 'Reclaim funds',
     duplicateStreamButton: 'Duplicate stream',
     removeFromHistoryButton: 'Remove from history',
     unlockProgressLabel: 'Stream unlock progress',
+    editDetailsButton: 'Edit details',
+    transferStreamButton: 'Transfer',
+    pausedNotice: 'Paused by admin — writes are temporarily disabled.',
   },
 
   details: {
@@ -161,20 +255,18 @@ export const streamDetailCopy = {
     end: 'End',
     network: 'Network',
   },
-  },
 
   // StreamTimeline strings — issue #952
   timeline: {
-    sectionTitle: "Transaction history",
-    refreshAriaLabel: "Refresh timeline",
-    loading: "Loading history…",
-    emptyTitle: "No transaction history found for this stream.",
-    emptyBody: "History is populated from on-chain events after the stream is active.",
+    sectionTitle: 'Transaction history',
+    refreshAriaLabel: 'Refresh timeline',
+    loading: 'Loading history…',
+    emptyTitle: 'No transaction history found for this stream.',
+    emptyBody: 'History is populated from on-chain events after the stream is active.',
     amountLabel: (amount: string) => `Amount: ${amount}`,
     showMoreButton: (count: number) => `Show ${count} more events`,
-    collapseButton: "Collapse",
+    collapseButton: 'Collapse',
   },
-};
 }
 
 // QrShareDialog strings — issue #954

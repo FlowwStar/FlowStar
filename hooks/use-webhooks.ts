@@ -38,6 +38,14 @@ const STORAGE_KEY = 'flowstar_webhooks'
 const HISTORY_KEY = 'flowstar_webhook_history'
 const MAX_HISTORY = 50
 
+/**
+ * Issue #1157: per-attempt request timeout for webhook deliveries. Without
+ * this, a slow or hanging endpoint stalls the delivery loop indefinitely.
+ * A timeout aborts the fetch, which surfaces as a thrown error and is
+ * recorded as a failed attempt (see `deliverWithRetry`).
+ */
+export const WEBHOOK_TIMEOUT_MS = 10_000
+
 // Issue #821: version of the delivered payload shape, so integrators can
 // detect a future breaking change instead of guessing from field presence.
 // Bump only for breaking changes — see docs/WEBHOOKS.md for the policy.
@@ -139,14 +147,26 @@ function saveHistory(history: WebhookDelivery[]): boolean {
 }
 
 /**
+ * Whether a response status represents a transient failure worth retrying:
+ * 408 (Request Timeout), 429 (Too Many Requests) and any 5xx. Other 4xx
+ * statuses are permanent client errors and are not retried (ADR-012).
+ */
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500
+}
+
+/**
  * POSTs `payload` to `url` with an HMAC signature, retrying on failure.
  *
- * Retry/backoff strategy:
+ * Retry/backoff strategy (see ADR-012):
  * - Up to `retries` attempts total (default 3), i.e. the initial attempt plus
  *   up to 2 retries.
- * - A retry is scheduled after a non-2xx response or a thrown network error,
- *   using exponential backoff: `1000 * 2 ** attempt` ms, so 1s, then 2s
- *   (attempt is 0-indexed).
+ * - Only transient failures are retried: thrown network errors, HTTP 408
+ *   (Request Timeout), 429 (Too Many Requests) and 5xx responses. Other 4xx
+ *   responses (400/401/404/...) are permanent — retrying them cannot succeed,
+ *   so they return immediately without backoff.
+ * - A retry is scheduled using exponential backoff: `1000 * 2 ** attempt` ms,
+ *   so 1s, then 2s (attempt is 0-indexed).
  * - The final attempt never sleeps; it returns immediately with
  *   `success: false` and the last observed `statusCode` (or `null` when the
  *   request threw).
@@ -175,8 +195,13 @@ async function deliverWithRetry(
           [WEBHOOK_SIGNATURE_HEADER]: signature,
         },
         body,
+        // Issue #1157: abort a hanging request so it counts as a failed
+        // attempt instead of stalling the delivery loop forever.
+        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
       })
       if (res.ok) return { statusCode: res.status, success: true }
+      // Permanent client errors (other 4xx) will never succeed on retry.
+      if (!isRetryableStatus(res.status)) return { statusCode: res.status, success: false }
       if (attempt < retries - 1) await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
       if (attempt === retries - 1) return { statusCode: res.status, success: false }
     } catch {

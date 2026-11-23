@@ -10,8 +10,31 @@
 // Live stream data itself is fetched over Soroban RPC directly from the
 // client and is cached separately in localStorage (see hooks/use-streams.ts)
 // so the dashboard can render a stale-but-usable view offline.
+//
+// Cache versioning (issue #1156):
+// - The cache name is derived from the build id passed by the registration
+//   script (components/pwa/service-worker-register.tsx), which registers
+//   `/sw.js?v=<NEXT_PUBLIC_BUILD_ID>`. The worker reads that query param from
+//   `self.location.search` and builds `flowstar-<build id>`.
+// - When no build id is present (e.g. direct visits in dev), we fall back to
+//   a constant version so the worker still functions.
+// - On `activate`, every cache whose name does not match the current cache
+//   name is deleted, so stale app shells and assets from previous deploys are
+//   purged and the new build's shell is used.
 
-const CACHE_VERSION = 'flowstar-v1'
+const FALLBACK_VERSION = 'dev'
+
+function resolveCacheVersion() {
+  try {
+    const buildId = new URL(self.location.href).searchParams.get('v')
+    if (buildId) return buildId
+  } catch {
+    // Ignore malformed URLs and fall through to the fallback version.
+  }
+  return FALLBACK_VERSION
+}
+
+const CACHE_VERSION = `flowstar-${resolveCacheVersion()}`
 const APP_SHELL = ['/app', '/offline.html', '/manifest.json', '/icon.svg']
 
 self.addEventListener('install', (event) => {
@@ -50,11 +73,13 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy))
           return response
         })
-        .catch(
-          () =>
-            caches.match(request).then((cached) => cached) ||
-            caches.match('/offline.html'),
-        ),
+        .catch(async () => {
+          const cached = await caches.match(request)
+          if (cached) return cached
+
+          const offline = await caches.match('/offline.html')
+          return offline ?? Response.error()
+        }),
     )
     return
   }

@@ -20,6 +20,9 @@ This directory captures the significant technical decisions made in FlowStar —
 | [ADR-011](./ADR-011-notification-polling-and-dedup.md)    | Notification Polling, Dedup, and Per-Wallet Scoping             | Accepted                           |
 | [ADR-012](./ADR-012-webhook-retry-backoff.md)             | Webhook Delivery Retry, Backoff, and History Retention          | Accepted                           |
 | [ADR-013](./ADR-013-auto-withdraw-strategy-pattern.md)    | Auto-Withdraw Strategy Pattern                                  | Accepted (open correctness issues) |
+| [ADR-014](./ADR-014-cancelled-at-and-withdrawn-amount.md) | Record Cancellation Time and Fold Cancel Payout into `withdrawn_amount` | Accepted          |
+| [ADR-015](./ADR-015-vesting-reanchor-on-topup-and-partial-cancel.md) | Re-anchoring the Vesting Schedule in `top_up` and `partial_cancel` | Accepted  |
+| [ADR-016](./ADR-016-active-vs-archive-stream-indexes.md)  | Active vs Archive Stream Indexes                                | Accepted                           |
 
 New ADRs should continue from the highest number in this table.
 

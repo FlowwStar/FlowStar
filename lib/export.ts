@@ -1,8 +1,13 @@
 import type { StreamData } from '@/types/stream'
-import { formatTokenAmount, getStreamStatus, SECONDS_PER_DAY } from '@/lib/stream-utils'
+import {
+  formatTokenAmount,
+  getStreamStatus,
+  SECONDS_PER_DAY,
+  SECONDS_PER_MONTH,
+} from '@/lib/stream-utils'
 
 const SECONDS_PER_DAY_BIGINT = BigInt(SECONDS_PER_DAY)
-const DAYS_PER_MONTH = BigInt(30)
+const SECONDS_PER_MONTH_BIGINT = BigInt(SECONDS_PER_MONTH)
 
 function unixToISO(seconds: bigint): string {
   if (seconds === BigInt(0)) return ''
@@ -49,14 +54,33 @@ export function streamsToCSV(
   for (const s of streams) {
     const { decimals, symbol } = s.token
     const status = getStreamStatus(s, nowSeconds)
-    const remaining = s.depositedAmount - s.withdrawnAmount
+    // Issue #1149: a cancelled stream's locked portion is refunded to the
+    // sender and the unlocked portion is paid to the recipient, so nothing
+    // remains regardless of depositedAmount - withdrawnAmount.
+    const remaining = s.cancelled ? BigInt(0) : s.depositedAmount - s.withdrawnAmount
 
     const ratePerDay = formatTokenAmount(s.amountPerSecond * SECONDS_PER_DAY_BIGINT, decimals, 6)
     const ratePerMonth = formatTokenAmount(
-      s.amountPerSecond * SECONDS_PER_DAY_BIGINT * DAYS_PER_MONTH,
+      s.amountPerSecond * SECONDS_PER_MONTH_BIGINT,
       decimals,
       6,
     )
+    // Derive from linearAmount/duration (multiply-then-divide, like
+    // getUnlockedAmount) rather than s.amountPerSecond, which is a
+    // pre-divided, already-rounded rate that drifts from the true value —
+    // especially once multiplied out to a day/month span (issue #1151).
+    const ratePerDay =
+      s.duration > BigInt(0)
+        ? formatTokenAmount((s.linearAmount * SECONDS_PER_DAY_BIGINT) / s.duration, decimals, 6)
+        : formatTokenAmount(BigInt(0), decimals, 6)
+    const ratePerMonth =
+      s.duration > BigInt(0)
+        ? formatTokenAmount(
+            (s.linearAmount * SECONDS_PER_DAY_BIGINT * DAYS_PER_MONTH) / s.duration,
+            decimals,
+            6,
+          )
+        : formatTokenAmount(BigInt(0), decimals, 6)
 
     lines.push(
       row([
@@ -95,7 +119,9 @@ export function downloadCSV(csv: string, filename: string): void {
 
 /** Download a JSON-serializable value as a `.json` file in the browser. */
 export function downloadJSON(data: unknown, filename: string): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' })
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: 'application/json;charset=utf-8;',
+  })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -106,7 +132,13 @@ export function downloadJSON(data: unknown, filename: string): void {
 
 /** Convert webhook delivery history to CSV (webhook ID, event, status, timestamp, success). */
 export function webhookHistoryToCSV(
-  history: { webhookId: string; eventType: string; statusCode: number | null; deliveredAt: number; success: boolean }[],
+  history: {
+    webhookId: string
+    eventType: string
+    statusCode: number | null
+    deliveredAt: number
+    success: boolean
+  }[],
 ): string {
   const headers = ['Webhook ID', 'Event Type', 'Status Code', 'Delivered At', 'Success']
   const lines = [row(headers)]

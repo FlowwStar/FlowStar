@@ -1,5 +1,10 @@
 import type { StreamData } from '@/types/stream'
-import { formatTokenAmount, formatDateTime, shortenAddress, SECONDS_PER_DAY } from '@/lib/stream-utils'
+import {
+  formatTokenAmount,
+  formatDateTime,
+  shortenAddress,
+  SECONDS_PER_DAY,
+} from '@/lib/stream-utils'
 
 /**
  * Generate receipt data for a stream.
@@ -54,9 +59,17 @@ export function buildReceiptData(
   const hours = Math.floor((durationSecs % SECONDS_PER_DAY) / 3600)
   const minutes = Math.floor((durationSecs % 3600) / 60)
   const durationStr =
-    days > 0 ? `${days}d ${hours}h ${minutes}m` : hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
+    days > 0
+      ? `${days}d ${hours}h ${minutes}m`
+      : hours > 0
+        ? `${hours}h ${minutes}m`
+        : `${minutes}m`
 
-  const status = stream.cancelled ? 'Cancelled' : now >= Number(stream.endTime) ? 'Completed' : 'Active'
+  const status = stream.cancelled
+    ? 'Cancelled'
+    : now >= Number(stream.endTime)
+      ? 'Completed'
+      : 'Active'
 
   return {
     streamId: stream.id,
@@ -170,46 +183,50 @@ function escapeHtml(value: string): string {
 /**
  * Generate HTML content for receipt (print-friendly).
  */
-export function generateReceiptHTML(
-  receipt: ReceiptData,
-  logoBase64?: string,
-): string {
+export function generateReceiptHTML(receipt: ReceiptData, logoBase64?: string): string {
   // Escape all dynamic values before they touch the HTML string.
-  const id        = escapeHtml(receipt.streamId)
-  const status    = escapeHtml(receipt.status)
+  const id = escapeHtml(receipt.streamId)
+  const status = escapeHtml(receipt.status)
   // status is always one of 'Active' | 'Completed' | 'Cancelled' (ASCII), but
   // we still escape it and use the escaped form for the CSS class name so a
   // hypothetical future status value cannot break out of the attribute.
   const statusCls = escapeHtml(receipt.status.toLowerCase())
-  const sender    = escapeHtml(receipt.sender)
+  const sender = escapeHtml(receipt.sender)
   const recipient = escapeHtml(receipt.recipient)
-  const symbol    = escapeHtml(receipt.tokenSymbol)
-  const address   = escapeHtml(receipt.tokenAddress)
+  const symbol = escapeHtml(receipt.tokenSymbol)
+  const address = escapeHtml(receipt.tokenAddress)
   const generated = escapeHtml(receipt.generatedDate)
   const startDate = escapeHtml(receipt.startDate)
-  const endDate   = escapeHtml(receipt.endDate)
+  const endDate = escapeHtml(receipt.endDate)
   const cliffDate = escapeHtml(receipt.cliffDate)
-  const duration  = escapeHtml(receipt.duration)
-  const total     = escapeHtml(receipt.totalAmount)
+  const duration = escapeHtml(receipt.duration)
+  const total = escapeHtml(receipt.totalAmount)
   const withdrawn = escapeHtml(receipt.withdrawnAmount)
   const remaining = escapeHtml(receipt.remainingAmount)
-  const cliffAmt  = receipt.cliffAmount   ? escapeHtml(receipt.cliffAmount)   : null
-  const perSec    = receipt.amountPerSecond ? escapeHtml(receipt.amountPerSecond) : null
-  const creationTx    = receipt.creationTx    ? escapeHtml(receipt.creationTx)    : null
+  const cliffAmt = receipt.cliffAmount ? escapeHtml(receipt.cliffAmount) : null
+  const perSec = receipt.amountPerSecond ? escapeHtml(receipt.amountPerSecond) : null
+  const creationTx = receipt.creationTx ? escapeHtml(receipt.creationTx) : null
   const cancellationTx = receipt.cancellationTx ? escapeHtml(receipt.cancellationTx) : null
   const withdrawalTxs = (receipt.withdrawalTxs ?? []).map(escapeHtml)
 
-  // The CSV data is passed through JSON.stringify which produces a valid JS
-  // string literal.  The only remaining risk is a </script> sequence inside
-  // the JSON payload; replace it with a safe Unicode escape so the inline
-  // script tag cannot be terminated early.
+  // JSON.stringify produces a valid JS string literal; additionally escape
+  // HTML-significant characters so no dynamic value appears verbatim in the
+  // inline script (which would also allow a </script> sequence to break out).
   const csvJson = JSON.stringify(generateReceiptCSV(receipt))
-    .replace(/<\/script>/gi, '<\\/script>')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/'/g, '\\u0027')
 
   // The download filename only needs to appear inside a JS string literal
-  // (already wrapped in quotes by the template below), so we escape backslash
-  // and the quote character that wraps it.
-  const safeId = receipt.streamId.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+  // (already wrapped in quotes by the template below), so escape the
+  // delimiter, backslashes and HTML-significant characters.
+  const safeId = receipt.streamId
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -463,10 +480,14 @@ export function generateReceiptHTML(
         <span class="row-label">Cliff Date</span>
         <span class="row-value">${cliffDate}</span>
       </div>
-      ${cliffAmt ? `<div class="row">
+      ${
+        cliffAmt
+          ? `<div class="row">
         <span class="row-label">Cliff Amount</span>
         <span class="row-value">${cliffAmt} ${symbol}</span>
-      </div>` : ''}
+      </div>`
+          : ''
+      }
       <div class="row">
         <span class="row-label">Duration</span>
         <span class="row-value">${duration}</span>
@@ -491,13 +512,17 @@ export function generateReceiptHTML(
       </div>
     </div>
 
-    ${perSec ? `<div class="section">
+    ${
+      perSec
+        ? `<div class="section">
       <div class="section-title">Unlock Rate</div>
       <div class="row">
         <span class="row-label">Per Second</span>
         <span class="row-value">${perSec} ${symbol}</span>
       </div>
-    </div>` : ''}
+    </div>`
+        : ''
+    }
 
     <div class="divider"></div>
 

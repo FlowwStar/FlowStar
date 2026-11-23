@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { streamsToCSV, downloadCSV, downloadJSON } from '@/lib/export'
-import { describe, it, expect } from 'vitest'
-import { streamsToCSV, webhookHistoryToCSV } from '@/lib/export'
+import { streamsToCSV, webhookHistoryToCSV, downloadCSV, downloadJSON } from '@/lib/export'
 import type { StreamData } from '@/types/stream'
 
 const TOKEN = { address: 'CUSDC', symbol: 'USDC', decimals: 7 }
+
+function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsText(blob)
+  })
+}
 
 function makeStream(overrides?: Partial<StreamData>): StreamData {
   return {
@@ -61,6 +68,35 @@ describe('streamsToCSV', () => {
     expect(csv).toContain('cancelled')
   })
 
+  // Issue #1149: a cancelled stream refunds the locked remainder to the
+  // sender and pays the unlocked part to the recipient, so nothing remains —
+  // even though depositedAmount - withdrawnAmount is still positive.
+  it('reports 0 remaining for a cancelled stream', () => {
+    const s = makeStream({
+      cancelled: true,
+      depositedAmount: 100_000_000n,
+      withdrawnAmount: 20_000_000n,
+    })
+    const csv = streamsToCSV([s], 1_700_043_200)
+    const header = csv.split('\n')[0].split(',')
+    const remainingIdx = header.indexOf('Remaining Amount')
+    const dataRow = csv.split('\n')[1].split(',')
+    expect(dataRow[remainingIdx]).toBe('0')
+  })
+
+  it('reports positive remaining for a non-cancelled stream with the same amounts', () => {
+    const s = makeStream({
+      cancelled: false,
+      depositedAmount: 100_000_000n,
+      withdrawnAmount: 20_000_000n,
+    })
+    const csv = streamsToCSV([s])
+    const header = csv.split('\n')[0].split(',')
+    const remainingIdx = header.indexOf('Remaining Amount')
+    const dataRow = csv.split('\n')[1].split(',')
+    expect(dataRow[remainingIdx]).toBe('8')
+  })
+
   it('omits cliff date when cliffTime equals startTime', () => {
     const s = makeStream({ cliffTime: 1_700_000_000n, startTime: 1_700_000_000n })
     const csv = streamsToCSV([s])
@@ -112,9 +148,7 @@ describe('downloadCSV / downloadJSON', () => {
         return el
       },
     )
-    clickSpy = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(() => {})
+    clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   })
 
   afterEach(() => {
@@ -130,7 +164,7 @@ describe('downloadCSV / downloadJSON', () => {
     const blob = createObjectURL.mock.calls[0][0] as Blob
     expect(blob).toBeInstanceOf(Blob)
     expect(blob.type).toBe('text/csv;charset=utf-8;')
-    return blob.text().then((text) => {
+    return readBlob(blob).then((text) => {
       expect(text).toBe(csv)
     })
   })
@@ -160,7 +194,7 @@ describe('downloadCSV / downloadJSON', () => {
     const blob = createObjectURL.mock.calls[0][0] as Blob
     expect(blob).toBeInstanceOf(Blob)
     expect(blob.type).toBe('application/json;charset=utf-8;')
-    return blob.text().then((text) => {
+    return readBlob(blob).then((text) => {
       expect(text).toBe(JSON.stringify(data, null, 2))
     })
   })
@@ -180,11 +214,14 @@ describe('downloadCSV / downloadJSON', () => {
 
     expect(revokeObjectURL).toHaveBeenCalledTimes(1)
     expect(revokeObjectURL).toHaveBeenCalledWith(FAKE_URL)
+  })
+})
+
 interface WebhookDelivery {
   webhookId: string
   eventType: string
   statusCode: number | null
-  deliveredAt: string
+  deliveredAt: number
   success: boolean
 }
 
@@ -193,7 +230,7 @@ function makeDelivery(overrides?: Partial<WebhookDelivery>): WebhookDelivery {
     webhookId: 'wh-1',
     eventType: 'stream.created',
     statusCode: 200,
-    deliveredAt: '2024-01-01T00:00:00.000Z',
+    deliveredAt: Date.parse('2024-01-01T00:00:00.000Z'),
     success: true,
     ...overrides,
   }

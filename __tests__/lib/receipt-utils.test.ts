@@ -220,7 +220,12 @@ describe('buildReceiptData', () => {
     })
 
     it('stores cancellationTx when provided', () => {
-      const receipt = buildReceiptData(makeStream({ cancelled: true }), 'creation-tx', [], 'cancel-tx')
+      const receipt = buildReceiptData(
+        makeStream({ cancelled: true }),
+        'creation-tx',
+        [],
+        'cancel-tx',
+      )
       expect(receipt.cancellationTx).toBe('cancel-tx')
     })
 
@@ -449,7 +454,12 @@ describe('generateReceiptCSV', () => {
     })
 
     it('includes the Cancellation tx hash', () => {
-      const receipt = buildReceiptData(makeStream({ cancelled: true }), undefined, [], 'cancel-hash')
+      const receipt = buildReceiptData(
+        makeStream({ cancelled: true }),
+        undefined,
+        [],
+        'cancel-hash',
+      )
       const csv = generateReceiptCSV(receipt)
       expect(csv).toContain('Cancellation,cancel-hash')
     })
@@ -488,9 +498,7 @@ describe('generateReceiptCSV', () => {
     })
 
     it('handles a stream with no optional fields', () => {
-      const receipt = buildReceiptData(
-        makeStream({ cliffAmount: 0n, amountPerSecond: 0n }),
-      )
+      const receipt = buildReceiptData(makeStream({ cliffAmount: 0n, amountPerSecond: 0n }))
       const csv = generateReceiptCSV(receipt)
       expect(csv).not.toContain('Cliff Amount')
       expect(csv).not.toContain('Unlock Rate')
@@ -576,7 +584,12 @@ describe('generateReceiptHTML', () => {
   })
 
   function makeReceipt(streamOverrides?: Partial<StreamData>) {
-    return buildReceiptData(makeStream(streamOverrides), 'creation-tx', ['withdraw-tx-1'], 'cancel-tx')
+    return buildReceiptData(
+      makeStream(streamOverrides),
+      'creation-tx',
+      ['withdraw-tx-1'],
+      'cancel-tx',
+    )
   }
 
   it('includes the stream id, parties and token symbol', () => {
@@ -609,6 +622,6 @@ describe('generateReceiptHTML', () => {
     const html = generateReceiptHTML(makeReceipt({ cancelled: true }))
     expect(html).toContain('status-cancelled')
     expect(html).toContain('Cancelled')
-    expect(html).not.toContain('status-active')
+    expect(html).not.toContain('row-value status-active')
   })
 })

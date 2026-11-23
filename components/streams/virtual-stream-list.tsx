@@ -79,7 +79,6 @@ function VirtualList({
       const id = streams[index]?.id
       return id ? (sizeCache.current[id] ?? estimatedBase) : estimatedBase
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [streams, estimatedBase],
   )
 

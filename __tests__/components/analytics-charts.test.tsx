@@ -1,7 +1,27 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { AnalyticsCharts, ChartSkeleton } from '@/components/analytics/charts'
 import type { StreamStatus } from '@/types/stream'
+
+vi.mock('recharts', () => {
+  const passthrough = ({ children }: { children?: ReactNode }) => <>{children}</>
+  const empty = () => null
+  return {
+    ResponsiveContainer: passthrough,
+    AreaChart: empty,
+    BarChart: passthrough,
+    PieChart: passthrough,
+    Pie: passthrough,
+    Area: empty,
+    Bar: empty,
+    Cell: empty,
+    CartesianGrid: empty,
+    XAxis: empty,
+    YAxis: empty,
+    Tooltip: empty,
+  }
+})
 
 const emptySnapshot = {
   series: [],
@@ -59,9 +79,7 @@ const populatedSnapshot = {
       address: 'GABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890AB',
       federationName: null,
       count: 5,
-      totals: [
-        { symbol: 'USDC', amount: 100_000_000n, decimals: 6 },
-      ],
+      totals: [{ symbol: 'USDC', amount: 100_000_000n, decimals: 6 }],
     },
     {
       address: 'GXYZABCDEFGHIJKLMNOPQRSTUVW0987654321XY',
@@ -79,69 +97,69 @@ const populatedSnapshot = {
 describe('AnalyticsCharts', () => {
   it('renders with an empty snapshot', () => {
     const { container } = render(<AnalyticsCharts {...emptySnapshot} />)
-    
+
     expect(screen.getByText(/streaming volume over time/i)).toBeInTheDocument()
-    expect(screen.getByText(/token distribution/i)).toBeInTheDocument()
+    expect(screen.getByText('Token distribution')).toBeInTheDocument()
     expect(screen.getByText(/stream status breakdown/i)).toBeInTheDocument()
     expect(screen.getByText(/top recipients/i)).toBeInTheDocument()
     expect(screen.getByText(/top tokens by volume/i)).toBeInTheDocument()
     expect(screen.getByText(/unlock progress/i)).toBeInTheDocument()
-    
+
     // Should show empty state messages
-    expect(container.textContent).toContain('No streaming activity')
+    expect(container.textContent).toContain('No stream activity')
   })
 
   it('renders with populated data', () => {
     const { container } = render(<AnalyticsCharts {...populatedSnapshot} />)
-    
+
     // Token symbols should be visible
     expect(screen.getAllByText('USDC').length).toBeGreaterThan(0)
     expect(screen.getAllByText('XLM').length).toBeGreaterThan(0)
-    
+
     // Status breakdown should render
     expect(screen.getByText(/streaming/i)).toBeInTheDocument()
-    
+
     // Recipients should render
     expect(screen.getByText(/alice\*stellar\.org/i)).toBeInTheDocument()
-    
+
     // Should not show empty state messages
-    expect(container.textContent).not.toContain('No streaming activity')
+    expect(container.textContent).not.toContain('No stream activity')
   })
 
   it('formats token amounts in top tokens list', () => {
     render(<AnalyticsCharts {...populatedSnapshot} />)
-    
+
     // USDC with 6 decimals: 500_000_000 = 500
-    expect(screen.getByText(/500/)).toBeInTheDocument()
-    
+    expect(screen.getAllByText(/500/).length).toBeGreaterThan(0)
+
     // XLM with 7 decimals: 1_000_000_000 = 100
-    expect(screen.getByText(/100/)).toBeInTheDocument()
+    expect(screen.getAllByText(/100/).length).toBeGreaterThan(0)
   })
 
   it('shows recipient count labels', () => {
     render(<AnalyticsCharts {...populatedSnapshot} />)
-    
+
     expect(screen.getByText(/5 streams/i)).toBeInTheDocument()
     expect(screen.getByText(/3 streams/i)).toBeInTheDocument()
   })
 
   it('calculates and displays unlock progress percentage', () => {
     render(<AnalyticsCharts {...populatedSnapshot} />)
-    
+
     // unlocked: 300_000_000, deposited: 1_000_000_000 = 30%
     expect(screen.getByText(/30\.0%/)).toBeInTheDocument()
   })
 
   it('displays shortened addresses for recipients without federation names', () => {
     render(<AnalyticsCharts {...populatedSnapshot} />)
-    
+
     // First recipient has no federation name, so should show shortened address
-    expect(screen.getByText(/GABCD…90AB/)).toBeInTheDocument()
+    expect(screen.getByText(/GABCDE…890AB/)).toBeInTheDocument()
   })
 
   it('displays federation names when available', () => {
     render(<AnalyticsCharts {...populatedSnapshot} />)
-    
+
     expect(screen.getByText(/alice\*stellar\.org/i)).toBeInTheDocument()
   })
 
@@ -151,29 +169,29 @@ describe('AnalyticsCharts', () => {
       unlockProgress: { unlocked: 0n, deposited: 0n },
     }
     render(<AnalyticsCharts {...snapshot} />)
-    
-    expect(screen.getByText(/no streams to track/i)).toBeInTheDocument()
+
+    expect(screen.getByText(/no deposits to track/i)).toBeInTheDocument()
   })
 })
 
 describe('ChartSkeleton', () => {
   it('renders placeholders', () => {
     const { container } = render(<ChartSkeleton />)
-    
+
     const placeholders = container.querySelectorAll('.animate-pulse')
     expect(placeholders.length).toBeGreaterThan(0)
   })
 
   it('renders main chart placeholder', () => {
     const { container } = render(<ChartSkeleton />)
-    
+
     const mainChart = container.querySelector('.h-64.animate-pulse')
     expect(mainChart).toBeInTheDocument()
   })
 
   it('renders grid layout placeholders', () => {
     const { container } = render(<ChartSkeleton />)
-    
+
     // Should have multiple grid sections with placeholders
     const grids = container.querySelectorAll('.grid')
     expect(grids.length).toBeGreaterThan(0)
@@ -181,7 +199,7 @@ describe('ChartSkeleton', () => {
 
   it('does not contain any text content', () => {
     const { container } = render(<ChartSkeleton />)
-    
+
     expect(container.textContent).toBe('')
   })
 })

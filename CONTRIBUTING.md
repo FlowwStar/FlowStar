@@ -15,7 +15,7 @@ By participating in this project, you agree to follow the [Code of Conduct](./CO
 | ---------------- | ----------------- | ---------------------------------------------------------------- |
 | Node.js          | 18+               | [nodejs.org](https://nodejs.org)                                 |
 | npm              | bundled with Node | or pnpm / bun                                                    |
-| Rust             | stable            | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs       | sh` |
+| Rust             | 1.84.0 (pinned)   | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs       | sh` |
 | Soroban CLI      | latest            | `cargo install stellar-cli --locked`                             |
 | Freighter wallet | latest            | [freighter.app](https://www.freighter.app/) — set to **Testnet** |
 
@@ -150,6 +150,14 @@ Security findings follow [SECURITY.md](./SECURITY.md) instead of this process. R
 npm test               # run once
 npm run test:watch     # watch mode
 ```
+
+Coverage is enforced in the CI build job using `npm run test:coverage`.
+The minimum thresholds are defined in `vitest.config.ts` for statements,
+branches, functions, and lines. When changing them, record a fresh coverage
+report and set thresholds a few points below the measured values; do not lower
+them simply to make a failing PR pass. Also run `npm run lint`,
+`npm run typecheck`, and `npm test` before requesting review. Coverage
+numbers alone do not mean the test suite passed.
 
 All unit tests must live under `__tests__/` at the repo root and follow the
 naming convention `**/*.{test,spec}.{ts,tsx}`. Vitest only collects files from
@@ -290,6 +298,12 @@ Router) work inside stories without extra mocking.
 
 All contract source lives in `contracts/streaming/src/`.
 
+The Rust toolchain is pinned in `contracts/rust-toolchain.toml` (1.84.0 with
+`clippy`, `rustfmt` and the `wasm32v1-none` target). `rustup` picks it up
+automatically when you run `cargo` from `contracts/` or
+`contracts/streaming/`; CI uses the same version. Update that file and the
+workflows together when upgrading.
+
 ### Build
 
 ```bash
@@ -328,6 +342,99 @@ stellar contract deploy \
 
 Copy the returned contract ID into your `.env.local` as
 `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET`.
+
+---
+
+## Full-stack local setup
+
+This section explains how to build and deploy a local or testnet contract and wire the frontend to it. Follow these steps when you want to test contract changes end-to-end rather than using mock mode.
+
+### Prerequisites
+
+You need everything from the [Prerequisites](#prerequisites) table plus a Freighter wallet set to **Testnet**.
+
+### 1. Create and fund a deployer identity
+
+```bash
+./scripts/fund-testnet.sh deployer
+```
+
+`fund-testnet.sh` creates the `deployer` key if it does not exist and calls Friendbot to give it testnet XLM. You can pass a different identity name as the first argument.
+
+```bash
+./scripts/fund-testnet.sh my-deployer   # custom identity name
+```
+
+You only need to do this once per identity.
+
+### 2. Build the contract
+
+```bash
+cd contracts/streaming
+stellar contract build
+cd ../..
+```
+
+The compiled WASM is written to `contracts/target/wasm32v1-none/release/flowstar_streaming.wasm`.
+
+### 3. Deploy the contract
+
+```bash
+./scripts/deploy.sh --network testnet --source deployer --update-env
+```
+
+`--update-env` writes the new contract ID to `.env.local` automatically:
+
+```
+NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET=C...
+```
+
+If you prefer to set the variable yourself, omit `--update-env` and copy the contract ID printed at the end of the deploy output.
+
+You can also target mainnet:
+
+```bash
+./scripts/deploy.sh --network mainnet --source prod-deployer --update-env
+```
+
+### 4. Start the frontend
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). The app reads `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` (or `_MAINNET`, depending on `NEXT_PUBLIC_STELLAR_NETWORK`) and connects to the contract you just deployed. The mock mode banner will not appear when the env var is set.
+
+### 5. Verify the connection
+
+Connect your Freighter wallet (set to Testnet) and create a test stream. If the transaction succeeds and the stream appears on the dashboard, the full stack is working.
+
+### Pointing the frontend at an existing contract
+
+If you want to use the already-deployed testnet contract (without deploying your own), skip steps 1–3 and set the env var manually:
+
+```bash
+# .env.local
+NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET=CBNDCZTRFNTDAPQLPK2ESOKO4XFMSC4PX37QE75BBYFOYIEWIPMHAKFV
+```
+
+Restart the dev server after any `.env.local` change.
+
+### Switching between networks
+
+| Network | Env var to set | Freighter setting |
+|---|---|---|
+| Testnet | `NEXT_PUBLIC_STREAM_CONTRACT_ID_TESTNET` | Testnet |
+| Mainnet | `NEXT_PUBLIC_STREAM_CONTRACT_ID_MAINNET` | Mainnet |
+
+Set `NEXT_PUBLIC_STELLAR_NETWORK=mainnet` to make the app read the mainnet variable.
+
+### Troubleshooting
+
+- **"contract is paused"** — the deployed contract was paused. Call `unpause` with the admin identity.
+- **"account not found"** — the deployer key is not funded. Run `./scripts/fund-testnet.sh deployer` again.
+- **Mock mode banner still showing** — the env var is missing or the dev server was not restarted after editing `.env.local`.
+- **Build fails** — ensure `stellar-cli` is up to date: `cargo install stellar-cli --locked --force`.
 
 ---
 

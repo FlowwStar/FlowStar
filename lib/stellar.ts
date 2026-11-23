@@ -1,5 +1,5 @@
 import { rpc, StrKey } from '@stellar/stellar-sdk'
-import { captureError } from './sentry'
+import { captureError } from '@/lib/sentry'
 
 /**
  * The two networks FlowStar supports.
@@ -57,8 +57,7 @@ const ED25519_SHAPE_RE = /^G[A-Z2-7]{55}$/
  *   Stellar G-address (wrong prefix, wrong length, or invalid characters).
  */
 export type StellarAddressValidation =
-  | { valid: true }
-  | { valid: false; reason: 'checksum' | 'format' }
+  { valid: true } | { valid: false; reason: 'checksum' | 'format' }
 
 /**
  * Validates `address` as a Stellar Ed25519 public key and, when invalid,
@@ -191,7 +190,7 @@ interface VerifiedTokenEntry {
 
 let verifiedTokensCache: VerifiedTokenEntry[] | null = null
 
-async function loadVerifiedTokens(): Promise<VerifiedTokenEntry[]> {
+export async function loadVerifiedTokens(): Promise<VerifiedTokenEntry[]> {
   if (verifiedTokensCache) return verifiedTokensCache
 
   try {
@@ -212,7 +211,10 @@ async function loadVerifiedTokens(): Promise<VerifiedTokenEntry[]> {
  * tokens — use {@link getAllTokens} for a network-aware full list.
  */
 export function isVerifiedToken(address: string): boolean {
-  return KNOWN_TOKENS.some((t) => t.address === address)
+  return (
+    KNOWN_TOKENS.some((t) => t.address === address) ||
+    (verifiedTokensCache ?? []).some((t) => t.address === address)
+  )
 }
 
 // ─── Custom Tokens ────────────────────────────────────────────────────────────
@@ -317,7 +319,16 @@ export function getAllTokens(
   network: NetworkName,
 ): { address: string; symbol: string; decimals: number }[] {
   const config = getNetworkConfig(network)
-  return [...config.knownTokens, ...getCustomTokens(network)]
+  const seen = new Set<string>()
+  return [
+    ...config.knownTokens,
+    ...(verifiedTokensCache ?? []),
+    ...getCustomTokens(network),
+  ].filter((token) => {
+    if (seen.has(token.address)) return false
+    seen.add(token.address)
+    return true
+  })
 }
 
 /**

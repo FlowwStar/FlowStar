@@ -2,18 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import {
-  AlertTriangle,
-  ArrowLeft,
-  ArrowRight,
-  Info,
-  Loader2,
-  Copy,
-  Clock,
-  CheckCircle2,
-  Pencil,
-  X,
-} from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowRight, Info, Loader2, Copy, Clock } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { StrKey } from '@stellar/stellar-sdk'
@@ -21,34 +10,21 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { useContract } from '@/hooks/use-contract'
-import { useWallet } from '@/hooks/use-wallet'
-import { getAllTokens, saveCustomToken, checkAccountInfo, validateStellarAddress } from '@/lib/stellar'
-import { getTokenMetadata, getTokenBalance } from '@/lib/contract'
-import { parseTokenAmount, formatTokenAmount } from '@/lib/stream-utils'
-import { StreamPreview } from '@/components/streams/stream-preview'
-import { CreateConfirmation } from '@/components/streams/create-confirmation'
-import { TxPreviewDialog } from '@/components/ui/tx-preview-dialog'
-import {
-  addAddressBookEntry,
-  deleteAddressBookEntry,
-  getAddressBookEntries,
-  touchAddressBookEntry,
-  updateAddressBookEntry,
-} from '@/lib/address-book'
-import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useContract } from '@/hooks/use-contract'
+import { useWallet } from '@/hooks/use-wallet'
+import { getAllTokens, checkAccountInfo, validateStellarAddress } from '@/lib/stellar'
+import { getTokenBalance } from '@/lib/contract'
+import { parseTokenAmount, formatTokenAmount } from '@/lib/stream-utils'
+import { StreamPreview } from '@/components/streams/stream-preview'
+import { CreateConfirmation } from '@/components/streams/create-confirmation'
+import { TxPreviewDialog } from '@/components/ui/tx-preview-dialog'
+import { getAddressBookEntries, touchAddressBookEntry } from '@/lib/address-book'
 import { isFederationAddress, resolveFederationAddress } from '@/lib/federation'
 import { buildNextRunAt, saveRecurringRule, type RecurrenceCadence } from '@/lib/recurring'
 import { useFormDraft, clearExpiredDrafts } from '@/hooks/use-form-draft'
@@ -57,84 +33,22 @@ import { useTokenPrice } from '@/hooks/use-token-price'
 import type { TokenInfo } from '@/types/stream'
 import { useNetwork } from '@/components/providers/network-provider'
 import { createFormCopy as copy } from '@/lib/copy/create-form'
-
-const CUSTOM_VALUE = '__custom__'
-
-function toUnixSeconds(localDatetimeValue: string): bigint {
-  return BigInt(Math.floor(new Date(localDatetimeValue).getTime() / 1000))
-}
-
-function localDatetimeMin(offsetSeconds = 0): string {
-  const d = new Date(Date.now() + offsetSeconds * 1000)
-  // Format as YYYY-MM-DDTHH:mm in local time (not UTC)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function addDuration(baseDatetime: string, seconds: number): string {
-  const base = new Date(baseDatetime)
-  const d = new Date(base.getTime() + seconds * 1000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function detectTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone
-  } catch {
-    return 'UTC'
-  }
-}
-
-function getTimezoneOffset(): string {
-  const offset = -new Date().getTimezoneOffset()
-  const sign = offset >= 0 ? '+' : '-'
-  const h = Math.floor(Math.abs(offset) / 60)
-  const m = Math.abs(offset) % 60
-  return `UTC${sign}${h}${m > 0 ? `:${String(m).padStart(2, '0')}` : ''}`
-}
-
-const COMMON_TIMEZONES = [
-  'UTC',
-  'America/New_York',
-  'America/Chicago',
-  'America/Denver',
-  'America/Los_Angeles',
-  'America/Sao_Paulo',
-  'Europe/London',
-  'Europe/Paris',
-  'Europe/Berlin',
-  'Asia/Dubai',
-  'Asia/Kolkata',
-  'Asia/Singapore',
-  'Asia/Tokyo',
-  'Australia/Sydney',
-] as const
-
-const DURATION_PRESETS = [
-  { label: copy.scheduleSection.durationPresetLabels[0], seconds: 7 * 24 * 3600 },
-  { label: copy.scheduleSection.durationPresetLabels[1], seconds: 30 * 24 * 3600 },
-  { label: copy.scheduleSection.durationPresetLabels[2], seconds: 90 * 24 * 3600 },
-  { label: copy.scheduleSection.durationPresetLabels[3], seconds: 180 * 24 * 3600 },
-  { label: copy.scheduleSection.durationPresetLabels[4], seconds: 365 * 24 * 3600 },
-] as const
-
-const CLIFF_PRESETS = [
-  { label: copy.scheduleSection.cliffPresetLabels[0], seconds: 0 },
-  { label: copy.scheduleSection.cliffPresetLabels[1], seconds: 30 * 24 * 3600 },
-  { label: copy.scheduleSection.cliffPresetLabels[2], seconds: 90 * 24 * 3600 },
-] as const
-
-interface FormState {
-  recipient: string
-  tokenAddress: string
-  amount: string
-  startDate: string
-  endDate: string
-  hasCliff: boolean
-  cliffDate: string
-  cliffAmount: string
-}
+import {
+  AmountTokenSection,
+  CUSTOM_VALUE,
+  type CustomTokenState,
+} from './_components/amount-token-section'
+import { RecipientSection } from './_components/recipient-section'
+import { ScheduleCliffSection } from './_components/schedule-cliff-section'
+import { RecurrenceSection } from './_components/recurrence-section'
+import {
+  addDuration,
+  detectTimezone,
+  getTimezoneOffset,
+  localDatetimeMin,
+  toUnixSeconds,
+  type FormState,
+} from './_components/form-utils'
 
 export function CreateForm() {
   const router = useRouter()
@@ -151,11 +65,14 @@ export function CreateForm() {
   const [tokens, setTokens] = useState<TokenInfo[]>(() =>
     getAllTokens(network).map((t) => ({ ...t })),
   )
-  const [isCustom, setIsCustom] = useState(false)
-  const [customAddress, setCustomAddress] = useState('')
-  const [customLoading, setCustomLoading] = useState(false)
-  const [customError, setCustomError] = useState<string | null>(null)
-  const [customToken, setCustomToken] = useState<TokenInfo | null>(null)
+  const [customTokenState, setCustomTokenState] = useState<CustomTokenState>({
+    isCustom: false,
+    customAddress: '',
+    customLoading: false,
+    customError: null,
+    customToken: null,
+  })
+  const { isCustom, customToken } = customTokenState
   const [addressBookEntries, setAddressBookEntries] = useState(() => getAddressBookEntries())
   // Issue #687: rename dialog state for the "Recent recipients" list.
   const [renamingEntry, setRenamingEntry] = useState<{
@@ -217,14 +134,26 @@ export function CreateForm() {
     accountId: string
   } | null>(null)
 
+  const setRecipient = useCallback((value: string) => {
+    setForm((prev) => ({ ...prev, recipient: value }))
+    setErrors((prev) => ({ ...prev, recipient: undefined }))
+  }, [])
+  // Issue #1164: `set` is a stable-per-render helper, but the effect below
+  // needs to call it without listing it as a dependency (which would
+  // re-run the effect on every render). Keep a ref to the latest `set`.
+  const setFieldRef = useRef(set)
+  setFieldRef.current = set
+
   useEffect(() => {
     const raw = recipientInput.trim()
+    const setField = setFieldRef.current
 
     if (!raw) {
       setFederationStatus('idle')
       setFederationError(null)
       setFederationResolved(null)
-      set('recipient', '')
+      setRecipient('')
+      setField('recipient', '')
       return
     }
 
@@ -232,7 +161,8 @@ export function CreateForm() {
       setFederationStatus('idle')
       setFederationError(null)
       setFederationResolved(null)
-      set('recipient', raw)
+      setRecipient(raw)
+      setField('recipient', raw)
       return
     }
 
@@ -248,7 +178,8 @@ export function CreateForm() {
             accountId: result.accountId,
           })
           setFederationStatus('resolved')
-          set('recipient', result.accountId)
+          setRecipient(result.accountId)
+          setField('recipient', result.accountId)
         })
         .catch((err) => {
           if (cancelled) return
@@ -257,7 +188,8 @@ export function CreateForm() {
           setFederationError(
             err instanceof Error ? err.message : copy.errors.federationLookupFailed,
           )
-          set('recipient', '')
+          setRecipient('')
+          setField('recipient', '')
         })
     }, 500)
 
@@ -265,7 +197,7 @@ export function CreateForm() {
       cancelled = true
       clearTimeout(timer)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipientInput, setRecipient])
   }, [recipientInput])
 
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
@@ -286,48 +218,22 @@ export function CreateForm() {
       : (tokens.find((t) => t.address === form.tokenAddress) ?? tokens[0])
 
   // Issue #186: USD conversion
-  const [usdInputMode, setUsdInputMode] = useState(false)
-  const [usdAmount, setUsdAmount] = useState('')
-  const {
-    usdPrice,
-    stale: priceStale,
-    loading: priceLoading,
-  } = useTokenPrice(selectedToken?.symbol ?? '')
-
-  const supportsUsd = usdPrice !== null
-  const tokenAmountNum = parseFloat(form.amount) || 0
-  const usdEquivalent =
-    supportsUsd && tokenAmountNum > 0 ? (tokenAmountNum * usdPrice).toFixed(2) : null
-
-  const amountPerSecondUsd =
-    usdEquivalent &&
-    (() => {
-      const dur = (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000
-      if (dur <= 0) return null
-      const usdPerSec = parseFloat(usdEquivalent) / dur
-      return usdPerSec < 0.01 ? usdPerSec.toExponential(2) : usdPerSec.toFixed(4)
-    })()
-
-  function handleUsdAmountChange(val: string) {
-    setUsdAmount(val)
-    if (usdPrice && val) {
-      const tokenAmt = parseFloat(val) / usdPrice
-      if (!isNaN(tokenAmt)) set('amount', tokenAmt.toFixed(selectedToken?.decimals ?? 7))
-    } else {
-      set('amount', '')
-    }
-  }
+  const { usdPrice, stale: priceStale, loading: priceLoading } = useTokenPrice(
+    selectedToken?.symbol ?? '',
+  )
 
   // Fetch balance when token or wallet changes
+  const selectedTokenAddress = selectedToken?.address
   useEffect(() => {
-    if (!walletAddress || !selectedToken) return
+    if (!walletAddress || !selectedTokenAddress) return
     setTokenBalance(null)
     setBalanceLoading(true)
-    getTokenBalance(selectedToken.address, walletAddress)
+    getTokenBalance(selectedTokenAddress, walletAddress)
       .then(setTokenBalance)
       .catch(() => setTokenBalance(null))
       .finally(() => setBalanceLoading(false))
-  }, [selectedToken?.address, walletAddress])
+  }, [selectedToken, walletAddress])
+  }, [selectedTokenAddress, walletAddress])
 
   // Issue #103: Check recipient account info when address changes
   useEffect(() => {
@@ -369,17 +275,22 @@ export function CreateForm() {
       }),
   )
 
-  // Check for existing draft on first mount
+  // Check for existing draft on first mount.
+  // Issue #1164: `loadDraft` is recreated by `useFormDraft` on every render,
+  // so keep a ref to the latest version and only run this once on mount.
+  const loadDraftRef = useRef(loadDraft)
+  loadDraftRef.current = loadDraft
+
   useEffect(() => {
     if (!isFirstMount.current) return
     isFirstMount.current = false
     clearExpiredDrafts()
-    const entry = loadDraft()
+    const entry = loadDraftRef.current()
     if (entry) {
       setDraftSavedAt(entry.savedAt)
       setShowDraftBanner(true)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadDraft])
   }, [])
 
   async function handleCustomTokenLookup() {
@@ -410,18 +321,6 @@ export function CreateForm() {
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
     setErrors((prev) => ({ ...prev, [key]: undefined }))
-  }
-
-  // Issue #687: remove/rename controls for the "Recent recipients" list.
-  function handleRemoveAddressBookEntry(id: string) {
-    deleteAddressBookEntry(id)
-    setAddressBookEntries(getAddressBookEntries())
-    toast.success(copy.toasts.recipientRemoved)
-  }
-
-  function openRenameDialog(entry: { id: string; label: string }) {
-    setRenamingEntry(entry)
-    setRenameValue(entry.label)
   }
 
   function handleConfirmRename() {
@@ -467,8 +366,11 @@ export function CreateForm() {
     if (!form.amount || isNaN(Number(form.amount)) || Number(form.amount) <= 0) {
       newErrors.amount = copy.errors.invalidAmount
     }
-    // Issue #29: validate against balance
-    if (form.amount && tokenBalance !== null) {
+    // Issue #29: validate against balance. Skipped when `newErrors.amount` is
+    // already set above (empty/NaN/negative) — parseTokenAmount now rejects
+    // that input instead of silently mis-parsing it (pre-existing: it could
+    // already throw a raw SyntaxError here for non-numeric input).
+    if (form.amount && !newErrors.amount && tokenBalance !== null) {
       const parsed = parseTokenAmount(form.amount, selectedToken.decimals)
       if (parsed > tokenBalance) {
         newErrors.amount = copy.errors.amountExceedsBalance(
@@ -490,7 +392,14 @@ export function CreateForm() {
       if (!form.cliffDate || cliff < start || cliff > end) {
         newErrors.cliffDate = copy.errors.cliffOutOfRange
       }
-      if (form.cliffAmount && Number(form.cliffAmount) > Number(form.amount)) {
+      if (
+        form.cliffAmount &&
+        (isNaN(Number(form.cliffAmount)) || Number(form.cliffAmount) < 0)
+      ) {
+        // Guards parseTokenAmount in buildInput() below, which now rejects
+        // negative/non-numeric input instead of silently mis-parsing it.
+        newErrors.cliffAmount = copy.errors.invalidAmount
+      } else if (form.cliffAmount && Number(form.cliffAmount) > Number(form.amount)) {
         newErrors.cliffAmount = copy.errors.cliffExceedsTotal
       }
     }
@@ -518,7 +427,7 @@ export function CreateForm() {
     }
   }, [form, selectedToken])
 
-  async function handleEstimateFee() {
+  const handleEstimateFee = useCallback(async () => {
     if (!validate()) return
     setEstimatingFee(true)
     setFeeEstimate(null)
@@ -532,7 +441,9 @@ export function CreateForm() {
     } finally {
       setEstimatingFee(false)
     }
-  }
+    // `validate` is a plain function recreated each render; it only reads
+    // current state, so it is intentionally not listed here.
+  }, [estimateFee, buildInput])
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -597,10 +508,10 @@ export function CreateForm() {
   }
 
   const input = showTxPreview || showConfirmation ? buildInput() : null
-  const durationSeconds =
-    (new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 1000
-  const amountPerSecond =
-    input && durationSeconds > 0 ? input.totalAmount / BigInt(Math.floor(durationSeconds)) : 0n
+  // Mirrors the contract's linearAmount/duration split (total minus the
+  // cliff lump sum, over the full start→end window) — see formatRate's docs.
+  const linearAmount = input ? input.totalAmount - input.cliffAmount : 0n
+  const duration = input ? input.endTime - input.startTime : 0n
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -1347,7 +1258,8 @@ export function CreateForm() {
           endTime={input.endTime}
           cliffTime={input.cliffTime}
           cliffAmount={input.cliffAmount}
-          amountPerSecond={amountPerSecond}
+          linearAmount={linearAmount}
+          duration={duration}
         />
       )}
 

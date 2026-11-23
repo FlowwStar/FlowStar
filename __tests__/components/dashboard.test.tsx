@@ -121,6 +121,13 @@ vi.mock('@/components/layout/testnet-faucet-banner', () => ({
   TestnetFaucetBanner: () => null,
 }))
 
+// UpcomingRenewalsCard has its own test file (issue #1145); stub it here so
+// this suite stays focused on the dashboard's own composition logic and
+// doesn't need to mock next/navigation / lib/recurring / lib/stellar.
+vi.mock('@/components/streams/upcoming-renewals-card', () => ({
+  UpcomingRenewalsCard: () => <div data-testid="upcoming-renewals-card-stub" />,
+}))
+
 // StreamCardSkeleton is rendered inline in dashboard.tsx (not via VirtualStreamList)
 vi.mock('@/components/streams/stream-card', () => ({
   StreamCardSkeleton: () => <div data-testid="stream-card-skeleton" />,
@@ -459,5 +466,14 @@ describe('"Withdraw all" button visibility', () => {
 
     render(<Dashboard />)
     expect(screen.getByTestId('withdraw-all-btn')).toBeInTheDocument()
+  })
+})
+
+// ─── Upcoming renewals card (issue #1145) ─────────────────────────────────────
+
+describe('upcoming renewals card', () => {
+  it('is rendered as part of the dashboard composition', () => {
+    render(<Dashboard />)
+    expect(screen.getByTestId('upcoming-renewals-card-stub')).toBeInTheDocument()
   })
 })
