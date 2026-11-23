@@ -16,9 +16,9 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       include: ["hooks/**", "lib/**", "components/**", "utils/**"],
       exclude: ["**/*.d.ts", "**/index.ts"],
-      // Last measured 2026-11-18: 63.05% statements, 65.68% branches,
-      // 60.83% functions, 63.40% lines. The suite had baseline failures;
-      // verify these values against a fully passing run before raising again.
+      // Measured 2026-11-23: 67.53% statements, 67.51% branches,
+      // 66.05% functions, 67.90% lines (reportOnFailure). Main's test suite
+      // still fails, so revalidate on a fully passing suite before raising.
       thresholds: {
         statements: 60,
         branches: 62,
