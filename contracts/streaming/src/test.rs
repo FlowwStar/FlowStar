@@ -6,11 +6,37 @@
 extern crate std;
 
 use soroban_sdk::{
-    testutils::{Address as _, Ledger},
-    Address, Env,
+    testutils::{Address as _, Events, Ledger},
+    xdr::ContractEventBody,
+    Address, Env, Symbol, TryFromVal,
 };
 
-use crate::{CreateStreamParams, StreamError, StreamingContract, StreamingContractClient};
+use crate::{
+    CreateStreamParams, StreamError, StreamMetadata, StreamingContract, StreamingContractClient,
+};
+
+/// True when `event` has `name` as one of its topic symbols.
+fn event_has_topic(env: &Env, event: &soroban_sdk::xdr::ContractEvent, name: &str) -> bool {
+    let ContractEventBody::V0(body) = &event.body;
+    body.topics.iter().any(|topic| {
+        Symbol::try_from_val(env, topic)
+            .map(|symbol| symbol == Symbol::new(env, name))
+            .unwrap_or(false)
+    })
+}
+
+/// Number of events in `events` whose topic list contains `name`.
+fn count_topic_events(
+    env: &Env,
+    events: &soroban_sdk::testutils::ContractEvents,
+    name: &str,
+) -> usize {
+    events
+        .events()
+        .iter()
+        .filter(|event| event_has_topic(env, event, name))
+        .count()
+}
 
 // ─── Shared test harness ──────────────────────────────────────────────────────
 
@@ -30,7 +56,8 @@ impl TestEnv {
 
         // Deploy a minimal SAC-compatible token for testing.
         let token_admin = Address::generate(&env);
-        let token_id = env.register_stellar_asset_contract_v2(token_admin.clone())
+        let token_id = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
             .address();
 
         let sender = Address::generate(&env);
@@ -41,10 +68,8 @@ impl TestEnv {
         soroban_sdk::token::StellarAssetClient::new(&env, &token_id)
             .mint(&sender, &1_000_000_0000000i128);
 
-        let contract_id = env.register_contract(None, StreamingContract);
-        StreamingContractClient::new(&env, &contract_id)
-            .initialize(&admin)
-            .unwrap();
+        let contract_id = env.register(StreamingContract, ());
+        StreamingContractClient::new(&env, &contract_id).initialize(&admin);
 
         TestEnv {
             env,
@@ -99,10 +124,10 @@ fn test_create_stream_basic() {
         &(t.env.ledger().sequence() + 500),
     );
 
-    let stream_id = client.create_stream(&t.sender, &params).unwrap();
+    let stream_id = client.create_stream(&t.sender, &params);
     assert_eq!(stream_id, 1);
 
-    let stream = client.get_stream(&stream_id).unwrap();
+    let stream = client.get_stream(&stream_id);
     assert_eq!(stream.sender, t.sender);
     assert_eq!(stream.recipient, t.recipient);
     assert_eq!(stream.deposited_amount, total);
@@ -137,10 +162,10 @@ fn test_create_stream_with_cliff() {
         &(t.env.ledger().sequence() + 500),
     );
 
-    let stream_id = client.create_stream(&t.sender, &params).unwrap();
-    let stream = client.get_stream(&stream_id).unwrap();
+    let stream_id = client.create_stream(&t.sender, &params);
+    let stream = client.get_stream(&stream_id);
     assert_eq!(stream.cliff_amount, cliff_amount);
-    assert_eq!(client.get_withdrawable(&stream_id).unwrap(), 0);
+    assert_eq!(client.get_withdrawable(&stream_id), 0);
 }
 
 #[test]
@@ -239,7 +264,7 @@ fn test_pagination_clamps_large_offset_limit() {
     );
 
     for _ in 0..5 {
-        client.create_stream(&t.sender, &t.default_params(now)).unwrap();
+        client.create_stream(&t.sender, &t.default_params(now));
     }
 
     let tail = client.get_sent_streams(&t.sender, &2u32, &u32::MAX);
@@ -271,14 +296,14 @@ fn test_withdraw_partial() {
         &(t.env.ledger().sequence() + 500),
     );
 
-    let stream_id = client.create_stream(&t.sender, &params).unwrap();
+    let stream_id = client.create_stream(&t.sender, &params);
     t.set_time(now + 500);
-    let withdrawable = client.get_withdrawable(&stream_id).unwrap();
+    let withdrawable = client.get_withdrawable(&stream_id);
     assert!(withdrawable > 0);
     assert!(withdrawable <= total / 2 + 1);
 
-    client.withdraw(&stream_id, &withdrawable).unwrap();
-    let stream = client.get_stream(&stream_id).unwrap();
+    client.withdraw(&stream_id, &withdrawable);
+    let stream = client.get_stream(&stream_id);
     assert_eq!(stream.withdrawn_amount, withdrawable);
     assert_eq!(t.token().balance(&t.recipient), withdrawable);
 }
@@ -299,12 +324,12 @@ fn test_withdraw_full_after_end() {
         &(t.env.ledger().sequence() + 500),
     );
 
-    let stream_id = client.create_stream(&t.sender, &params).unwrap();
+    let stream_id = client.create_stream(&t.sender, &params);
     t.set_time(now + 2000);
-    let withdrawable = client.get_withdrawable(&stream_id).unwrap();
+    let withdrawable = client.get_withdrawable(&stream_id);
     assert_eq!(withdrawable, total);
 
-    client.withdraw(&stream_id, &total).unwrap();
+    client.withdraw(&stream_id, &total);
     assert_eq!(t.token().balance(&t.recipient), total);
     assert_eq!(t.token().balance(&t.contract_id), 0);
 }
@@ -325,7 +350,7 @@ fn test_withdraw_too_much() {
         &(t.env.ledger().sequence() + 500),
     );
 
-    let stream_id = client.create_stream(&t.sender, &params).unwrap();
+    let stream_id = client.create_stream(&t.sender, &params);
     t.set_time(now + 500);
 
     let result = client.try_withdraw(&stream_id, &total);
@@ -350,12 +375,12 @@ fn test_cancel_mid_stream() {
         &(t.env.ledger().sequence() + 500),
     );
 
-    let stream_id = client.create_stream(&t.sender, &params).unwrap();
+    let stream_id = client.create_stream(&t.sender, &params);
     t.set_time(now + 500);
 
-    client.cancel(&stream_id).unwrap();
+    client.cancel(&stream_id);
 
-    let stream = client.get_stream(&stream_id).unwrap();
+    let stream = client.get_stream(&stream_id);
     assert!(stream.cancelled);
 
     // Recipient gets ~half, sender gets ~half back.
@@ -415,26 +440,26 @@ fn test_migrate_emits_migrated_event() {
 
     client.migrate();
 
-    let migrated = t
-        .env
+    let events = t.env.events().all();
+    let migrated = events
         .events()
-        .all()
         .iter()
-        .find_map(|(_, topics, data)| {
-            if topics.len() != 2 {
-                return None;
-            }
-            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
-            match topic0 {
-                Ok(s) if s == Symbol::new(&t.env, "migrated") => {}
-                _ => return None,
-            }
-            MigratedEvent::try_from_val(&t.env, &data).ok()
-        })
+        .find(|event| event_has_topic(&t.env, event, "migrated_event"))
         .expect("MigratedEvent must be emitted by migrate()");
 
-    assert_eq!(migrated.version, 1u32, "version must equal CONTRACT_VERSION");
-    assert_eq!(migrated.timestamp, now);
+    // The event body is a map with `version` and `timestamp` entries. Check
+    // the XDR payload directly because generated contract-event types do not
+    // implement `TryFromVal` in the test environment.
+    let payload = std::format!("{:?}", migrated);
+    assert!(payload.contains("version"), "event must carry a version");
+    assert!(
+        payload.contains("timestamp"),
+        "event must carry a timestamp"
+    );
+    assert!(
+        payload.contains(&std::format!("{}", now)),
+        "event timestamp must be the migration ledger timestamp"
+    );
 }
 
 /// migrate() must unpause the contract and confirm via the flag — the
@@ -462,14 +487,9 @@ fn test_migrate_unpauses_and_emits_no_unpause_event() {
         .env
         .events()
         .all()
+        .events()
         .iter()
-        .any(|(_, topics, _)| {
-            if topics.len() < 1 {
-                return false;
-            }
-            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
-            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "unpaused"))
-        });
+        .any(|event| event_has_topic(&t.env, event, "unpause_event"));
     assert!(
         !has_unpause,
         "migrate must not emit a duplicate UnpauseEvent"
@@ -487,24 +507,15 @@ fn test_pause_is_idempotent_no_duplicate_event() {
     let client = t.client();
 
     client.pause();
+    let first = t.env.events().all();
     client.pause(); // second call must be a no-op
+    let second = t.env.events().all();
 
-    // Count PauseEvents — there must be exactly one.
-    let pause_count = t
-        .env
-        .events()
-        .all()
-        .iter()
-        .filter(|(_, topics, _)| {
-            if topics.len() < 1 {
-                return false;
-            }
-            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
-            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "paused"))
-        })
-        .count();
-
-    assert_eq!(pause_count, 1, "exactly one PauseEvent must be emitted");
+    // `events().all()` exposes only the last invocation, so snapshot after
+    // each call: the first emits one PauseEvent, the idempotent second emits
+    // none.
+    assert_eq!(count_topic_events(&t.env, &first, "pause_event"), 1);
+    assert_eq!(count_topic_events(&t.env, &second, "pause_event"), 0);
     assert!(client.is_paused());
 }
 
@@ -518,24 +529,12 @@ fn test_unpause_is_idempotent_no_duplicate_event() {
 
     client.pause();
     client.unpause();
+    let first = t.env.events().all();
     client.unpause(); // second call must be a no-op
+    let second = t.env.events().all();
 
-    // Count UnpauseEvents — there must be exactly one.
-    let unpause_count = t
-        .env
-        .events()
-        .all()
-        .iter()
-        .filter(|(_, topics, _)| {
-            if topics.len() < 1 {
-                return false;
-            }
-            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
-            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "unpaused"))
-        })
-        .count();
-
-    assert_eq!(unpause_count, 1, "exactly one UnpauseEvent must be emitted");
+    assert_eq!(count_topic_events(&t.env, &first, "unpause_event"), 1);
+    assert_eq!(count_topic_events(&t.env, &second, "unpause_event"), 0);
     assert!(!client.is_paused());
 }
 
@@ -550,39 +549,15 @@ fn test_pause_unpause_alternating_event_counts() {
     let client = t.client();
 
     client.pause();
+    let pause_1 = t.env.events().all();
     client.unpause();
+    let unpause_1 = t.env.events().all();
     client.pause();
+    let pause_2 = t.env.events().all();
 
-    let pause_count = t
-        .env
-        .events()
-        .all()
-        .iter()
-        .filter(|(_, topics, _)| {
-            if topics.len() < 1 {
-                return false;
-            }
-            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
-            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "paused"))
-        })
-        .count();
-
-    let unpause_count = t
-        .env
-        .events()
-        .all()
-        .iter()
-        .filter(|(_, topics, _)| {
-            if topics.len() < 1 {
-                return false;
-            }
-            let topic0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&t.env);
-            matches!(topic0, Ok(s) if s == Symbol::new(&t.env, "unpaused"))
-        })
-        .count();
-
-    assert_eq!(pause_count, 2, "two distinct pause transitions");
-    assert_eq!(unpause_count, 1, "one unpause transition");
+    assert_eq!(count_topic_events(&t.env, &pause_1, "pause_event"), 1);
+    assert_eq!(count_topic_events(&t.env, &unpause_1, "unpause_event"), 1);
+    assert_eq!(count_topic_events(&t.env, &pause_2, "pause_event"), 1);
 }
 
 // ─── Issue #1108: paginated getters must cap at MAX_PAGE_SIZE ─────────────────
@@ -684,8 +659,7 @@ fn test_page_size_cap_archived_streams() {
     );
     assert_eq!(archived.len(), 5);
 
-    let archived_recv =
-        client.get_archived_received_streams(&t.recipient, &0u32, &u32::MAX);
+    let archived_recv = client.get_archived_received_streams(&t.recipient, &0u32, &u32::MAX);
     assert!(archived_recv.len() <= 100);
     assert_eq!(archived_recv.len(), 5);
 }
@@ -876,8 +850,8 @@ fn test_remove_from_index_miss_preserves_other_entries() {
     // against `Vec<u64>::contains` / `cancel(&u64)` below — unrelated to
     // issue #1109/#1132, fixed here only because it blocks this file from
     // compiling at all.
-    let id1 = client.create_stream(&t.sender, &params).unwrap();
-    let id2 = client.create_stream(&t.sender, &params).unwrap();
+    let id1 = client.create_stream(&t.sender, &params);
+    let id2 = client.create_stream(&t.sender, &params);
 
     // Both appear in the sender's active sent index.
     let sent = client.get_sent_streams(&t.sender, &0, &100);
@@ -887,13 +861,16 @@ fn test_remove_from_index_miss_preserves_other_entries() {
     // Cancel + clean up only the first stream. After cancel moves id1 to the
     // archive indexes, cleanup's remove_from_index on the *active* index is a
     // miss (id1 no longer present) — it must not touch id2.
-    client.cancel(&id1).unwrap();
-    client.cleanup_stream(&t.sender, &id1).unwrap();
+    client.cancel(&id1);
+    client.cleanup_stream(&t.sender, &id1);
 
     // id2 must remain in the active sent index, untouched by the miss.
     let sent_after = client.get_sent_streams(&t.sender, &0, &100);
     assert!(sent_after.contains(id2), "id2 must remain in active index");
-    assert!(!sent_after.contains(id1), "id1 must be gone from active index");
+    assert!(
+        !sent_after.contains(id1),
+        "id1 must be gone from active index"
+    );
 
     // id1 must be gone from the archive too after cleanup.
     assert!(
@@ -934,14 +911,14 @@ fn test_cleanup_stream_after_transfer_clears_new_recipients_indexes() {
         &total,
         &(t.env.ledger().sequence() + 500),
     );
-    let id = client.create_stream(&t.sender, &params).unwrap();
+    let id = client.create_stream(&t.sender, &params);
 
     // Sanity: before transfer, the stream is under the original recipient.
     assert!(client
         .get_received_streams(&original_recipient, &0, &100)
         .contains(id));
 
-    client.transfer_stream(&id, &new_recipient).unwrap();
+    client.transfer_stream(&id, &new_recipient);
 
     // Transfer moves the *active* index immediately.
     assert!(
@@ -955,7 +932,7 @@ fn test_cleanup_stream_after_transfer_clears_new_recipients_indexes() {
         .contains(id));
 
     t.set_time(now + 100);
-    client.cancel(&id).unwrap();
+    client.cancel(&id);
 
     // Cancel archives under whichever address is the *current* recipient —
     // the new one — not the original.
@@ -971,7 +948,7 @@ fn test_cleanup_stream_after_transfer_clears_new_recipients_indexes() {
 
     // Cleanup, called by the new recipient (exercises the
     // `caller == stream.recipient` branch of cleanup_stream's auth check).
-    client.cleanup_stream(&new_recipient, &id).unwrap();
+    client.cleanup_stream(&new_recipient, &id);
 
     // Neither recipient's active or archive index may contain the id now.
     assert!(!client

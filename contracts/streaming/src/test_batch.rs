@@ -39,10 +39,8 @@ impl BatchEnv {
         let recipient = Address::generate(&env);
         let admin = Address::generate(&env);
 
-        let contract_id = env.register_contract(None, StreamingContract);
-        StreamingContractClient::new(&env, &contract_id)
-            .initialize(&admin)
-            .unwrap();
+        let contract_id = env.register(StreamingContract, ());
+        StreamingContractClient::new(&env, &contract_id).initialize(&admin);
 
         BatchEnv {
             env,
@@ -99,7 +97,7 @@ fn test_batch_creates_multiple_streams() {
         b.stream_params(now),
     ];
 
-    let ids = b.client().create_streams_batch(&b.sender, &streams).unwrap();
+    let ids = b.client().create_streams_batch(&b.sender, &streams);
     assert_eq!(ids.len(), 3);
     assert_eq!(b.token().balance(&b.contract_id), per * 3);
 }
@@ -145,6 +143,9 @@ fn test_batch_duration_exceeds_maximum() {
     assert_eq!(err, StreamError::DurationExceedsMaximum);
     assert_eq!(b.token().balance(&b.contract_id), 0);
 }
+
+#[test]
+fn test_batch_one_invalid_rejects_whole_batch() {
     let b = BatchEnv::setup();
     let now = 2_000_000u64;
     b.set_time(now);
@@ -169,7 +170,7 @@ fn test_batch_blocked_when_paused() {
     let b = BatchEnv::setup();
     let now = 2_000_000u64;
     b.set_time(now);
-    b.client().pause().unwrap();
+    b.client().pause();
 
     let per = 100_0000000i128;
     b.token().approve(

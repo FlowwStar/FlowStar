@@ -17,7 +17,6 @@ struct SecEnv {
     token_id: Address,
     sender: Address,
     recipient: Address,
-    admin: Address,
 }
 
 impl SecEnv {
@@ -35,12 +34,9 @@ impl SecEnv {
             .mint(&sender, &1_000_000_0000000i128);
 
         let recipient = Address::generate(&env);
-        let admin = Address::generate(&env);
 
-        let contract_id = env.register_contract(None, StreamingContract);
-        StreamingContractClient::new(&env, &contract_id)
-            .initialize(&admin)
-            .unwrap();
+        let contract_id = env.register(StreamingContract, ());
+        StreamingContractClient::new(&env, &contract_id).initialize(&Address::generate(&env));
 
         SecEnv {
             env,
@@ -48,7 +44,6 @@ impl SecEnv {
             token_id,
             sender,
             recipient,
-            admin,
         }
     }
 
@@ -72,20 +67,18 @@ impl SecEnv {
             &total,
             &(self.env.ledger().sequence() + 500),
         );
-        self.client()
-            .create_stream(
-                &self.sender,
-                &CreateStreamParams {
-                    recipient: self.recipient.clone(),
-                    token: self.token_id.clone(),
-                    total_amount: total,
-                    start_time: now,
-                    end_time: now + 1000,
-                    cliff_time: now,
-                    cliff_amount: 0,
-                },
-            )
-            .unwrap()
+        self.client().create_stream(
+            &self.sender,
+            &CreateStreamParams {
+                recipient: self.recipient.clone(),
+                token: self.token_id.clone(),
+                total_amount: total,
+                start_time: now,
+                end_time: now + 1000,
+                cliff_time: now,
+                cliff_amount: 0,
+            },
+        )
     }
 }
 
@@ -96,7 +89,7 @@ fn test_create_stream_blocked_when_paused() {
     let s = SecEnv::setup();
     let now = 1_000_000u64;
     s.set_time(now);
-    s.client().pause().unwrap();
+    s.client().pause();
 
     let total = 100_0000000i128;
     s.token().approve(
@@ -132,7 +125,7 @@ fn test_withdraw_blocked_when_paused() {
     s.set_time(now);
     let id = s.create_default_stream(now);
     s.set_time(now + 500);
-    s.client().pause().unwrap();
+    s.client().pause();
 
     let err = s
         .client()
@@ -148,7 +141,7 @@ fn test_cancel_blocked_when_paused() {
     let now = 1_000_000u64;
     s.set_time(now);
     let id = s.create_default_stream(now);
-    s.client().pause().unwrap();
+    s.client().pause();
 
     let err = s.client().try_cancel(&id).unwrap_err().unwrap();
     assert_eq!(err, StreamError::ContractPaused);
@@ -215,7 +208,7 @@ fn test_double_cancel_rejected() {
     let now = 1_000_000u64;
     s.set_time(now);
     let id = s.create_default_stream(now);
-    s.client().cancel(&id).unwrap();
+    s.client().cancel(&id);
 
     let err = s.client().try_cancel(&id).unwrap_err().unwrap();
     assert_eq!(err, StreamError::StreamCancelled);
@@ -303,23 +296,23 @@ fn test_create_stream_duration_at_maximum_succeeds() {
         &(s.env.ledger().sequence() + 500),
     );
 
-    let id = s
-        .client()
-        .create_stream(
-            &s.sender,
-            &CreateStreamParams {
-                recipient: s.recipient.clone(),
-                token: s.token_id.clone(),
-                total_amount: total,
-                start_time: now,
-                end_time: now + 315_360_000,
-                cliff_time: now,
-                cliff_amount: 0,
-            },
-        )
-        .unwrap();
+    let id = s.client().create_stream(
+        &s.sender,
+        &CreateStreamParams {
+            recipient: s.recipient.clone(),
+            token: s.token_id.clone(),
+            total_amount: total,
+            start_time: now,
+            end_time: now + 315_360_000,
+            cliff_time: now,
+            cliff_amount: 0,
+        },
+    );
     assert!(id > 0);
 }
+
+#[test]
+fn test_upgrade_wrong_admin_rejected() {
     let s = SecEnv::setup();
     let not_admin = Address::generate(&s.env);
     let hash = soroban_sdk::BytesN::from_array(&s.env, &[0u8; 32]);
@@ -335,6 +328,6 @@ fn test_create_stream_duration_at_maximum_succeeds() {
 #[test]
 fn test_migrate_is_idempotent() {
     let s = SecEnv::setup();
-    s.client().migrate().unwrap();
-    s.client().migrate().unwrap();
+    s.client().migrate();
+    s.client().migrate();
 }

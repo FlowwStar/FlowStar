@@ -36,10 +36,8 @@ impl IntEnv {
         let recipient = Address::generate(&env);
         let admin = Address::generate(&env);
 
-        let contract_id = env.register_contract(None, StreamingContract);
-        StreamingContractClient::new(&env, &contract_id)
-            .initialize(&admin)
-            .unwrap();
+        let contract_id = env.register(StreamingContract, ());
+        StreamingContractClient::new(&env, &contract_id).initialize(&admin);
 
         IntEnv {
             env,
@@ -88,19 +86,19 @@ fn test_full_stream_lifecycle() {
         cliff_amount: 0,
     };
 
-    let id = t.client().create_stream(&t.sender, &params).unwrap();
+    let id = t.client().create_stream(&t.sender, &params);
 
     // Halfway through — withdraw half.
     t.set_time(now + 500);
-    let mid = t.client().get_withdrawable(&id).unwrap();
+    let mid = t.client().get_withdrawable(&id);
     assert!(mid > 0);
-    t.client().withdraw(&id, &mid).unwrap();
+    t.client().withdraw(&id, &mid);
 
     // After end — withdraw remainder.
     t.set_time(now + 1001);
-    let rest = t.client().get_withdrawable(&id).unwrap();
+    let rest = t.client().get_withdrawable(&id);
     assert!(rest > 0);
-    t.client().withdraw(&id, &rest).unwrap();
+    t.client().withdraw(&id, &rest);
 
     assert_eq!(t.token().balance(&t.contract_id), 0);
     assert_eq!(t.token().balance(&t.recipient), total);
@@ -133,14 +131,14 @@ fn test_top_up_then_drain() {
         cliff_amount: 0,
     };
 
-    let id = t.client().create_stream(&t.sender, &params).unwrap();
+    let id = t.client().create_stream(&t.sender, &params);
 
     t.set_time(now + 100);
-    t.client().top_up(&id, &extra).unwrap();
+    t.client().top_up(&id, &extra);
 
     t.set_time(now + 1001);
-    let all = t.client().get_withdrawable(&id).unwrap();
-    t.client().withdraw(&id, &all).unwrap();
+    let all = t.client().get_withdrawable(&id);
+    t.client().withdraw(&id, &all);
 
     assert_eq!(t.token().balance(&t.contract_id), 0);
 }
