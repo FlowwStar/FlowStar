@@ -264,7 +264,7 @@ pub enum StreamError {
     /// [`MAX_METADATA_MEMO_LEN`]).
     MetadataTooLong = 22,
     /// There is no pending admin proposal to accept.
-    NoPendingAdmin = 22,
+    NoPendingAdmin = 23,
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
@@ -442,6 +442,9 @@ pub struct AdminTransferredEvent {
     pub old_admin: Address,
     /// The address that accepted and is now the new admin.
     pub new_admin: Address,
+    pub timestamp: u64,
+}
+
 /// Emitted when the contract admin calls `migrate` after an upgrade.
 ///
 /// Off-chain consumers should use this event to detect that the contract has
@@ -661,12 +664,8 @@ impl StreamingContract {
             .ok_or(StreamError::NotInitialized)?;
 
         // Promote pending → admin and clear the proposal slot.
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &pending);
-        env.storage()
-            .instance()
-            .remove(&DataKey::PendingAdmin);
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
         env.storage()
             .instance()
             .extend_ttl(INSTANCE_TTL_LEDGERS, INSTANCE_TTL_LEDGERS);
@@ -1938,13 +1937,13 @@ impl StreamingContract {
 
         // Use `existing_id` to avoid shadowing the outer `id` parameter.
         if let Some(i) = indexes.iter().position(|existing_id| existing_id == id) {
-        let position = indexes.iter().position(|existing_id| existing_id == id);
-        if let Some(i) = position {
             indexes.remove(i as u32);
             env.storage().persistent().set(&key, &indexes);
-            env.storage()
-                .persistent()
-                .extend_ttl(&key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+            env.storage().persistent().extend_ttl(
+                &key,
+                PERSISTENT_TTL_LEDGERS,
+                PERSISTENT_TTL_LEDGERS,
+            );
         }
         // id not present: the list is unchanged, so skip the write entirely.
     }
@@ -2000,7 +1999,6 @@ impl StreamingContract {
 mod bench;
 mod test;
 mod test_batch;
-#[cfg(test)]
 mod test_features;
 mod test_integration;
 mod test_security;

@@ -62,10 +62,8 @@ impl BenchEnv {
 
         StellarAssetClient::new(&env, &token_id).mint(&sender, &1_000_000_000_0000000);
 
-        let contract_id = env.register_contract(None, StreamingContract);
-        StreamingContractClient::new(&env, &contract_id)
-            .initialize(&admin)
-            .unwrap();
+        let contract_id = env.register(StreamingContract, ());
+        StreamingContractClient::new(&env, &contract_id).initialize(&admin);
 
         BenchEnv {
             env,
@@ -112,7 +110,7 @@ impl BenchEnv {
     fn create_default(&self, now: u64) -> u64 {
         let params = self.default_params(now);
         self.approve(params.total_amount);
-        self.client().create_stream(&self.sender, &params).unwrap()
+        self.client().create_stream(&self.sender, &params)
     }
 }
 
@@ -137,7 +135,7 @@ fn bench_create_stream() {
 
     measure(&b.env, "create_stream (no cliff)", || {
         let p = params.clone();
-        b.client().create_stream(&b.sender, &p).unwrap();
+        b.client().create_stream(&b.sender, &p);
     });
 
     let params_cliff = CreateStreamParams {
@@ -153,7 +151,7 @@ fn bench_create_stream() {
 
     measure(&b.env, "create_stream (with cliff)", || {
         let p = params_cliff.clone();
-        b.client().create_stream(&b.sender, &p).unwrap();
+        b.client().create_stream(&b.sender, &p);
     });
 }
 
@@ -166,17 +164,17 @@ fn bench_withdraw() {
     // Withdraw at 25% progress
     let sid = b.create_default(now);
     b.set_time(now + 250);
-    let amt = b.client().get_withdrawable(&sid).unwrap();
+    let amt = b.client().get_withdrawable(&sid);
     measure(&b.env, "withdraw (25% progress)", || {
-        b.client().withdraw(&sid, &amt).unwrap();
+        b.client().withdraw(&sid, &amt);
     });
 
     // Withdraw at 100% (full)
     let sid2 = b.create_default(b.env.ledger().timestamp());
     b.set_time(now + 2000);
-    let full = b.client().get_withdrawable(&sid2).unwrap();
+    let full = b.client().get_withdrawable(&sid2);
     measure(&b.env, "withdraw (100% — full stream)", || {
-        b.client().withdraw(&sid2, &full).unwrap();
+        b.client().withdraw(&sid2, &full);
     });
 }
 
@@ -189,19 +187,19 @@ fn bench_cancel() {
     let sid_early = b.create_default(now);
     b.set_time(now + 100); // 10% in
     measure(&b.env, "cancel (10% progress)", || {
-        b.client().cancel(&sid_early).unwrap();
+        b.client().cancel(&sid_early);
     });
 
     let sid_mid = b.create_default(b.env.ledger().timestamp());
     b.set_time(now + 500); // 50% in
     measure(&b.env, "cancel (50% progress)", || {
-        b.client().cancel(&sid_mid).unwrap();
+        b.client().cancel(&sid_mid);
     });
 
     let sid_late = b.create_default(b.env.ledger().timestamp());
     b.set_time(now + 990); // 99% in
     measure(&b.env, "cancel (99% progress)", || {
-        b.client().cancel(&sid_late).unwrap();
+        b.client().cancel(&sid_late);
     });
 }
 
@@ -228,28 +226,33 @@ fn bench_partial_cancel() {
         cliff_amount: 0,
     };
     b.approve(pre_cliff_params.total_amount);
-    let sid_pre_cliff = b
-        .client()
-        .create_stream(&b.sender, &pre_cliff_params)
-        .unwrap();
+    let sid_pre_cliff = b.client().create_stream(&b.sender, &pre_cliff_params);
     b.set_time(now + 100); // before cliff_time (now + 500)
-    measure(&b.env, "partial_cancel (10% progress, pre-cliff path)", || {
-        b.client().partial_cancel(&sid_pre_cliff, &200_0000000).unwrap();
-    });
+    measure(
+        &b.env,
+        "partial_cancel (10% progress, pre-cliff path)",
+        || {
+            b.client().partial_cancel(&sid_pre_cliff, &200_0000000);
+        },
+    );
 
     // Partial cancel after unlock has started (rate recompute via the
     // unlocked/cliff-rewrite branch) — 50% progress.
     let sid_mid = b.create_default(b.env.ledger().timestamp());
     b.set_time(now + 500);
-    measure(&b.env, "partial_cancel (50% progress, post-cliff path)", || {
-        b.client().partial_cancel(&sid_mid, &100_0000000).unwrap();
-    });
+    measure(
+        &b.env,
+        "partial_cancel (50% progress, post-cliff path)",
+        || {
+            b.client().partial_cancel(&sid_mid, &100_0000000);
+        },
+    );
 
     // Partial cancel near the end of the stream — 99% progress, small refund.
     let sid_late = b.create_default(b.env.ledger().timestamp());
     b.set_time(now + 990);
     measure(&b.env, "partial_cancel (99% progress)", || {
-        b.client().partial_cancel(&sid_late, &5_000000).unwrap();
+        b.client().partial_cancel(&sid_late, &5_000000);
     });
 }
 
@@ -263,7 +266,7 @@ fn bench_transfer_stream() {
     let new_recipient = Address::generate(&b.env);
 
     measure(&b.env, "transfer_stream (index remove + add)", || {
-        b.client().transfer_stream(&sid, &new_recipient).unwrap();
+        b.client().transfer_stream(&sid, &new_recipient);
     });
 }
 
@@ -279,13 +282,13 @@ fn bench_top_up() {
     // Top up at start
     b.approve(additional * 10);
     measure(&b.env, "top_up (at stream start)", || {
-        b.client().top_up(&sid, &additional).unwrap();
+        b.client().top_up(&sid, &additional);
     });
 
     // Top up mid-stream (rate recalculation)
     b.set_time(now + 500);
     measure(&b.env, "top_up (mid-stream, rate recalculation)", || {
-        b.client().top_up(&sid, &additional).unwrap();
+        b.client().top_up(&sid, &additional);
     });
 }
 
@@ -321,7 +324,7 @@ fn bench_create_streams_batch_max() {
         "create_streams_batch (max size, 20 streams)",
         || {
             let s = streams.clone();
-            b.client().create_streams_batch(&b.sender, &s).unwrap();
+            b.client().create_streams_batch(&b.sender, &s);
         },
     );
 }
@@ -407,7 +410,7 @@ fn bench_get_withdrawable() {
     b.set_time(now + 500);
 
     measure(&b.env, "get_withdrawable (mid-stream)", || {
-        b.client().get_withdrawable(&sid).unwrap();
+        b.client().get_withdrawable(&sid);
     });
 }
 
@@ -420,6 +423,6 @@ fn bench_get_stream() {
     let sid = b.create_default(now);
 
     measure(&b.env, "get_stream (read by id)", || {
-        b.client().get_stream(&sid).unwrap();
+        b.client().get_stream(&sid);
     });
 }
